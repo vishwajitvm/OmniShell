@@ -121,7 +121,12 @@
                 }
 
                 // Script Output
-                document.getElementById('powershell-output').innerText = data.shell_script || "// Blocked by Security Agent";
+                if (data.requires_browser && data.target_url) {
+                    document.getElementById('powershell-output').innerText = "// Web Execution intent intercepted
+Launch Browser: " + data.target_url;
+                } else {
+                    document.getElementById('powershell-output').innerText = data.shell_script || "// Blocked by Security Agent";
+                }
                 document.getElementById('results-section').classList.remove('hidden');
 
                 // Trigger Native Host Execution Agent with STRICT Human-in-the-Loop
