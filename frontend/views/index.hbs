@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} v2.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        window.mermaid = mermaid;
+        mermaid.initialize({ startOnLoad: false, theme: 'base' });
+    </script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans p-4 sm:p-8">
+    
+    <!-- Header -->
+    <div class="max-w-5xl mx-auto pt-12 pb-8 text-center">
+        <div class="inline-block p-3 rounded-full bg-indigo-500/10 mb-4 border border-indigo-500/20">
+            <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+        </div>
+        <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
+            Multi-Agent OS Syndicate
+        </h1>
+        <p class="text-slate-400 text-lg max-w-2xl mx-auto mb-2">
+            Context-aware execution. The agents detect your OS, discuss security, search for dependencies, and write robust execution scripts.
+        </p>
+    </div>
+
+    <!-- Input -->
+    <div class="max-w-3xl mx-auto mb-12">
+        <div class="relative group">
+            <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-2xl blur opacity-25"></div>
+            <div class="relative flex flex-col sm:flex-row gap-3 bg-slate-900 p-3 rounded-2xl ring-1 ring-slate-800">
+                <input id="prompt-input" type="text" class="flex-1 bg-slate-800/50 text-white px-6 py-4 rounded-xl border border-slate-700 focus:outline-none focus:border-indigo-500" placeholder="e.g., Open visual studio, or empty recycle bin..." />
+                <button id="generate-btn" class="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl flex items-center justify-center min-w-[160px]">
+                    <span id="btn-text">Execute</span>
+                    <svg id="btn-spinner" class="hidden animate-spin h-5 w-5 text-white ml-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </button>
+            </div>
+        </div>
+        <div id="error-banner" class="hidden mt-4 p-4 bg-red-900/50 text-red-200 rounded-xl text-center"></div>
+    </div>
+
+    <!-- Results -->
+    <div id="results-section" class="hidden max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 pb-20">
+        
+        <!-- Multi-Agent Discussion -->
+        <div class="bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
+            <h2 class="text-xl font-semibold text-slate-200 mb-6 flex items-center gap-2">
+                <span class="text-2xl">🤖</span> Internal Agent Discussion
+            </h2>
+            <div id="discussion-container" class="space-y-4 mb-6"></div>
+            
+            <div id="guardrail-status" class="p-4 rounded-xl border font-semibold flex items-center gap-2"></div>
+            
+            <div class="mt-4 bg-slate-900 rounded-2xl p-4 border border-slate-800 relative group">
+                <div class="absolute top-2 right-2 text-xs text-slate-500 font-mono">execution_script.sh</div>
+                <pre id="powershell-output" class="text-sm text-emerald-400 font-mono whitespace-pre-wrap mt-4"></pre>
+            </div>
+        </div>
+
+        <!-- Mermaid Diagram -->
+        <div class="bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
+            <h2 class="text-xl font-semibold text-slate-200 mb-6 flex items-center gap-2">
+                <span class="text-2xl">📊</span> Workflow Architecture
+            </h2>
+            <div class="flex-1 bg-white rounded-2xl p-6 border border-slate-700 flex items-center justify-center min-h-[300px]">
+                <div id="mermaid-container" class="w-full flex justify-center text-black"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        document.getElementById('generate-btn').addEventListener('click', async () => {
+            const prompt = document.getElementById('prompt-input').value;
+            if (!prompt.trim()) return;
+            
+            // Clear old terminal outputs from previous executions
+            document.querySelectorAll('.terminal-output-box').forEach(el => el.remove());
+
+            document.getElementById('btn-text').innerText = 'Agents Thinking...';
+            document.getElementById('btn-spinner').classList.remove('hidden');
+            document.getElementById('error-banner').classList.add('hidden');
+            document.getElementById('results-section').classList.add('hidden');
+
+            try {
+                // Get OS context dynamically
+                const osContext = navigator.userAgent;
+
+                const res = await fetch('http://localhost:8000/api/generate-workflow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        natural_language_prompt: prompt,
+                        user_agent_os: osContext
+                    })
+                });
+                
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'API Error');
+
+                // Render Discussion
+                const discussionHtml = data.multi_agent_discussion.map(agent => `
+                    <div class="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                        <span class="text-indigo-400 font-bold text-sm uppercase">${agent.agent_name}</span>
+                        <p class="text-slate-300 text-sm mt-1">${agent.thought}</p>
+                    </div>
+                `).join('');
+                document.getElementById('discussion-container').innerHTML = discussionHtml;
+
+                // Security Status
+                const statusDiv = document.getElementById('guardrail-status');
+                if (data.is_safe) {
+                    statusDiv.className = 'p-4 rounded-xl border bg-emerald-900/30 border-emerald-500/50 text-emerald-300';
+                    statusDiv.innerHTML = `✅ Target OS Detected: ${data.target_os} (Safe)`;
+                } else {
+                    statusDiv.className = 'p-4 rounded-xl border bg-red-900/30 border-red-500/50 text-red-300';
+                    statusDiv.innerHTML = `🛑 BLOCKED: Malicious Intent Detected`;
+                }
+
+                // Script Output
+                document.getElementById('powershell-output').innerText = data.shell_script || "// Blocked by Security Agent";
+                document.getElementById('results-section').classList.remove('hidden');
+
+                // Trigger Native Host Execution Agent with STRICT Human-in-the-Loop
+                if (data.is_safe) {
+                    const statusSpan = document.createElement('span');
+                    statusSpan.className = "animate-pulse ml-4 text-yellow-300";
+                    statusSpan.innerText = "⚡ Awaiting Human Confirmation...";
+                    statusDiv.appendChild(statusSpan);
+                    
+                    try {
+                        if (data.requires_browser && data.target_url) {
+                            // URL routing - fetch browsers from host
+                            const bRes = await fetch('http://localhost:8003/browsers');
+                            const bData = await bRes.json();
+                            const browsers = bData.browsers || ["Default Browser"];
+                            
+                            // Pop SweetAlert2 Selection ALWAYS
+                            const inputOptions = {};
+                            browsers.forEach(b => inputOptions[b] = b);
+                            
+                            const { value: selectedBrowser, isConfirmed } = await Swal.fire({
+                                title: 'Human Confirmation Required',
+                                text: `Do you approve opening this URL: ${data.target_url}? Please select a browser to proceed.`,
+                                input: 'select',
+                                inputOptions: inputOptions,
+                                inputPlaceholder: 'Select your preferred browser...',
+                                showCancelButton: true,
+                                confirmButtonText: 'Yes, Execute!',
+                                cancelButtonText: 'No, Cancel',
+                                background: '#1e293b',
+                                color: '#fff',
+                                confirmButtonColor: '#10b981',
+                                cancelButtonColor: '#ef4444',
+                            });
+                            
+                            if (isConfirmed && selectedBrowser) {
+                                statusSpan.innerText = `🚀 Launching ${selectedBrowser}...`;
+                                
+                                const osIsLinux = data.target_os.toLowerCase().includes('linux') || data.target_os.toLowerCase().includes('ubuntu');
+                                let script = "";
+                                
+                                if (osIsLinux) {
+                                    let cmd = "xdg-open";
+                                    if (selectedBrowser.toLowerCase().includes('chrome')) cmd = "google-chrome";
+                                    if (selectedBrowser.toLowerCase().includes('brave')) cmd = "brave-browser";
+                                    if (selectedBrowser.toLowerCase().includes('firefox')) cmd = "firefox";
+                                    script = `${cmd} "${data.target_url}" &`;
+                                } else {
+                                    script = `Start-Process "${selectedBrowser}" -ArgumentList "${data.target_url}"`;
+                                    if (selectedBrowser.toLowerCase().includes('chrome')) script = `Start-Process "chrome" -ArgumentList "${data.target_url}"`;
+                                    if (selectedBrowser.toLowerCase().includes('brave')) script = `Start-Process "brave" -ArgumentList "${data.target_url}"`;
+                                    if (selectedBrowser.toLowerCase().includes('firefox')) script = `Start-Process "firefox" -ArgumentList "${data.target_url}"`;
+                                }
+                                
+                                const execRes = await fetch('http://localhost:8003/execute', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ script: script })
+                                });
+                                const execData = await execRes.json();
+                                
+                                statusSpan.className = "ml-4 text-emerald-400 font-bold"; if (data.expected_process) { const validationBadge = document.createElement('span'); if (execData.validated) { validationBadge.className = "ml-4 px-2 py-1 bg-green-900/50 text-green-400 text-xs rounded border border-green-700 font-bold"; validationBadge.innerText = "✅ Validation Success (100%): " + data.expected_process + " is running"; } else { validationBadge.className = "ml-4 px-2 py-1 bg-red-900/50 text-red-400 text-xs rounded border border-red-700 font-bold"; validationBadge.innerText = "❌ Validation Failed: " + data.expected_process + " did not open"; } statusSpan.after(validationBadge); }
+                                statusSpan.innerText = `🚀 Executed via ${selectedBrowser}!`;
+                                
+                                // Inject Terminal Output Box for Browser Execution
+                                if (execData.output) {
+                                    const outputDiv = document.createElement('div');
+                                    outputDiv.className = "terminal-output-box mt-4 p-4 bg-black text-green-400 font-mono text-sm rounded border border-green-900 overflow-auto whitespace-pre-wrap w-full max-h-64 shadow-inner";
+                                    outputDiv.innerText = `> ${script}\n\n${execData.output.trim()}`;
+                                    statusDiv.parentElement.appendChild(outputDiv);
+                                }
+                            } else {
+                                statusSpan.className = "ml-4 text-red-400 font-bold";
+                                statusSpan.innerText = "🛑 Execution Cancelled by Human";
+                            }
+                        } else if (data.shell_script) {
+                            // Standard execution (e.g., vscode) - require Yes/No
+                            const { isConfirmed } = await Swal.fire({
+                                title: 'Human Confirmation Required',
+                                html: `Do you approve the execution of this system script?<br><br><pre class="text-left text-xs bg-slate-900 p-2 rounded text-emerald-400">${data.shell_script.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`,
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonText: 'Yes, Execute!',
+                                cancelButtonText: 'No, Cancel',
+                                background: '#1e293b',
+                                color: '#fff',
+                                confirmButtonColor: '#10b981',
+                                cancelButtonColor: '#ef4444',
+                            });
+
+                            if (isConfirmed) {
+                                statusSpan.innerText = "🚀 Dispatching to Host...";
+                                const execRes = await fetch('http://localhost:8003/execute', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ script: data.shell_script, expected_process: data.expected_process })
+                                });
+                                const execData = await execRes.json();
+                                
+                                statusSpan.className = "ml-4 text-emerald-400 font-bold"; if (data.expected_process) { const validationBadge = document.createElement('span'); if (execData.validated) { validationBadge.className = "ml-4 px-2 py-1 bg-green-900/50 text-green-400 text-xs rounded border border-green-700 font-bold"; validationBadge.innerText = "✅ Validation Success (100%): " + data.expected_process + " is running"; } else { validationBadge.className = "ml-4 px-2 py-1 bg-red-900/50 text-red-400 text-xs rounded border border-red-700 font-bold"; validationBadge.innerText = "❌ Validation Failed: " + data.expected_process + " did not open"; } statusSpan.after(validationBadge); }
+                                statusSpan.innerText = "🚀 Executed on Host Machine!";
+                                
+                                // Inject Terminal Output Box
+                                if (execData.output) {
+                                    const outputDiv = document.createElement('div');
+                                    outputDiv.className = "terminal-output-box mt-4 p-4 bg-black text-green-400 font-mono text-sm rounded border border-green-900 overflow-auto whitespace-pre-wrap w-full max-h-64 shadow-inner";
+                                    outputDiv.innerText = `> ${data.shell_script}\n\n${execData.output.trim()}`;
+                                    
+                                    // Append it right below the status bar
+                                    statusDiv.parentElement.appendChild(outputDiv);
+                                }
+                            } else {
+                                statusSpan.className = "ml-4 text-red-400 font-bold";
+                                statusSpan.innerText = "🛑 Execution Cancelled by Human";
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Host Executor offline", e);
+                        statusSpan.className = "ml-4 text-red-400 text-xs";
+                        statusSpan.innerText = "(Host Executor Offline - Check Console)";
+                    }
+                }
+
+                // Render Mermaid (Dynamically fixing the missing "graph TD;" issue)
+                if (data.mermaid_diagram_body) {
+                    const container = document.getElementById('mermaid-container');
+                    try {
+                        const fullMermaidString = `graph TD;\n${data.mermaid_diagram_body.replace(/graph TD;?/g, '')}`; // Ensure no duplicate headers
+                        const { svg } = await window.mermaid.render('mermaid-chart', fullMermaidString);
+                        container.innerHTML = svg;
+                    } catch(err) {
+                        console.error('Mermaid render failed', err);
+                        container.innerHTML = `<div class="text-red-500 text-sm">Mermaid Syntax Error</div>`;
+                    }
+                }
+
+            } catch (err) {
+                const banner = document.getElementById('error-banner');
+                banner.innerText = err.message || 'Network error';
+                banner.classList.remove('hidden');
+            } finally {
+                document.getElementById('btn-text').innerText = 'Execute';
+                document.getElementById('btn-spinner').classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
