@@ -1,0 +1,39 @@
+graph TD;
+    %% Core Users & Interfaces
+    User((User)) -->|Natural Language| UI[Frontend UI - NestJS]
+    UI -->|HTTP POST| Backend[Backend API - FastAPI]
+
+    %% Infrastructure & Tracing
+    Backend -.->|Logs Agent Thoughts| TraceNest[(TraceNest Logger)]
+    Backend -.->|Caches State| Redis[(Redis Cache)]
+    Backend -.->|Saves History| Postgres[(PostgreSQL DB)]
+
+    %% Agent Swarm (The Syndicate)
+    subgraph Agent Swarm
+        Backend --> IntentPlan[1. Intent & Planning Agent]
+        IntentPlan --> ContentGen[2. Content Generation Agent]
+        ContentGen --> SecGuard[3. Security Guard]
+        SecGuard --> ExecPlanner[4. Execution Planner]
+    end
+
+    %% Security Logic
+    SecGuard -->|Malicious / Destructive| Block((BLOCKED))
+    SecGuard -.->|Downgrades 'Send' to 'Draft'| ExecPlanner
+
+    %% Execution Routing
+    ExecPlanner -->|Decision: Web/URL?| WebTask[requires_browser=True]
+    ExecPlanner -->|Decision: Local OS?| LocalTask[shell_script=Generated Code]
+
+    WebTask --> DockerBridge{Docker-to-Host Bridge}
+    LocalTask --> DockerBridge
+
+    %% Host Execution
+    subgraph Native Host Machine
+        DockerBridge -->|Port 8003| LocalExecutor[local_executor.py]
+        LocalExecutor -->|Web Task| OpenBrowser[Pop Open Browser Native]
+        LocalExecutor -->|Local Task| OpenTerminal[CREATE_NEW_CONSOLE popup]
+        OpenTerminal --> Validation[psutil Validation: Did it launch?]
+        OpenBrowser --> Validation
+    end
+
+    Validation -->|Validation Output| UI

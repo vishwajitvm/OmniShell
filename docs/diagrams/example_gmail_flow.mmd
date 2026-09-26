@@ -1,0 +1,40 @@
+graph TD;
+    %% The Specific Gmail Example
+    Prompt[/"Prompt: open gmail on brave browser and draft an email to wolverinevm001@gmail.com and write message that i cannot be able to join meeting today"/] --> IntentAgent[Intent & Planning Agent]
+
+    subgraph Agentic Breakdown
+        IntentAgent -->|Breaks into steps| Step1[Step 1: Open Browser]
+        IntentAgent --> Step2[Step 2: Draft Email to wolverinevm001@gmail.com]
+        IntentAgent --> Step3[Step 3: Apology message for missing meeting]
+        
+        Step3 --> ContentAgent[Content Generation Agent]
+        ContentAgent -->|Generates Professional Text| BodyText["Dear team, I apologize but I will not be able to join today's meeting. Regards."]
+        ContentAgent -->|URL Encodes Data| EncodedBody["Dear%20team%2C%20I%20apologize..."]
+        
+        EncodedBody --> SecGuard[Security Guard Agent]
+        Step2 --> SecGuard
+    end
+
+    subgraph Security Check
+        SecGuard -->|Checks for 'Send' command| CheckSend{Did user say Send?}
+        CheckSend -->|No, just draft| Safe[Status: SAFE]
+        CheckSend -->|Yes| BlockSend[Guardrail: Downgrade to Draft]
+        Safe --> ExecPlanner[Execution Planner Agent]
+    end
+
+    subgraph Final Assembly
+        ExecPlanner -->|Builds Deep Link URL| FinalURL["https://mail.google.com/mail/?view=cm&fs=1&to=wolverinevm001@gmail.com&su=Meeting&body=Dear%20team..."]
+        FinalURL --> OutputJSON["JSON: { requires_browser: true, target_url: '...' }"]
+    end
+
+    subgraph Execution
+        OutputJSON --> Middleware[Agentic Middleware]
+        Middleware -->|Detects requires_browser| UIRouter[Frontend UI Router]
+        UIRouter -->|Asks for Human Approval| SweetAlert{SweetAlert Popup}
+        
+        SweetAlert -->|Denied| Cancel((Action Cancelled))
+        SweetAlert -->|Approved: Selects Brave| HostAPI[POST http://localhost:8003/execute]
+        HostAPI --> LocalPy[local_executor.py on Host]
+        LocalPy --> BraveLaunch[Start-Process 'brave' -ArgumentList 'https://mail.google.com/...']
+        BraveLaunch --> UI[User sees pre-drafted email in Brave!]
+    end
