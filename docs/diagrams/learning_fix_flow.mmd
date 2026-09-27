@@ -1,0 +1,15 @@
+xgraph TD;
+    Prompt[User Prompt] --> IntentPlan[Intent & Planning Agent];
+    IntentPlan --> ContentGen[Content Generation Agent];
+    IntentPlan --> SecGuard[Security Guard];
+    SecGuard --> ExecPlanner[Execution Planner];
+    ExecPlanner --> Decision{Detect Mistake?};
+    Decision -->|Yes| LogMistake[Log Mistake & Update Cache];
+    LogMistake --> UpdateCache[Update Learning Cache];
+    UpdateCache --> Notify[Notify User of Fix];
+    Notify --> End[Future Runs Use Updated Knowledge];
+    Decision -->|No| ShellNode[Shell Script];
+    ShellNode --> HostEngine[Host Execution];
+    HostEngine --> Validator[Process Validation];
+    Validator --> UI[Frontend UI];
+    UI --> End;

@@ -154,10 +154,11 @@ async def generate_workflow(request: AutomationRequest):
                 structured_data["shell_script"] = ""
             else:
                 web_keywords = {
-                    "spotify": "https://open.spotify.com", 
-                    "netflix": "https://www.netflix.com", 
-                    "github": "https://github.com", 
-                    "youtube": "https://www.youtube.com"
+                    "spotify": "https://open.spotify.com",
+                    "netflix": "https://www.netflix.com",
+                    "github": "https://github.com",
+                    "youtube": "https://www.youtube.com",
+                    "camera": "microsoft.windows.camera:"
                 }
                 
                 forced_url = None
@@ -167,9 +168,14 @@ async def generate_workflow(request: AutomationRequest):
                         break
                         
                 if forced_url or "browser" in prompt_lower or "http" in prompt_lower or "website" in prompt_lower:
-                    structured_data["requires_browser"] = True
-                    if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
-                        structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
+                    if forced_url == "microsoft.windows.camera:":
+                        # Launch camera via protocol without browser
+                        structured_data["requires_browser"] = False
+                        structured_data["shell_script"] = f"Start-Process '{forced_url}'"
+                    else:
+                        structured_data["requires_browser"] = True
+                        if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
+                            structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
             # --------------------------------------
             
             structured_data['model_used'] = model_name
