@@ -1,5 +1,6 @@
 import os
 import json
+import datetime
 import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -264,6 +265,8 @@ async def generate_workflow(request: AutomationRequest):
     You are a Multi-Agent OS Automation Syndicate. 
     You are receiving a request from a user on the following OS environment: '{request.user_agent_os}'.
     
+    CURRENT SYSTEM TIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    
     You must simulate a highly advanced discussion between SIX distinct agents:
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
     2. System Reconnaissance Agent: Thinks about how to dynamically discover the correct application or path on the user's specific OS to prevent hallucinating hardcoded paths.
@@ -274,6 +277,11 @@ async def generate_workflow(request: AutomationRequest):
        CRITICAL RULES FOR JSON OUTPUT:
        - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...".
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
+       - REMINDERS & SCHEDULING: If the user asks to "remind me to...", "schedule", or do something at a specific future time (e.g., "tomorrow at 4pm"), YOU MUST target Google Calendar.
+         * You know the current time, so CALCULATE the exact future date/time. Format it as YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (e.g., 20261001T160000Z/20261001T170000Z).
+         * Construct the URL: "https://calendar.google.com/calendar/render?action=TEMPLATE&text=[ENCODED_TITLE]&dates=[DATES]"
+         * The user DEMANDED that you automatically save the event. To do this on Linux/Windows, DO NOT set requires_browser=true. Instead, set requires_browser=false and write a Python shell script that uses `webbrowser.open("URL")`, sleeps for 5 seconds to let the browser load, and then uses `pyautogui` (install it via `pip install pyautogui --break-system-packages` if needed, or catch import error and install it in the script) to press 'ctrl' + 's' to save the Google Calendar event automatically!
+
        - If the user asks to EMPTY/CLEAR the RECYCLE BIN: Look at target_os! If Windows, use `Clear-RecycleBin -Force`. If Linux, use `rm -rf ~/.local/share/Trash/*`. DO NOT hallucinate Windows commands on Linux.
        - If the user asks to OPEN an app (e.g. "text editor"): DO NOT HARDCODE PATHS. 
          * On Linux, write a Bash script that loops through an array of possibilities (e.g., `for app in gnome-text-editor gedit kwrite mousepad nano; do if command -v $app >/dev/null; then $app & exit 0; fi; done`).
@@ -372,6 +380,7 @@ async def generate_workflow(request: AutomationRequest):
             
             # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
             prompt_lower = request.natural_language_prompt.lower()
+            
             
             # Explicit Deep Link Interceptor for weak models (like Llama 8B)
             if "gmail" in prompt_lower and ("draft" in prompt_lower or "email" in prompt_lower):
