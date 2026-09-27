@@ -105,27 +105,39 @@ if not FALLBACK_MODELS:
 # When the LLM hallucinates wrong scripts, the middleware below overrides them.
 # Future: This will be backed by Redis/PostgreSQL for dynamic learning.
 KNOWN_APP_COMMANDS = {
-    # App aliases -> { "script": correct command, "process": expected process name }
-    "vscode": {"script": "code", "process": "Code.exe"},
-    "vs code": {"script": "code", "process": "Code.exe"},
-    "visual studio code": {"script": "code", "process": "Code.exe"},
-    "notepad": {"script": "notepad", "process": "notepad.exe"},
-    "calculator": {"script": "calc", "process": "Calculator.exe"},
-    "paint": {"script": "mspaint", "process": "mspaint.exe"},
-    "file explorer": {"script": 'Start-Process "explorer"', "process": "explorer.exe"},
-    "task manager": {"script": "taskmgr", "process": "Taskmgr.exe"},
-    "camera": {"script": "Start-Process 'microsoft.windows.camera:'", "process": "WindowsCamera.exe"},
-    "recycle bin": {"script": 'Start-Process "shell:RecycleBinFolder"', "process": "explorer.exe"},
-    "git bash": {"script": 'Start-Process "C:\\Program Files\\Git\\git-bash.exe"', "process": "git-bash.exe"},
-    "terminal": {"script": "wt", "process": "WindowsTerminal.exe"},
-    "powershell": {"script": "powershell", "process": "powershell.exe"},
-    "word": {"script": "winword", "process": "WINWORD.EXE"},
-    "excel": {"script": "excel", "process": "EXCEL.EXE"},
-    "powerpoint": {"script": "powerpnt", "process": "POWERPNT.EXE"},
-    "cmd": {"script": "cmd", "process": "cmd.exe"},
-    "snipping tool": {"script": "snippingtool", "process": "SnippingTool.exe"},
-    "settings": {"script": "start ms-settings:", "process": "SystemSettings.exe"},
-    "spotify": {"script": "Start-Process 'spotify:'", "process": "Spotify.exe"},
+    "Windows": {
+        "vscode": {"script": "code", "process": "Code.exe"},
+        "vs code": {"script": "code", "process": "Code.exe"},
+        "visual studio code": {"script": "code", "process": "Code.exe"},
+        "notepad": {"script": "notepad", "process": "notepad.exe"},
+        "calculator": {"script": "calc", "process": "Calculator.exe"},
+        "paint": {"script": "mspaint", "process": "mspaint.exe"},
+        "file explorer": {"script": 'Start-Process "explorer"', "process": "explorer.exe"},
+        "task manager": {"script": "taskmgr", "process": "Taskmgr.exe"},
+        "camera": {"script": "Start-Process 'microsoft.windows.camera:'", "process": "WindowsCamera.exe"},
+        "recycle bin": {"script": 'Start-Process "shell:RecycleBinFolder"', "process": "explorer.exe"},
+        "git bash": {"script": 'Start-Process "C:\Program Files\Git\git-bash.exe"', "process": "git-bash.exe"},
+        "terminal": {"script": "wt", "process": "WindowsTerminal.exe"},
+        "powershell": {"script": "powershell", "process": "powershell.exe"},
+        "word": {"script": "winword", "process": "WINWORD.EXE"},
+        "excel": {"script": "excel", "process": "EXCEL.EXE"},
+        "powerpoint": {"script": "powerpnt", "process": "POWERPNT.EXE"},
+        "cmd": {"script": "cmd", "process": "cmd.exe"},
+        "snipping tool": {"script": "snippingtool", "process": "SnippingTool.exe"},
+        "settings": {"script": "start ms-settings:", "process": "SystemSettings.exe"},
+        "spotify": {"script": "Start-Process 'spotify:'", "process": "Spotify.exe"}
+    },
+    "Linux": {
+        "vscode": {"script": "code", "process": "code"},
+        "vs code": {"script": "code", "process": "code"},
+        "visual studio code": {"script": "code", "process": "code"},
+        "notepad": {"script": "gedit", "process": "gedit"},
+        "calculator": {"script": "gnome-calculator", "process": "gnome-calculator"},
+        "paint": {"script": "gimp", "process": "gimp"},
+        "file explorer": {"script": "nautilus", "process": "nautilus"},
+        "task manager": {"script": "gnome-system-monitor", "process": "gnome-system-monitor"},
+        "terminal": {"script": "gnome-terminal", "process": "gnome-terminal"}
+    }
 }
 
 # --- REDIS LEARNING STORE ---
@@ -544,19 +556,20 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                     app_keywords = prompt_lower.replace("open ", "").replace("launch ", "").replace("start ", "").strip()
                     
                     # --- TIER 1: Redis Cache ---
-                    redis_result = get_learned_command(app_keywords)
+                    redis_result = get_learned_command(f"{request.user_agent_os}_{app_keywords}")
                     if redis_result:
                         resolved_command = redis_result
                         resolution_source = "Redis Cache (previously learned)"
                     
                     # --- TIER 2: KNOWN_APP_COMMANDS ---
                     if not resolved_command:
-                        for app_alias, app_data in KNOWN_APP_COMMANDS.items():
+                        os_kb = KNOWN_APP_COMMANDS.get(request.user_agent_os, {})
+                        for app_alias, app_data in os_kb.items():
                             if app_alias in prompt_lower:
                                 resolved_command = app_data
-                                resolution_source = f"Knowledge Base (matched '{app_alias}')"
+                                resolution_source = f"Knowledge Base (matched '{app_alias}' for {request.user_agent_os})"
                                 # Also cache in Redis for faster future lookups
-                                store_learned_command(app_alias, app_data["script"], app_data["process"])
+                                store_learned_command(f"{request.user_agent_os}_{app_alias}", app_data["script"], app_data["process"])
                                 break
                     
                     # --- TIER 3: Research Agent (web search) ---
@@ -567,7 +580,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                             resolved_command = research_result
                             resolution_source = "Research Agent (web search + LLM extraction)"
                             # Learn it for next time!
-                            store_learned_command(app_keywords, research_result["script"], research_result.get("process", ""))
+                            store_learned_command(f"{request.user_agent_os}_{app_keywords}", research_result["script"], research_result.get("process", ""))
                             # Add the Research Agent to the discussion log
                             structured_data.setdefault("multi_agent_discussion", []).append({
                                 "agent_name": "Command Research Agent",
