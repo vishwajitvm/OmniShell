@@ -33,7 +33,6 @@ app.add_middleware(
 
 class AutomationRequest(BaseModel):
     natural_language_prompt: str
-    user_agent_os: str
     user_agent_os: str = "Unknown OS"
     local_time: str | None = None
 
@@ -55,50 +54,387 @@ class MultiAgentResult(BaseModel):
     reminder_time: str | None = Field(default=None, description="ISO 8601 future time for the reminder.")
     reminder_message: str | None = Field(default=None, description="The message for the reminder.")
 
-# Fallback Models (Smartest 70B+ models first to ensure strict prompt adherence)
-FALLBACK_MODELS = []
-if os.getenv("OPENROUTER_API_KEY"):
-    FALLBACK_MODELS.extend([
-        "openrouter/meta-llama/llama-3.3-70b-instruct",
-        "openrouter/qwen/qwen-2.5-72b-instruct",
-        "openrouter/meta-llama/llama-3.1-8b-instruct",
-        "openrouter/mistralai/mistral-nemo",
-        "openrouter/deepseek/deepseek-chat"
-    ])
-if os.getenv("GROQ_API_KEY"):
-    FALLBACK_MODELS.extend([
-        "groq/llama3-8b-8192",
-        "groq/llama3-70b-8192",
-        "groq/mixtral-8x7b-32768"
-    ])
-if os.getenv("GEMINI_API_KEY"):
-    FALLBACK_MODELS.extend([
-        "gemini/gemini-1.5-flash",
-        "gemini/gemini-1.5-pro",
-        "gemini/gemini-pro",
-        "gemini/gemini-1.0-pro"
-    ])
+# ============================================================
+# LLM / MODEL REGISTRY
+# ============================================================
+# IMPORTANT:
+# - Only models whose provider credentials are present are activated.
+# - NVIDIA NIM models use the LiteLLM provider prefix `nvidia_nim/`.
+# - Specialized NVIDIA models (embedding/reranker/safety/video/etc.)
+#   are registered separately and are NEVER used as chat fallbacks.
+# - Old/deprecated Gemini 1.x and Gemini 2.0 experimental identifiers
+#   are intentionally removed.
+
+MODEL_REGISTRY = {
+    # -------------------- General chat / agent models --------------------
+    "nvidia_nim/deepseek-v4.1-flash": {
+        "provider": "nvidia",
+        "model_id": "deepseek-v4.1-flash",
+        "role": "chat",
+        "priority": 10,
+        "reasoning": True,
+        "tool_calling": True,
+        "multimodal": True,
+    },
+    "nvidia_nim/glm-5-3": {
+        "provider": "nvidia",
+        "model_id": "glm-5-3",
+        "role": "chat",
+        "priority": 20,
+        "reasoning": True,
+        "tool_calling": True,
+    },
+    "nvidia_nim/glm-5-3-flash": {
+        "provider": "nvidia",
+        "model_id": "glm-5-3-flash",
+        "role": "chat",
+        "priority": 15,
+        "reasoning": True,
+        "tool_calling": True,
+        "multimodal": True,
+    },
+    "nvidia_nim/kimi-k3": {
+        "provider": "nvidia",
+        "model_id": "kimi-k3",
+        "role": "chat",
+        "priority": 12,
+        "reasoning": True,
+        "tool_calling": True,
+        "multimodal": True,
+    },
+    "nvidia_nim/nemotron-3.5-lightning-30b-a3b": {
+        "provider": "nvidia",
+        "model_id": "nemotron-3.5-lightning-30b-a3b",
+        "role": "chat",
+        "priority": 5,
+        "reasoning": True,
+        "tool_calling": True,
+    },
+    "nvidia_nim/muse-glimmer-30b": {
+        "provider": "nvidia",
+        "model_id": "muse-glimmer-30b",
+        "role": "chat",
+        "priority": 25,
+        "reasoning": True,
+        "tool_calling": True,
+        "multimodal": True,
+    },
+    "nvidia_nim/laguna-xs-2.1": {
+        "provider": "nvidia",
+        "model_id": "laguna-xs-2.1",
+        "role": "chat",
+        "priority": 30,
+        "reasoning": True,
+        "tool_calling": True,
+    },
+    "nvidia_nim/gemma-4-31b-it": {
+        "provider": "nvidia",
+        "model_id": "gemma-4-31b-it",
+        "role": "chat",
+        "priority": 35,
+        "reasoning": True,
+        "tool_calling": True,
+    },
+    "nvidia_nim/gpt-oss-20b": {
+        "provider": "nvidia",
+        "model_id": "gpt-oss-20b",
+        "role": "chat",
+        "priority": 8,
+        "reasoning": True,
+        "tool_calling": True,
+    },
+    "nvidia_nim/diffusiongemma-26b-a4b-it": {
+        "provider": "nvidia",
+        "model_id": "diffusiongemma-26b-a4b-it",
+        "role": "chat",
+        "priority": 40,
+        "reasoning": False,
+        "tool_calling": False,
+    },
+    "nvidia_nim/ising-calibration-1-35b-a3b": {
+        "provider": "nvidia",
+        "model_id": "ising-calibration-1-35b-a3b",
+        "role": "vision_specialized",
+        "priority": 90,
+        "reasoning": False,
+        "tool_calling": False,
+    },
+    "nvidia_nim/ising-calibration-1.5-31b": {
+        "provider": "nvidia",
+        "model_id": "ising-calibration-1.5-31b",
+        "role": "vision_specialized",
+        "priority": 91,
+        "reasoning": False,
+        "tool_calling": False,
+    },
+    "nvidia_nim/nemotron-3-nano-omni-30b-a3b-reasoning": {
+        "provider": "nvidia",
+        "model_id": "nemotron-3-nano-omni-30b-a3b-reasoning",
+        "role": "chat",
+        "priority": 18,
+        "reasoning": True,
+        "tool_calling": True,
+        "multimodal": True,
+    },
+    # -------------------- Specialized models --------------------
+    "nvidia_nim/nemotron-3-embed-1b": {
+        "provider": "nvidia",
+        "model_id": "nemotron-3-embed-1b",
+        "role": "embedding",
+        "priority": 1,
+    },
+    "nvidia_nim/nemotron-3.5-content-safety": {
+        "provider": "nvidia",
+        "model_id": "nemotron-3.5-content-safety",
+        "role": "safety",
+        "priority": 1,
+    },
+    "nvidia_nim/cosmos3-nano": {
+        "provider": "nvidia",
+        "model_id": "cosmos3-nano",
+        "role": "vision_video",
+        "priority": 1,
+        "multimodal": True,
+    },
+    "nvidia_nim/llama-nemotron-rerank-vl-1b-v2": {
+        "provider": "nvidia",
+        "model_id": "llama-nemotron-rerank-vl-1b-v2",
+        "role": "reranker",
+        "priority": 1,
+        "multimodal": True,
+    },
+    "nvidia_nim/kumo-relational": {
+        "provider": "nvidia",
+        "model_id": "Kumo Relational",
+        "role": "relational",
+        "priority": 1,
+    },
+}
+
+# Optional Hugging Face route. This is intentionally opt-in because a model
+# name alone does not prove that a public HF Inference deployment exists.
+# Set HF_*_MODEL variables only when you have an actual HF model/endpoint.
+HF_CHAT_MODEL = os.getenv("HF_CHAT_MODEL", "").strip()
+
+
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _provider_key_available(provider: str) -> bool:
+    if provider == "nvidia":
+        return bool(os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))
+    if provider == "openrouter":
+        return bool(os.getenv("OPENROUTER_API_KEY"))
+    if provider == "groq":
+        return bool(os.getenv("GROQ_API_KEY"))
+    if provider == "gemini":
+        return bool(os.getenv("GEMINI_API_KEY"))
+    if provider == "huggingface":
+        return bool(os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN"))
+    return False
+
+
+# NVIDIA credentials: LiteLLM documents NVIDIA_NIM_API_KEY.
+if os.getenv("NVIDIA_API_KEY") and not os.getenv("NVIDIA_NIM_API_KEY"):
+    os.environ["NVIDIA_NIM_API_KEY"] = os.getenv("NVIDIA_API_KEY")
+
+# A stable, current Gemini fallback is kept as an optional provider rather
+# than embedding obsolete Gemini 1.x model identifiers in the source.
+# Override with GEMINI_MODEL if you want another currently-enabled model.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+
+
+# Ordered general-purpose providers. The exact order can be overridden with
+# LLM_FALLBACK_ORDER, e.g. "nvidia,openrouter,groq,gemini,huggingface".
+DEFAULT_PROVIDER_ORDER = ["nvidia", "openrouter", "groq", "gemini", "huggingface"]
+PROVIDER_ORDER = [
+    item.strip().lower()
+    for item in os.getenv("LLM_FALLBACK_ORDER", ",".join(DEFAULT_PROVIDER_ORDER)).split(",")
+    if item.strip()
+]
+
+
+def _build_fallback_models() -> list[str]:
+    models: list[str] = []
+
+    for provider in PROVIDER_ORDER:
+        if provider == "nvidia" and _provider_key_available("nvidia"):
+            # Only general chat-capable NVIDIA models belong here.
+            nvidia_chat = [
+                "nvidia_nim/nemotron-3.5-lightning-30b-a3b",
+                "nvidia_nim/glm-5-3-flash",
+                "nvidia_nim/deepseek-v4.1-flash",
+                "nvidia_nim/kimi-k3",
+                "nvidia_nim/nemotron-3-nano-omni-30b-a3b-reasoning",
+                "nvidia_nim/glm-5-3",
+                "nvidia_nim/gpt-oss-20b",
+                "nvidia_nim/muse-glimmer-30b",
+                "nvidia_nim/laguna-xs-2.1",
+                "nvidia_nim/gemma-4-31b-it",
+                "nvidia_nim/diffusiongemma-26b-a4b-it",
+            ]
+            models.extend(nvidia_chat)
+
+        elif provider == "openrouter" and _provider_key_available("openrouter"):
+            models.extend([
+                "openrouter/deepseek/deepseek-chat",
+                "openrouter/meta-llama/llama-3.3-70b-instruct",
+                "openrouter/qwen/qwen-2.5-72b-instruct",
+                "openrouter/meta-llama/llama-3.1-8b-instruct",
+            ])
+
+        elif provider == "groq" and _provider_key_available("groq"):
+            # Keep current provider routing configurable; stale Groq IDs are
+            # deliberately not hardcoded here.
+            configured = os.getenv("GROQ_MODELS", "").strip()
+            if configured:
+                models.extend([
+                    f"groq/{m.strip()}" if not m.strip().startswith("groq/") else m.strip()
+                    for m in configured.split(",") if m.strip()
+                ])
+
+        elif provider == "gemini" and _provider_key_available("gemini"):
+            models.append(f"gemini/{GEMINI_MODEL}")
+
+        elif provider == "huggingface" and _provider_key_available("huggingface") and HF_CHAT_MODEL:
+            models.append(
+                HF_CHAT_MODEL if HF_CHAT_MODEL.startswith("huggingface/")
+                else f"huggingface/{HF_CHAT_MODEL}"
+            )
+
+    # Remove duplicates without changing priority.
+    return list(dict.fromkeys(models))
+
+
+FALLBACK_MODELS = _build_fallback_models()
+
+SPECIALIZED_MODELS = {
+    key: meta for key, meta in MODEL_REGISTRY.items()
+    if meta.get("role") not in {"chat"}
+}
 
 if not FALLBACK_MODELS:
-    # If no keys are found, inject a massive array of 16+ free models in hopes one is cached or allowed
-    FALLBACK_MODELS = [
-        "openrouter/google/gemini-2.0-flash-exp:free",
-        "openrouter/google/gemini-2.0-flash-thinking-exp:free",
-        "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-        "openrouter/nvidia/llama-3.1-nemotron-70b-instruct:free",
-        "openrouter/qwen/qwen-2.5-72b-instruct:free",
-        "openrouter/google/gemma-2-27b-it:free",
-        "openrouter/google/gemma-2-9b-it:free",
-        "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-        "openrouter/meta-llama/llama-3.2-3b-instruct:free",
-        "openrouter/meta-llama/llama-3.2-1b-instruct:free",
-        "openrouter/mistralai/mistral-nemo:free",
-        "openrouter/mistralai/mistral-7b-instruct:free",
-        "openrouter/microsoft/phi-3-medium-128k-instruct:free",
-        "openrouter/microsoft/phi-3-mini-128k-instruct:free",
-        "openrouter/deepseek/deepseek-chat:free",
-        "openrouter/cognitivecomputations/dolphin-3.0-r1-mistral-24b:free"
-    ]
+    logger.warning(
+        "No configured LLM provider credentials were found. "
+        "Set NVIDIA_NIM_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY, "
+        "GEMINI_API_KEY, or HUGGINGFACE_API_KEY/HF_TOKEN."
+    )
+
+
+def get_model_registry() -> dict:
+    """Return safe model metadata for diagnostics/UI."""
+    return {
+        "active_fallbacks": FALLBACK_MODELS,
+        "specialized_models": SPECIALIZED_MODELS,
+        "providers": {
+            "nvidia": _provider_key_available("nvidia"),
+            "openrouter": _provider_key_available("openrouter"),
+            "groq": _provider_key_available("groq"),
+            "gemini": _provider_key_available("gemini"),
+            "huggingface": _provider_key_available("huggingface"),
+        },
+    }
+
+
+# Runtime failure state. A model that repeatedly returns a permanent
+# availability/authentication error is temporarily cooled down so every
+# request does not waste latency hitting the same dead endpoint.
+MODEL_COOLDOWN: dict[str, float] = {}
+MODEL_FAILURES: dict[str, int] = {}
+MODEL_COOLDOWN_SECONDS = int(os.getenv("MODEL_COOLDOWN_SECONDS", "300"))
+
+
+def model_is_cooled_down(model_name: str) -> bool:
+    until = MODEL_COOLDOWN.get(model_name, 0.0)
+    return until > asyncio.get_running_loop().time()
+
+
+def mark_model_failure(model_name: str, permanent: bool = False):
+    now = asyncio.get_running_loop().time()
+    MODEL_FAILURES[model_name] = MODEL_FAILURES.get(model_name, 0) + 1
+    # Permanent failures get a longer cooldown; transient failures get a
+    # shorter one. This avoids hammering a provider during outages.
+    multiplier = 4 if permanent else min(MODEL_FAILURES[model_name], 3)
+    MODEL_COOLDOWN[model_name] = now + MODEL_COOLDOWN_SECONDS * multiplier
+
+
+def clear_model_failure(model_name: str):
+    MODEL_FAILURES.pop(model_name, None)
+    MODEL_COOLDOWN.pop(model_name, None)
+
+
+def classify_llm_error(exc: Exception) -> tuple[str, bool]:
+    """Return (category, permanent-ish) for routing decisions."""
+    name = type(exc).__name__.lower()
+    message = str(exc).lower()
+
+    if "notfound" in name or "not found" in message or "404" in message:
+        return "model_not_found", True
+    if "authentication" in name or "unauthorized" in message or "401" in message:
+        return "authentication", True
+    if "permission" in name or "forbidden" in message or "403" in message:
+        return "permission", True
+    if "ratelimit" in name or "rate limit" in message or "429" in message:
+        return "rate_limit", False
+    if "timeout" in name or "timed out" in message:
+        return "timeout", False
+    if "connection" in name or "connect" in message:
+        return "connection", False
+    if "unsupported" in name or "not support" in message:
+        return "unsupported_parameter", True
+    if "json" in name or "json" in message:
+        return "invalid_model_output", False
+    return "unknown", False
+
+
+async def call_llm_with_fallback(messages: list[dict], *, purpose: str = "automation", timeout: float = 30.0):
+    """Single production LLM gateway used by every agent."""
+    if not FALLBACK_MODELS:
+        raise RuntimeError(
+            "No LLM providers are configured. Set NVIDIA_NIM_API_KEY, "
+            "OPENROUTER_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, or "
+            "HUGGINGFACE_API_KEY/HF_TOKEN + HF_CHAT_MODEL."
+        )
+
+    errors = []
+    for model_name in FALLBACK_MODELS:
+        if model_is_cooled_down(model_name):
+            logger.warning(f"[LLM Router] Skipping cooled-down model: {model_name}")
+            continue
+
+        try:
+            logger.info(f"[LLM Router] {purpose}: trying {model_name}")
+            response = await litellm.acompletion(
+                model=model_name,
+                messages=messages,
+                response_format={"type": "json_object"},
+                timeout=timeout,
+                num_retries=0,
+                drop_params=True,
+            )
+            clear_model_failure(model_name)
+            return response, model_name
+        except Exception as exc:
+            category, permanent = classify_llm_error(exc)
+            mark_model_failure(model_name, permanent=permanent)
+            errors.append({
+                "model": model_name,
+                "category": category,
+                "error": str(exc),
+            })
+            logger.warning(
+                f"[LLM Router] {model_name} failed | category={category} | "
+                f"permanent={permanent} | error={exc}"
+            )
+            continue
+
+    details = " | ".join(
+        f"{item['model']} [{item['category']}] {item['error']}"
+        for item in errors
+    )
+    raise RuntimeError(f"All configured LLM models failed: {details}")
+
 
 # --- LEARNED APP KNOWLEDGE BASE ---
 # This dictionary is the system's "memory" of correct commands.
@@ -260,14 +596,15 @@ RULES:
 Search Results:
 {search_context}"""
 
-        extract_response = await litellm.acompletion(
-            model="openrouter/google/gemini-2.0-flash-exp:free",
-            messages=[
+        extract_response, extraction_model = await call_llm_with_fallback(
+            [
                 {"role": "system", "content": "You extract CLI commands from search results. Return ONLY raw JSON."},
                 {"role": "user", "content": extraction_prompt}
             ],
-            timeout=10.0
+            purpose="command-research",
+            timeout=15.0,
         )
+        logger.info(f"[Research Agent] Extraction model: {extraction_model}")
         
         raw = extract_response.choices[0].message.content.strip()
         # Clean markdown fencing if present
@@ -494,201 +831,202 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     Ensure your output matches the requested JSON schema exactly.
     """
     
-    last_error = None
-    
     logger.info("Incoming automation request received", prompt=request.natural_language_prompt, user_agent=request.user_agent_os)
     logger.debug("System prompt built successfully", length=len(system_prompt))
-    
-    for model_name in FALLBACK_MODELS:
-        try:
-            logger.info(f"Attempting multi-agent generation with model: {model_name}")
-            logger.log("TRACE", "Sending request to litellm", model=model_name, timeout=20.0)
-            
-            response = await litellm.acompletion(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Task: {request.natural_language_prompt}"}
-                ],
-                response_format={"type": "json_object"},
-                timeout=20.0 
-            )
-            
-            logger.log("TRACE", "Received raw LLM response", raw_content=response.choices[0].message.content)
-            
-            raw_content = response.choices[0].message.content.strip()
-            if raw_content.startswith("```"):
-                raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            
-            structured_data = json.loads(raw_content)
-            logger.info(f'PARSED DATA: {structured_data}')
-            
-            if structured_data.get("is_reminder") and structured_data.get("reminder_time"):
-                try:
-                    # Handle Z and ISO formats
-                    time_str = structured_data["reminder_time"].replace("Z", "+00:00")
-                    dt_obj = datetime.datetime.fromisoformat(time_str)
-                    # convert to naive UTC for asyncpg timestamp
-                    if dt_obj.tzinfo:
-                        dt_obj = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-                    
-                    async with DB_POOL.acquire() as conn:
-                        await conn.execute(
-                            "INSERT INTO reminders (message, trigger_time) VALUES ($1, $2)",
-                            structured_data["reminder_message"],
-                            dt_obj
-                        )
-                    logger.info(f"Scheduled reminder saved to DB: {structured_data['reminder_message']} at {structured_data['reminder_time']}")
-                except Exception as e:
-                    logger.error(f"Failed to insert reminder into DB: {e}")
-                    raise e
 
+    try:
+        response, model_name = await call_llm_with_fallback(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Task: {request.natural_language_prompt}"}
+            ],
+            purpose="multi-agent-workflow",
+            timeout=float(os.getenv("LLM_REQUEST_TIMEOUT", "30")),
+        )
+        logger.log("TRACE", "Received raw LLM response", raw_content=response.choices[0].message.content)
             
-            logger.debug("Extracted JSON data from model response")
-            
-            # --- Analytics Recording ---
-            usage = getattr(response, "usage", {})
-            if isinstance(usage, dict):
-                t = {
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0)
-                }
-            else:
-                t = {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-                    "completion_tokens": getattr(usage, "completion_tokens", 0),
-                    "total_tokens": getattr(usage, "total_tokens", 0)
-                }
-            record_llm_usage(model_name, True, t)
+        raw_content = response.choices[0].message.content.strip()
+        if raw_content.startswith("```"):
+            raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        
+        structured_data = json.loads(raw_content)
+        logger.info(f'PARSED DATA: {structured_data}')
+        
+        if structured_data.get("is_reminder") and structured_data.get("reminder_time"):
+            try:
+                # Handle Z and ISO formats
+                time_str = structured_data["reminder_time"].replace("Z", "+00:00")
+                dt_obj = datetime.datetime.fromisoformat(time_str)
+                # convert to naive UTC for asyncpg timestamp
+                if dt_obj.tzinfo:
+                    dt_obj = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                
+                async with DB_POOL.acquire() as conn:
+                    await conn.execute(
+                        "INSERT INTO reminders (message, trigger_time) VALUES ($1, $2)",
+                        structured_data["reminder_message"],
+                        dt_obj
+                    )
+                logger.info(f"Scheduled reminder saved to DB: {structured_data['reminder_message']} at {structured_data['reminder_time']}")
+            except Exception as e:
+                logger.error(f"Failed to insert reminder into DB: {e}")
+                raise e
 
-            
-            # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
-            prompt_lower = request.natural_language_prompt.lower()
-            
-            
-            # Explicit Deep Link Interceptor for weak models (like Llama 8B)
-            if "gmail" in prompt_lower and ("draft" in prompt_lower or "email" in prompt_lower):
-                import urllib.parse
-                
-                # Extract basic info heuristically
-                to_email = ""
-                emails = [word for word in prompt_lower.split() if "@" in word]
-                if emails:
-                    to_email = emails[0].strip("',.")
-                
-                # Hard fallback URL construction
-                base_url = "https://mail.google.com/mail/?view=cm&fs=1"
-                if to_email:
-                    base_url += f"&to={to_email}"
-                
-                # Add a generic professional body
-                body_text = "Hello,\n\nI will not be able to join the meeting today.\n\nBest regards."
-                if "cannot" in prompt_lower and "meeting" in prompt_lower:
-                    base_url += f"&su=Meeting&body={urllib.parse.quote(body_text)}"
-                
-                logger.info("Middleware hijacked Gmail intent to enforce Deep Linking.")
-                structured_data["requires_browser"] = True
-                structured_data["target_url"] = base_url
-                structured_data["shell_script"] = ""
-            else:
-                web_keywords = {
-                    "spotify": "https://open.spotify.com",
-                    "netflix": "https://www.netflix.com",
-                    "github": "https://github.com",
-                    "youtube": "https://www.youtube.com",
-                    "camera": "microsoft.windows.camera:"
-                }
-                
-                forced_url = None
-                for kw, url in web_keywords.items():
-                    if kw in prompt_lower:
-                        forced_url = url
-                        break
-                        
-                if forced_url or "browser" in prompt_lower or "http" in prompt_lower or "website" in prompt_lower:
-                    if forced_url == "microsoft.windows.camera:":
-                        # Launch camera via protocol without browser
-                        structured_data["requires_browser"] = False
-                        structured_data["shell_script"] = f"Start-Process '{forced_url}'"
-                    else:
-                        structured_data["requires_browser"] = True
-                        if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
-                            structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
+        
+        logger.debug("Extracted JSON data from model response")
+        
+        # --- Analytics Recording ---
+        usage = getattr(response, "usage", {})
+        if isinstance(usage, dict):
+            t = {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0)
+            }
+        else:
+            t = {
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage, "completion_tokens", 0),
+                "total_tokens": getattr(usage, "total_tokens", 0)
+            }
+        record_llm_usage(model_name, True, t)
 
-                # --- INTELLIGENT COMMAND RESOLUTION (3-tier) ---
-                # Tier 1: Redis Cache (instant, previously learned)
-                # Tier 2: KNOWN_APP_COMMANDS (hardcoded knowledge base)
-                # Tier 3: Research Agent (web search + LLM extraction)
+        
+        # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
+        prompt_lower = request.natural_language_prompt.lower()
+        
+        
+        # Explicit Deep Link Interceptor for weak models (like Llama 8B)
+        if "gmail" in prompt_lower and ("draft" in prompt_lower or "email" in prompt_lower):
+            import urllib.parse
+            
+            # Extract basic info heuristically
+            to_email = ""
+            emails = [word for word in prompt_lower.split() if "@" in word]
+            if emails:
+                to_email = emails[0].strip("',.")
+            
+            # Hard fallback URL construction
+            base_url = "https://mail.google.com/mail/?view=cm&fs=1"
+            if to_email:
+                base_url += f"&to={to_email}"
+            
+            # Add a generic professional body
+            body_text = "Hello,\n\nI will not be able to join the meeting today.\n\nBest regards."
+            if "cannot" in prompt_lower and "meeting" in prompt_lower:
+                base_url += f"&su=Meeting&body={urllib.parse.quote(body_text)}"
+            
+            logger.info("Middleware hijacked Gmail intent to enforce Deep Linking.")
+            structured_data["requires_browser"] = True
+            structured_data["target_url"] = base_url
+            structured_data["shell_script"] = ""
+        else:
+            web_keywords = {
+                "spotify": "https://open.spotify.com",
+                "netflix": "https://www.netflix.com",
+                "github": "https://github.com",
+                "youtube": "https://www.youtube.com",
+                "camera": "microsoft.windows.camera:"
+            }
+            
+            forced_url = None
+            for kw, url in web_keywords.items():
+                if kw in prompt_lower:
+                    forced_url = url
+                    break
+                    
+            if forced_url or "browser" in prompt_lower or "http" in prompt_lower or "website" in prompt_lower:
+                if forced_url == "microsoft.windows.camera:":
+                    # Launch camera via protocol without browser
+                    structured_data["requires_browser"] = False
+                    structured_data["shell_script"] = f"Start-Process '{forced_url}'"
+                else:
+                    structured_data["requires_browser"] = True
+                    if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
+                        structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
+
+            # --- INTELLIGENT COMMAND RESOLUTION (3-tier) ---
+            # Tier 1: Redis Cache (instant, previously learned)
+            # Tier 2: KNOWN_APP_COMMANDS (hardcoded knowledge base)
+            # Tier 3: Research Agent (web search + LLM extraction)
+            
+            if not structured_data.get("requires_browser"):
+                resolved_command = None
+                resolution_source = None
                 
-                if not structured_data.get("requires_browser"):
-                    resolved_command = None
-                    resolution_source = None
-                    
-                    # Extract the app name from the prompt for lookups
-                    app_keywords = prompt_lower.replace("open ", "").replace("launch ", "").replace("start ", "").strip()
-                    
-                    # --- TIER 1: Redis Cache ---
-                    redis_result = get_learned_command(f"{request.user_agent_os}_{app_keywords}")
-                    if redis_result:
-                        resolved_command = redis_result
-                        resolution_source = "Redis Cache (previously learned)"
-                    
-                    # --- TIER 2: KNOWN_APP_COMMANDS ---
-                    if not resolved_command:
-                        os_kb = KNOWN_APP_COMMANDS.get(request.user_agent_os, {})
-                        for app_alias, app_data in os_kb.items():
-                            if app_alias in prompt_lower:
-                                resolved_command = app_data
-                                resolution_source = f"Knowledge Base (matched '{app_alias}' for {request.user_agent_os})"
-                                # Also cache in Redis for faster future lookups
-                                store_learned_command(f"{request.user_agent_os}_{app_alias}", app_data["script"], app_data["process"])
-                                break
-                    
-                    # --- TIER 3: Research Agent (web search) ---
-                    if not resolved_command and not structured_data.get("requires_browser"):
-                        logger.info(f"[Tier 3] No cached/known command. Deploying Research Agent for: '{app_keywords}'")
-                        research_result = await research_command(app_keywords, request.user_agent_os)
-                        if research_result and research_result.get("script"):
-                            resolved_command = research_result
-                            resolution_source = "Research Agent (web search + LLM extraction)"
-                            # Learn it for next time!
-                            store_learned_command(f"{request.user_agent_os}_{app_keywords}", research_result["script"], research_result.get("process", ""))
-                            # Add the Research Agent to the discussion log
-                            structured_data.setdefault("multi_agent_discussion", []).append({
-                                "agent_name": "Command Research Agent",
-                                "thought": f"Searched the web for the correct command to '{app_keywords}'. Found: '{research_result['script']}'. Stored in Redis for instant future lookups."
-                            })
-                    
-                    # Apply the resolved command (from any tier)
-                    if resolved_command:
-                        structured_data["requires_browser"] = False
-                        structured_data["shell_script"] = resolved_command["script"]
-                        structured_data["expected_process"] = resolved_command.get("process", "")
-                        structured_data["target_url"] = ""
-                        logger.info(f"Command resolved via {resolution_source}: script='{resolved_command['script']}'")
-            # --------------------------------------
-            
-            structured_data['model_used'] = model_name
-            
-            # Create a shallow copy or dump to prevent Pydantic errors if mutated
-            background_tasks.add_task(log_execution_to_db, request.natural_language_prompt, request.user_agent_os, structured_data)
+                # Extract the app name from the prompt for lookups
+                app_keywords = prompt_lower.replace("open ", "").replace("launch ", "").replace("start ", "").strip()
+                
+                # --- TIER 1: Redis Cache ---
+                redis_result = get_learned_command(f"{request.user_agent_os}_{app_keywords}")
+                if redis_result:
+                    resolved_command = redis_result
+                    resolution_source = "Redis Cache (previously learned)"
+                
+                # --- TIER 2: KNOWN_APP_COMMANDS ---
+                if not resolved_command:
+                    os_kb = KNOWN_APP_COMMANDS.get(request.user_agent_os, {})
+                    for app_alias, app_data in os_kb.items():
+                        if app_alias in prompt_lower:
+                            resolved_command = app_data
+                            resolution_source = f"Knowledge Base (matched '{app_alias}' for {request.user_agent_os})"
+                            # Also cache in Redis for faster future lookups
+                            store_learned_command(f"{request.user_agent_os}_{app_alias}", app_data["script"], app_data["process"])
+                            break
+                
+                # --- TIER 3: Research Agent (web search) ---
+                if not resolved_command and not structured_data.get("requires_browser"):
+                    logger.info(f"[Tier 3] No cached/known command. Deploying Research Agent for: '{app_keywords}'")
+                    research_result = await research_command(app_keywords, request.user_agent_os)
+                    if research_result and research_result.get("script"):
+                        resolved_command = research_result
+                        resolution_source = "Research Agent (web search + LLM extraction)"
+                        # Learn it for next time!
+                        store_learned_command(f"{request.user_agent_os}_{app_keywords}", research_result["script"], research_result.get("process", ""))
+                        # Add the Research Agent to the discussion log
+                        structured_data.setdefault("multi_agent_discussion", []).append({
+                            "agent_name": "Command Research Agent",
+                            "thought": f"Searched the web for the correct command to '{app_keywords}'. Found: '{research_result['script']}'. Stored in Redis for instant future lookups."
+                        })
+                
+                # Apply the resolved command (from any tier)
+                if resolved_command:
+                    structured_data["requires_browser"] = False
+                    structured_data["shell_script"] = resolved_command["script"]
+                    structured_data["expected_process"] = resolved_command.get("process", "")
+                    structured_data["target_url"] = ""
+                    logger.info(f"Command resolved via {resolution_source}: script='{resolved_command['script']}'")
+        # --------------------------------------
+        
+        structured_data['model_used'] = model_name
+        
+        # Create a shallow copy or dump to prevent Pydantic errors if mutated
+        background_tasks.add_task(log_execution_to_db, request.natural_language_prompt, request.user_agent_os, structured_data)
 
-            # Log agent decisions
-            for agent in structured_data.get('multi_agent_discussion', []):
-                logger.log("TRACE", f"Agent Action: {agent.get('agent_name')}", thought=agent.get('thought'))
-            
-            logger.info("Successfully architected workflow", model=model_name)
-            return MultiAgentResult(**structured_data)
-            
-        except Exception as e:
-            print(f"MODEL_FAILURE_DEBUG: Model {model_name} failed: {type(e).__name__} - {str(e)}", flush=True)
-            logger.warning(f"Model {model_name} failed: {type(e).__name__} - {str(e)}")
-            last_error = e
-            continue 
+        # Log agent decisions
+        for agent in structured_data.get('multi_agent_discussion', []):
+            logger.log("TRACE", f"Agent Action: {agent.get('agent_name')}", thought=agent.get('thought'))
+        
+        logger.info("Successfully architected workflow", model=model_name)
+        return MultiAgentResult(**structured_data)
 
-    logger.critical("All fallback models failed", error=str(last_error))
-    raise HTTPException(status_code=500, detail=f"All fallback models failed. Last error: {str(last_error)}")
+    except Exception as e:
+        logger.critical("All fallback models failed", error=str(e))
+        raise HTTPException(status_code=503, detail=f"All configured LLM models failed. Last error: {str(e)}")
+
+@app.get("/api/models")
+def list_models():
+    return get_model_registry()
+
+
+@app.get("/api/models/fallback")
+def list_fallback_models():
+    return {
+        "models": FALLBACK_MODELS,
+        "cooldowns": {k: v for k, v in MODEL_COOLDOWN.items()},
+        "failures": dict(MODEL_FAILURES),
+    }
+
 
 @app.get("/api/reminders")
 async def get_reminders():
