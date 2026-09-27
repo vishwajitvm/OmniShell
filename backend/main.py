@@ -353,13 +353,23 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     
     CURRENT SYSTEM TIME: {request.local_time or datetime.datetime.now().isoformat()}
     
-    You must simulate a highly advanced discussion between SIX distinct agents:
+    You must simulate a highly advanced, MULTI-TURN, ITERATIVE discussion between SEVEN distinct agents.
+    CRITICAL INTELLIGENCE REQUIREMENT: For EVERY proposed action or shell script, the Critic agents (Security Guard or Command Validator) MUST review it. 
+    You MUST simulate a loop: If a command is flawed, the Critic rejects it ("FAIL"), forces the Research agent to REPEAT and REWRITE the command, and then the Critic reviews it AGAIN ("PASS") before moving forward.
+    Show this exact back-and-forth debate in the `multi_agent_discussion` array (which can be as long as needed).
+    
+    The Agents:
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
     2. System Reconnaissance Agent: Thinks about how to dynamically discover the correct application or path on the user's specific OS to prevent hallucinating hardcoded paths.
     3. Content Generation Agent: If the user provides rough instructions for an email, message, or search, this agent expands it into a fully professional, context-aware text body, and URL-encodes it so it can be passed into deep links.
     4. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints (e.g., if the user asks to SEND an email, the Guard MUST downgrade it to DRAFT ONLY).
-    5. Command Research Agent: Verifies the exact, flawless CLI command for the target OS (e.g. knowing that Ubuntu uses gnome-text-editor now instead of gedit, and that emptying trash on Linux is `rm -rf ~/.local/share/Trash/*`).
-    6. Execution Planner: Takes the finalized plan and explicitly decides the execution mode: Immediate URL/Deep Link, Immediate Local Script, OR Scheduled/Delayed Reminder (if the user implies a future time).
+    5. Command Research Agent: Verifies the exact, flawless CLI command for the target OS.
+    6. Command Validator Agent (CRITIC): Ruthlessly reviews the Command Research Agent's output. Checks for common failure points:
+       - On Linux, paths are strictly CASE-SENSITIVE (e.g., $HOME/Documents, NOT $HOME/documents).
+       - Uses `find` or shell expansions (e.g. `$HOME/[Dd]ocuments/`) to guarantee the file is found instead of guessing the exact case.
+       - If the command relies on a specific app, ensures the script loops through fallbacks.
+       - Re-writes the shell_script to be 100% robust if the initial draft was brittle.
+    7. Execution Planner: Takes the validated plan and explicitly decides the execution mode: Immediate URL/Deep Link, Immediate Local Script, OR Scheduled/Delayed Reminder.
        CRITICAL RULES FOR JSON OUTPUT:
        - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...".
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
@@ -374,6 +384,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
          * On Linux, write a Bash script that loops through an array of possibilities (e.g., `for app in gnome-text-editor gedit kwrite mousepad nano; do if command -v $app >/dev/null; then $app & exit 0; fi; done`).
          * On Windows, write a PowerShell script that loops through standard directories or uses `Get-Command`.
        - NEVER use placeholder text like "[username]". ALWAYS use standard environment variables.
+       - NEVER GUESS PATH CASES. If dealing with files, use shell wildcards (e.g. `rm $HOME/[Dd]ocuments/[Ff]ile.pdf`) or `find` to handle case-sensitivity robustly!
        - You MUST populate the `expected_process` field with the executable name (e.g., "gnome-text-editor", "spotify") whenever you are launching an app.
        - Your scripts MUST be resilient, smart, and dynamic.
        
@@ -397,10 +408,11 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
 
     CRITICAL MERMAID RULES:
     You MUST generate a HIGHLY DETAILED, NON-LINEAR flowchart mapping the EXACT architecture and decision process for THIS specific task.
-    DO NOT just make a single straight line! 
+    - EVERY single agent involved MUST be visible in the graph.
+    - Include the exact actions they took.
+    - YOU MUST visually represent the REPETITION/REVIEW LOOPS you simulated in the discussion (e.g., ResearchAgent -->|Proposes Script| CriticAgent {{Critic: Pass or Fail?}} -->|Fail - Needs Rewrite| ResearchAgent).
     - Show conditional decision trees (using diamond shapes {{}} for decisions).
-    - Show parallel processing where multiple agents work at once.
-    - Specifically label edges with WHAT the agent did or concluded (e.g., -->|Generated Draft Text|).
+    - Specifically label edges with WHAT the agent did or concluded (e.g., -->|Approved|).
     DO NOT include 'graph TD;' at the start (the frontend will prepend it).
     Use safe Mermaid syntax: ALWAYS quote labels if they have spaces or special characters (e.g., NodeID["Text goes here"]).
     
