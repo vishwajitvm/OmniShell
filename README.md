@@ -16,13 +16,18 @@ It uses a "Swarm" of specialized agents to plan out your request, but before a s
 
 When you type a command, it goes through three stages:
 
-1. **The Brain (Agent Swarm):** Your command is sent to a secure Docker container where 4 AI agents argue about how to fulfill it. 
+1. **The Brain (Agent Swarm):** Your command is sent to a secure Docker container where multiple AI agents debate how to fulfill it. 
    - *Agent 1* figures out what you want.
    - *Agent 2* writes any necessary text (like making your rough email notes sound professional).
-   - *Agent 3 (Security Guard)* makes sure you aren't trying to do something dangerous, and stops the AI from doing things like sending emails without your final click.
-   - *Agent 4* writes the final PowerShell script or Web Deep-Link.
-2. **The Checkpoint (UI):** The website shows you exactly what the AI planned. It draws a nice flowchart of their thoughts and gives you a "Yes/No" popup.
-3. **The Muscle (Host Executor):** If you click Yes, the command is sent to a tiny script running on your actual computer. This script physically pops open a new terminal window, runs the task (like opening VS Code, or launching Brave Browser to Gmail), double checks that it worked, and then closes itself.
+   - *Agent 3 (Security Guard)* makes sure you aren't trying to do something dangerous (like deleting system files or extracting passwords).
+   - *Agent 4 (Command Validator)* ruthlessly critiques the generated scripts.
+   - *Agent 5* plans the final execution strategy.
+2. **The 4-Layer Security System:** 
+   - *Layer 0 (Pre-LLM):* Hardcoded Python regex interceptor (un-jailbreakable).
+   - *Layer 1 (AI Guard):* Security Guard agent actively denies malicious intents.
+   - *Layer 2 (Frontend Override):* Final regex check in the browser before dispatching.
+   - *Layer 3 (Human Check):* Double-confirmation popup for any destructive commands.
+3. **The Muscle (Host Executor V2):** If approved, the command hits a tiny background service running natively on your OS. It safely executes processes using Python's subprocess pipeline, captures stdout/stderr, handles timeouts, and tracks execution history. This script physically pops open a new terminal window, runs the task (like opening VS Code, or launching Brave Browser to Gmail), double checks that it worked, and then closes itself.
 
 ## 🚀 Setup & Installation
 
