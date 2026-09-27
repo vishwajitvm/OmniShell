@@ -306,6 +306,30 @@
                             });
 
                             if (isConfirmed) {
+                                const isDestructive = /rm |del |remove-item|rmdir|delete/i.test(data.shell_script) || /delete|remove|rm /i.test(prompt);
+                                let finalConfirm = true;
+                                if (isDestructive) {
+                                    const secondConfirm = await Swal.fire({
+                                        title: '🚨 DANGER: DESTRUCTIVE ACTION 🚨',
+                                        html: `Wait! This looks like a deletion task.<br><br><b>Are you absolutely sure you want to proceed?</b><br><br>Data deleted by this command may be unrecoverable!`,
+                                        icon: 'error',
+                                        showCancelButton: true,
+                                        confirmButtonText: 'I understand the risks, EXECUTE!',
+                                        cancelButtonText: 'NO, abort!',
+                                        background: '#3f0f0f',
+                                        color: '#fff',
+                                        confirmButtonColor: '#ef4444',
+                                        cancelButtonColor: '#3b82f6',
+                                    });
+                                    finalConfirm = secondConfirm.isConfirmed;
+                                }
+
+                                if (!finalConfirm) {
+                                    statusSpan.className = "ml-4 text-red-400 font-bold";
+                                    statusSpan.innerText = "🛑 Execution Cancelled by Human";
+                                    return;
+                                }
+
                                 statusSpan.innerText = "🚀 Dispatching to Host...";
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
