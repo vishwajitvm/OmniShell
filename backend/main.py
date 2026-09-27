@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import litellm
 import redis
+import asyncpg
+
 from tracenest.logger import Logger
 from tracenest.fastapi.middleware import TraceNestMiddleware
 from tracenest.ui.router import router as tracenest_router
@@ -31,7 +33,9 @@ app.add_middleware(
 
 class AutomationRequest(BaseModel):
     natural_language_prompt: str
+    user_agent_os: str
     user_agent_os: str = "Unknown OS"
+    local_time: str | None = None
 
 class AgentThought(BaseModel):
     agent_name: str = Field(description="Name of the agent (e.g., 'OS Analyzer', 'Security Guard', 'Execution Planner')")
@@ -47,6 +51,9 @@ class MultiAgentResult(BaseModel):
     expected_process: str | None = Field(default=None, description="The name of the executable process that should be running after execution.")
     mermaid_diagram_body: str = Field(default="", description="ONLY the body of the flowchart.")
     model_used: str | None = Field(default=None)
+    is_reminder: bool = Field(default=False, description="Set to True if this is a scheduling or reminder task.")
+    reminder_time: str | None = Field(default=None, description="ISO 8601 future time for the reminder.")
+    reminder_message: str | None = Field(default=None, description="The message for the reminder.")
 
 # Fallback Models (Smartest 70B+ models first to ensure strict prompt adherence)
 FALLBACK_MODELS = []
@@ -123,12 +130,15 @@ KNOWN_APP_COMMANDS = {
 
 # --- REDIS LEARNING STORE ---
 # Connect to Redis for persistent command learning across restarts.
+
 try:
     redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
     redis_client.ping()
     logger.info("Redis Learning Store connected successfully")
 except Exception as e:
-    
+    redis_client = None
+    logger.warning(f"Redis unavailable, falling back to in-memory only: {e}")
+
 DB_POOL = None
 
 async def init_db():
@@ -149,9 +159,6 @@ async def init_db():
 @app.on_event("startup")
 async def startup_event():
     await init_db()
-
-redis_client = None
-    logger.warning(f"Redis unavailable, falling back to in-memory only: {e}")
 
 def get_learned_command(app_name: str) -> dict | None:
     """Check Redis for a previously learned correct command."""
@@ -287,7 +294,7 @@ async def generate_workflow(request: AutomationRequest):
     You are a Multi-Agent OS Automation Syndicate. 
     You are receiving a request from a user on the following OS environment: '{request.user_agent_os}'.
     
-    CURRENT SYSTEM TIME: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    CURRENT SYSTEM TIME: {request.local_time or datetime.datetime.now().isoformat()}
     
     You must simulate a highly advanced discussion between SIX distinct agents:
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
@@ -295,28 +302,16 @@ async def generate_workflow(request: AutomationRequest):
     3. Content Generation Agent: If the user provides rough instructions for an email, message, or search, this agent expands it into a fully professional, context-aware text body, and URL-encodes it so it can be passed into deep links.
     4. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints (e.g., if the user asks to SEND an email, the Guard MUST downgrade it to DRAFT ONLY).
     5. Command Research Agent: Verifies the exact, flawless CLI command for the target OS (e.g. knowing that Ubuntu uses gnome-text-editor now instead of gedit, and that emptying trash on Linux is `rm -rf ~/.local/share/Trash/*`).
-    6. Execution Planner: Takes the finalized plan and decides if it requires a URL/Deep Link OR a highly robust, fault-tolerant local script.
+    6. Execution Planner: Takes the finalized plan and explicitly decides the execution mode: Immediate URL/Deep Link, Immediate Local Script, OR Scheduled/Delayed Reminder (if the user implies a future time).
        CRITICAL RULES FOR JSON OUTPUT:
        - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...".
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
-       - REMINDERS & SCHEDULING: If the user asks to "remind me to...", "schedule", or do something at a specific future time (e.g., "tomorrow at 4pm"), YOU MUST target Google Calendar.
-         * You know the current time, so CALCULATE the exact future date/time. Format it as YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (e.g., 20261001T160000Z/20261001T170000Z).
-         * Construct the URL: "https://calendar.google.com/calendar/render?action=TEMPLATE&text=[ENCODED_TITLE]&dates=[DATES]"
-         * The user DEMANDED that you automatically save the event. To do this, DO NOT set requires_browser=true. Instead, set requires_browser=false and write a VALID BASH SCRIPT (using a HEREDOC) that fixes X11 display errors, installs pyautogui, and runs a Python file. Example:
-```bash
-export DISPLAY=:0
-export XAUTHORITY=$HOME/.Xauthority
-xhost +SI:localuser:$(whoami) 2>/dev/null || true
-pip3 install pyautogui --break-system-packages 2>/dev/null || true
-cat << 'EOF' > cal.py
-import webbrowser, time, pyautogui
-webbrowser.open('URL')
-time.sleep(6)
-pyautogui.hotkey('ctrl', 's')
-EOF
-python3 cal.py
-```
-
+       - REMINDERS & SCHEDULING: If the user asks to "remind me to...", "schedule", or do something at a specific future time:
+         * DO NOT write a bash script. DO NOT open Google Calendar. DO NOT use pyautogui.
+         * INSTEAD, set `is_reminder=true`.
+         * Set `reminder_message` to the task (e.g. "Call manager").
+         * Set `reminder_time` to the EXACT future time in ISO 8601 format, STRICTLY CONVERTED TO UTC (e.g., "2026-10-01T10:30:00Z"). CALCULATE this based on the CURRENT SYSTEM TIME provided above.
+         * Set `shell_script` to a simple comment: "# Reminder scheduled in database".
        - If the user asks to EMPTY/CLEAR the RECYCLE BIN: Look at target_os! If Windows, use `Clear-RecycleBin -Force`. If Linux, use `rm -rf ~/.local/share/Trash/*`. DO NOT hallucinate Windows commands on Linux.
        - If the user asks to OPEN an app (e.g. "text editor"): DO NOT HARDCODE PATHS. 
          * On Linux, write a Bash script that loops through an array of possibilities (e.g., `for app in gnome-text-editor gedit kwrite mousepad nano; do if command -v $app >/dev/null; then $app & exit 0; fi; done`).
@@ -393,6 +388,29 @@ python3 cal.py
                 raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             
             structured_data = json.loads(raw_content)
+            logger.info(f'PARSED DATA: {structured_data}')
+            
+            if structured_data.get("is_reminder") and structured_data.get("reminder_time"):
+                from datetime import datetime
+                try:
+                    # Handle Z and ISO formats
+                    time_str = structured_data["reminder_time"].replace("Z", "+00:00")
+                    dt_obj = datetime.fromisoformat(time_str)
+                    # convert to naive UTC for asyncpg timestamp
+                    if dt_obj.tzinfo:
+                        dt_obj = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                    
+                    async with DB_POOL.acquire() as conn:
+                        await conn.execute(
+                            "INSERT INTO reminders (message, trigger_time) VALUES ($1, $2)",
+                            structured_data["reminder_message"],
+                            dt_obj
+                        )
+                    logger.info(f"Scheduled reminder saved to DB: {structured_data['reminder_message']} at {structured_data['reminder_time']}")
+                except Exception as e:
+                    logger.error(f"Failed to insert reminder into DB: {e}")
+                    raise e
+
             
             logger.debug("Extracted JSON data from model response")
             

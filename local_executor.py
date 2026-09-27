@@ -267,5 +267,5 @@ class ExecutionHandler(http.server.SimpleHTTPRequestHandler):
 print(f"Cross-Platform Host Agent running natively on port {PORT}")
 print("Listening for approved commands and registry scans from Docker...")
 
-with socketserver.TCPServer(("0.0.0.0", PORT), ExecutionHandler) as httpd:
+with socketserver.TCPServer(("127.0.0.1", PORT), ExecutionHandler) as httpd:
     httpd.serve_forever()

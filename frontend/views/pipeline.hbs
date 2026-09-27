@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans p-8">
+    
+    <div class="max-w-4xl mx-auto">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400">Scheduled Pipeline Dashboard</h1>
+            <a href="/" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold transition">← Back to Agent</a>
+        </div>
+
+        <div class="glass p-8 rounded-2xl shadow-2xl">
+            <h2 class="text-xl font-semibold mb-4 text-slate-300">Active Background Jobs</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-600/50">
+                            <th class="py-3 px-4 text-blue-400 font-semibold">ID</th>
+                            <th class="py-3 px-4 text-blue-400 font-semibold">Task/Message</th>
+                            <th class="py-3 px-4 text-blue-400 font-semibold">Scheduled Execution Time</th>
+                            <th class="py-3 px-4 text-blue-400 font-semibold">Status</th>
+                            <th class="py-3 px-4 text-blue-400 font-semibold">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pipeline-table-body">
+                        <tr><td colspan="5" class="py-4 text-center text-slate-400 italic">Loading pipeline...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container for active popups -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2"></div>
+
+    <script>
+        async function fetchPipeline() {
+            try {
+                const res = await fetch('http://localhost:8000/api/reminders');
+                if (!res.ok) throw new Error("Backend not responding");
+                const reminders = await res.json();
+                
+                const tbody = document.getElementById('pipeline-table-body');
+                tbody.innerHTML = '';
+                
+                if (reminders.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 italic">No tasks currently scheduled in the pipeline.</td></tr>';
+                    return;
+                }
+
+                const now = new Date();
+
+                reminders.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-slate-700/30 hover:bg-slate-800/30 transition";
+                    
+                    const t = new Date(r.trigger_time + 'Z');
+                    
+                    tr.innerHTML = `
+                        <td class="py-3 px-4 font-mono text-xs text-slate-400">#${r.id}</td>
+                        <td class="py-3 px-4 font-semibold text-indigo-200">${r.message}</td>
+                        <td class="py-3 px-4 text-sm text-blue-300">${t.toLocaleString()}</td>
+                        <td class="py-3 px-4">
+                            <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full animate-pulse border border-yellow-500/30">WAITING</span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <button onclick="triggerPopup(${r.id}, '${r.message.replace(/'/g, "\\'")}')" class="text-xs px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-white font-bold transition">Force Execute</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+
+                    if (t <= now) {
+                        triggerPopup(r.id, r.message);
+                    }
+                });
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('pipeline-table-body').innerHTML = '<tr><td colspan="5" class="py-4 text-center text-red-400 font-bold">Failed to connect to backend database</td></tr>';
+            }
+        }
+
+        async function triggerPopup(id, message) {
+            await fetch(`http://localhost:8000/api/reminders/${id}/complete`, {method: 'POST'});
+            
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = "glass p-4 rounded-xl shadow-2xl border-2 border-red-500 flex items-center justify-between w-96 animate-bounce cursor-pointer transition-all hover:scale-105";
+            toast.style.background = "linear-gradient(135deg, rgba(239,68,68,0.9), rgba(153,27,27,0.9))";
+            
+            toast.innerHTML = `
+                <div>
+                    <h4 class="text-white font-black text-xl mb-1">⏰ PIPELINE EXECUTION!</h4>
+                    <p class="text-red-100 text-md font-semibold">${message}</p>
+                </div>
+                <button class="text-white hover:text-red-300 ml-4 p-2 focus:outline-none">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            `;
+            
+            toast.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); toast.remove(); });
+            toast.addEventListener('click', () => toast.remove());
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                if (document.body.contains(toast)) {
+                    toast.style.opacity = '0';
+                    setTimeout(() => toast.remove(), 500);
+                }
+            }, 10000);
+            
+            fetchPipeline();
+        }
+
+        // Poll pipeline every 3 seconds
+        fetchPipeline();
+        setInterval(fetchPipeline, 3000);
+    </script>
+</body>
+</html>

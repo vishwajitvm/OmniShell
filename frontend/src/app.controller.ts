@@ -13,4 +13,10 @@ export class AppController {
   analytics() {
     return { title: 'LLM Analytics Dashboard' };
   }
+
+  @Get('/pipeline')
+  @Render('pipeline')
+  pipeline() {
+    return { title: 'Scheduled Pipeline' };
+  }
 }

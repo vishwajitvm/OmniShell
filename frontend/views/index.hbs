@@ -13,9 +13,27 @@
     </script>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans p-4 sm:p-8">
+
+    <!-- Scheduled Tasks Widget -->
+    <div class="absolute top-4 left-4 z-50">
+        <div class="glass p-4 rounded-xl shadow-lg border border-slate-700/50 w-64 text-sm" style="background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);">
+            <h3 class="text-blue-400 font-bold mb-2 flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Scheduled Pipeline
+            </h3>
+            <ul id="scheduled-tasks-list" class="space-y-2 max-h-48 overflow-auto">
+                <li class="text-slate-400 text-xs italic">Loading...</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2"></div>
+
     
     <!-- Top Nav -->
     <div class="absolute top-6 right-6 z-50">
+        <a href="/pipeline" class="mr-2 text-xs px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-full border border-slate-600 transition flex items-center">Pipeline</a>
         <a href="/analytics" class="flex items-center space-x-2 bg-slate-800/80 hover:bg-indigo-600/30 border border-slate-700 hover:border-indigo-500/50 text-slate-300 hover:text-indigo-300 px-4 py-2 rounded-full backdrop-blur-sm transition-all shadow-lg hover:shadow-indigo-500/20">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
             <span class="font-medium text-sm">View Analytics</span>
@@ -81,6 +99,68 @@
     </div>
 
     <script>
+        // Polling for Scheduled Reminders
+        async function fetchReminders() {
+            try {
+                const res = await fetch('http://localhost:8000/api/reminders');
+                const reminders = await res.json();
+                
+                const list = document.getElementById('scheduled-tasks-list');
+                if(!list) return;
+                
+                list.innerHTML = '';
+                if(reminders.length === 0) {
+                    list.innerHTML = '<li class="text-slate-400 text-xs italic">No scheduled tasks.</li>';
+                }
+                
+                const now = new Date();
+                
+                reminders.forEach(r => {
+                    const li = document.createElement('li');
+                    li.className = "text-slate-300 text-xs border-l-2 border-blue-500 pl-2 py-1 mb-1";
+                    const t = new Date(r.trigger_time + 'Z');
+                    li.innerHTML = `<span class="text-white font-semibold">${r.message}</span><br/><span class="text-slate-500">${t.toLocaleString()}</span>`;
+                    list.appendChild(li);
+                    
+                    if (t <= now) {
+                        triggerPopup(r);
+                    }
+                });
+            } catch(e) {
+                console.error("Failed to fetch reminders:", e);
+            }
+        }
+        
+        async function triggerPopup(reminder) {
+            await fetch(`http://localhost:8000/api/reminders/${reminder.id}/complete`, {method: 'POST'});
+            
+            const container = document.getElementById('toast-container');
+            if(!container) return;
+            const toast = document.createElement('div');
+            toast.className = "glass p-4 rounded-xl shadow-2xl border-2 border-red-500/50 flex items-center justify-between w-80 animate-bounce cursor-pointer transition-all hover:scale-105";
+            toast.style.background = "linear-gradient(135deg, rgba(239,68,68,0.9), rgba(153,27,27,0.9))";
+            
+            toast.innerHTML = `
+                <div>
+                    <h4 class="text-white font-bold text-lg">⏰ Reminder Alert!</h4>
+                    <p class="text-red-100 text-sm mt-1">${reminder.message}</p>
+                </div>
+                <button class="text-white hover:text-red-300 ml-4 p-2 focus:outline-none">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            `;
+            
+            toast.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); toast.remove(); });
+            toast.addEventListener('click', () => toast.remove());
+            container.appendChild(toast);
+            
+            setTimeout(() => { if (document.body.contains(toast)) { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); } }, 10000);
+            fetchReminders();
+        }
+
+        fetchReminders();
+        setInterval(fetchReminders, 5000);
+
         document.getElementById('generate-btn').addEventListener('click', async () => {
             const prompt = document.getElementById('prompt-input').value;
             if (!prompt.trim()) return;
@@ -102,7 +182,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         natural_language_prompt: prompt,
-                        user_agent_os: osContext
+                        user_agent_os: osContext,
+                        local_time: new Date().toString() // e.g. 'Sun Sep 27 2026 20:53:00 GMT+0530 (India Standard Time)'
                     })
                 });
                 
