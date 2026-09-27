@@ -230,22 +230,23 @@ async def generate_workflow(request: AutomationRequest):
     
     You must simulate a highly advanced discussion between FIVE distinct agents:
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
-    2. Content Generation Agent: If the user provides rough instructions for an email, message, or search, this agent expands it into a fully professional, context-aware text body, and URL-encodes it so it can be passed into deep links.
-    3. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints (e.g., if the user asks to SEND an email, the Guard MUST downgrade it to DRAFT ONLY. Sending without manual review is illegal). 
-    4. Command Research Agent: Searches the web in real-time to verify the correct CLI command for the target application. Cross-references with the internal knowledge base and Redis cache to avoid repeating past mistakes.
-    5. Execution Planner: Takes the finalized plan, verified command, and content, then decides if it requires a URL/Deep Link OR a local Desktop App script.
+    2. System Reconnaissance Agent: Thinks about how to dynamically discover the correct application or path on the user's specific OS. It prevents hallucinating hardcoded paths by generating scripts that search for installed apps (e.g. looping through common text editors on Linux).
+    3. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints.
+    4. Command Research Agent: Acts as if it searches DuckDuckGo in real-time to verify the exact, flawless CLI command for the target OS (e.g. knowing that Ubuntu uses gnome-text-editor now instead of gedit, and that emptying trash on Linux is `rm -rf ~/.local/share/Trash/*`).
+    5. Execution Planner: Takes the finalized plan and decides if it requires a URL/Deep Link OR a highly robust, fault-tolerant local script.
        CRITICAL RULES FOR JSON OUTPUT:
-       - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...". DO NOT write a shell script for this.
-       - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email... say X"), construct the exact deep link! Example: target_url="https://mail.google.com/mail/?view=cm&fs=1&to=person@email.com&su=Subject&body=URL_ENCODED_PROFESSIONAL_BODY". DO NOT write a local PowerShell SMTP script.
-       - Even if the user explicitly says "open brave browser", just set requires_browser=true and target_url="https://...". The external UI Agent will handle selecting the Brave browser.
-       - If the user asks to open the RECYCLE BIN: Look at target_os! If Windows, shell_script='Start-Process "shell:RecycleBinFolder"'. If Linux/Ubuntu, shell_script='xdg-open trash://' or 'nautilus trash://'. DO NOT use explorer.exe.
-       - If they want a LOCAL app: Look at target_os! If Windows, write a robust PowerShell script that actually searches for the application executable (e.g. checking $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramFiles) before calling Start-Process.
-       - NEVER use placeholder text like "[username]". ALWAYS use standard environment variables like $env:USERNAME.
-       - You MUST populate the `expected_process` field with the executable name (e.g., "excel", "spotify") whenever you are launching an app, so the system can verify it actually opened.
-       - If the user asks a QUESTION about the system: Look at target_os! Write a clean PowerShell (Windows) or Bash (Linux) script.
+       - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...".
+       - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
+       - If the user asks to EMPTY/CLEAR the RECYCLE BIN: Look at target_os! If Windows, use `Clear-RecycleBin -Force`. If Linux, use `rm -rf ~/.local/share/Trash/*`. DO NOT hallucinate Windows commands on Linux.
+       - If the user asks to OPEN an app (e.g. "text editor"): DO NOT HARDCODE PATHS. 
+         * On Linux, write a Bash script that loops through an array of possibilities (e.g., `for app in gnome-text-editor gedit kwrite mousepad nano; do if command -v $app >/dev/null; then $app & exit 0; fi; done`).
+         * On Windows, write a PowerShell script that loops through standard directories or uses `Get-Command`.
+       - NEVER use placeholder text like "[username]". ALWAYS use standard environment variables.
+       - You MUST populate the `expected_process` field with the executable name (e.g., "gnome-text-editor", "spotify") whenever you are launching an app.
+       - Your scripts MUST be resilient, smart, and dynamic.
        
        ZERO HALLUCINATION POLICY:
-       Your ONLY job is to output the final script/URL. You CANNOT EXECUTE SCRIPTS. The user's machine will execute it.
+       Your ONLY job is to output the final script/URL. You CANNOT EXECUTE SCRIPTS directly. The user's machine will execute the script you generate.
 
     YOU MUST OUTPUT STRICTLY A JSON OBJECT MATCHING THIS EXACT SCHEMA (do not omit ANY fields):
     {{
