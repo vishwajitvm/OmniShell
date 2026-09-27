@@ -2,7 +2,7 @@ import os
 import json
 import datetime
 import asyncio
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import litellm
@@ -156,6 +156,24 @@ async def init_db():
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS execution_logs (
+                id SERIAL PRIMARY KEY,
+                prompt TEXT NOT NULL,
+                os_context VARCHAR(50),
+                model_used VARCHAR(100),
+                is_safe BOOLEAN,
+                requires_browser BOOLEAN,
+                target_url TEXT,
+                shell_script TEXT,
+                expected_process VARCHAR(100),
+                is_reminder BOOLEAN,
+                raw_response JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+
 @app.on_event("startup")
 async def startup_event():
     await init_db()
@@ -287,9 +305,36 @@ def get_analytics():
             pass
     return {"data": data, "fallback_flow": FALLBACK_MODELS}
 
+
+async def log_execution_to_db(prompt: str, os_context: str, result: dict):
+    from tracenest.logger import Logger
+    Logger().info(f'DB_POOL IS: {DB_POOL}')
+    if not DB_POOL: return
+    try:
+        async with DB_POOL.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO execution_logs 
+                (prompt, os_context, model_used, is_safe, requires_browser, target_url, shell_script, expected_process, is_reminder, raw_response)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ''', 
+            prompt, 
+            os_context, 
+            result.get("model_used"), 
+            bool(result.get("is_safe")), 
+            bool(result.get("requires_browser")), 
+            result.get("target_url"), 
+            result.get("shell_script"), 
+            result.get("expected_process"), 
+            bool(result.get("is_reminder")), 
+            json.dumps(result))
+    except Exception as e:
+        from tracenest.logger import Logger
+        Logger().error(f"Failed to log execution to DB: {e}")
+
 @app.post("/api/generate-workflow"
+
 , response_model=MultiAgentResult)
-async def generate_workflow(request: AutomationRequest):
+async def generate_workflow(request: AutomationRequest, background_tasks: BackgroundTasks):
     system_prompt = f"""
     You are a Multi-Agent OS Automation Syndicate. 
     You are receiving a request from a user on the following OS environment: '{request.user_agent_os}'.
@@ -540,6 +585,9 @@ async def generate_workflow(request: AutomationRequest):
             
             structured_data['model_used'] = model_name
             
+            # Create a shallow copy or dump to prevent Pydantic errors if mutated
+            background_tasks.add_task(log_execution_to_db, request.natural_language_prompt, request.user_agent_os, structured_data)
+
             # Log agent decisions
             for agent in structured_data.get('multi_agent_discussion', []):
                 logger.log("TRACE", f"Agent Action: {agent.get('agent_name')}", thought=agent.get('thought'))
