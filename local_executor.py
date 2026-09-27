@@ -143,14 +143,17 @@ Start-Sleep -Seconds 4
                 f.write(script)
                 
             wrapper_code = f"""#!/bin/bash
+set -x
 clear
-echo -e "\\e[36m==================================================\\e[0m"
+echo -e "\e[36m==================================================\e[0m"
+ -e "\\e[36m==================================================\\e[0m"
 echo -e "\\e[36m           🤖 AGENTIC AUTOMATION SYSTEM          \\e[0m"
 echo -e "\\e[36m==================================================\\e[0m"
 echo -e "\\e[33m\\n[Auto-Executing Script]\\e[0m"
 
-output=$(bash "{payload_path}" 2>&1)
-exit_code=$?
+# Run it so the user can see if it prompts for anything!
+output=$(bash "{payload_path}" 2>&1 | tee /dev/tty)
+exit_code=${PIPESTATUS[0]}
 
 if [ $exit_code -eq 0 ]; then
     echo "$output"

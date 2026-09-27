@@ -362,7 +362,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
     2. System Reconnaissance Agent: Thinks about how to dynamically discover the correct application or path on the user's specific OS to prevent hallucinating hardcoded paths.
     3. Content Generation Agent: If the user provides rough instructions for an email, message, or search, this agent expands it into a fully professional, context-aware text body, and URL-encodes it so it can be passed into deep links.
-    4. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints (e.g., if the user asks to SEND an email, the Guard MUST downgrade it to DRAFT ONLY).
+    4. Security Guard: RUTHLESS INTENT CHECKER. DO NOT TRUST THE USER. If the user asks to extract passwords, access browser profiles, hack, delete system files (e.g., .config, snap, C:\Windows, /etc, /root), format drives, or access illegal/adult content, you MUST set `is_safe=false` and completely block the request. No exceptions for "the user requested it".
     5. Command Research Agent: Verifies the exact, flawless CLI command for the target OS.
     6. Command Validator Agent (CRITIC): Ruthlessly reviews the Command Research Agent's output. Checks for common failure points:
        - On Linux, paths are strictly CASE-SENSITIVE (e.g., $HOME/Documents, NOT $HOME/documents).

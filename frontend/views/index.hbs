@@ -330,6 +330,22 @@
                                     return;
                                 }
 
+                                // FINAL RED-LINE SAFEGUARD: Even if human approved, system overrides if it detects highly malicious patterns
+                                const maliciousPattern = /\.config|snap|\/etc|\/root|C:\\Windows|password-manager|shadow|passwd/i;
+                                if (maliciousPattern.test(data.shell_script) || maliciousPattern.test(prompt)) {
+                                    await Swal.fire({
+                                        title: '🛑 SYSTEM OVERRIDE: BLOCKED',
+                                        html: `<b>THIS IS NOT ALLOWED!</b><br><br>Even though you approved it, the system has detected malicious intent (e.g. system files, passwords, illegal requests).<br><br>The operation has been permanently terminated for your safety.`,
+                                        icon: 'error',
+                                        background: '#3f0f0f',
+                                        color: '#fff',
+                                        confirmButtonColor: '#ef4444',
+                                    });
+                                    statusSpan.className = "ml-4 text-red-400 font-bold";
+                                    statusSpan.innerText = "🛑 Execution BLOCKED by Final System Override";
+                                    return;
+                                }
+
                                 statusSpan.innerText = "🚀 Dispatching to Host...";
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
