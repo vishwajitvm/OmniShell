@@ -331,8 +331,9 @@
                                 }
 
                                 // FINAL RED-LINE SAFEGUARD: Even if human approved, system overrides if it detects highly malicious patterns
-                                const maliciousPattern = /\.config|snap|\/etc|\/root|C:\\Windows|password-manager|shadow|passwd/i;
-                                if (maliciousPattern.test(data.shell_script) || maliciousPattern.test(prompt)) {
+                                const maliciousScriptPattern = /\.config|\/snap|\/etc|\/root|\/boot|\/sys|\/proc|C:\\Windows|system32|password-manager|shadow|passwd|\.ssh|authorized_keys|id_rsa|rm\s+-rf\s+[\/~]|mkfs|fdisk|wipefs|dd\s+if=|keylog|reverse.shell|xmrig|coinhive/i;
+                                const maliciousPromptPattern = /password|credential|hack|exploit|crack|brute.force|reverse.shell|dark.web|\.onion|porn|xxx|nsfw|adult.content|bypass.safe|ignore.secur|skip.confirm|override.guard|delete.all.files|delete.everything|wipe.everything|arp.spoof|dns.poison|ddos|crypto.min/i;
+                                if (maliciousScriptPattern.test(data.shell_script) || maliciousPromptPattern.test(prompt)) {
                                     await Swal.fire({
                                         title: '🛑 SYSTEM OVERRIDE: BLOCKED',
                                         html: `<b>THIS IS NOT ALLOWED!</b><br><br>Even though you approved it, the system has detected malicious intent (e.g. system files, passwords, illegal requests).<br><br>The operation has been permanently terminated for your safety.`,
