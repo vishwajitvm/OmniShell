@@ -391,11 +391,10 @@ async def generate_workflow(request: AutomationRequest):
             logger.info(f'PARSED DATA: {structured_data}')
             
             if structured_data.get("is_reminder") and structured_data.get("reminder_time"):
-                from datetime import datetime
                 try:
                     # Handle Z and ISO formats
                     time_str = structured_data["reminder_time"].replace("Z", "+00:00")
-                    dt_obj = datetime.fromisoformat(time_str)
+                    dt_obj = datetime.datetime.fromisoformat(time_str)
                     # convert to naive UTC for asyncpg timestamp
                     if dt_obj.tzinfo:
                         dt_obj = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
