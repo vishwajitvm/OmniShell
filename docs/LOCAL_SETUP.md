@@ -16,7 +16,7 @@ Open your terminal and clone the repository:
 `ash
 git clone https://github.com/vishwajitvm/OmniShell.git
 cd OmniShell
-`
+```
 
 ## ⚙️ Step 2: Configure Environment Variables
 You need to provide your LLM API keys so the Agent Swarm can function.
@@ -24,7 +24,7 @@ You need to provide your LLM API keys so the Agent Swarm can function.
 1. Copy the template file to create your .env file:
 `ash
 cp .env.template .env
-`
+```
 *(On Windows Command Prompt, use copy .env.template .env)*
 
 2. Open the .env file in your favorite text editor and add your API keys (e.g., Groq, OpenAI, or OpenRouter).
@@ -34,7 +34,7 @@ Start the PostgreSQL database, Redis cache, FastAPI backend, and NestJS frontend
 
 `ash
 docker-compose up --build -d
-`
+```
 > **Note:** The -d flag runs it in the background. To see the logs, you can run docker-compose logs -f.
 
 ## 💻 Step 4: Start the Host Executor (Native OS)
@@ -45,14 +45,14 @@ Open a **new terminal window** on your physical machine and run:
 `ash
 pip install psutil
 python local_executor.py
-`
+```
 *(Leave this terminal window open! It listens on Port 8003 for approved commands).*
 
 ## 🌐 Step 5: Open the UI
 Everything is now running! Open your browser and navigate to:
 
-`	ext
+```text
 http://localhost:3000
-`
+```
 
 Try typing: Open Gmail and draft an email to hello@example.com saying I will be late.

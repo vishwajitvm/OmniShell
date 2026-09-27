@@ -37,13 +37,13 @@ When you type a command, it goes through three stages:
 `ash
 git clone https://github.com/vishwajitvm/OmniShell.git
 cd OmniShell
-`
+```
 
 2. **Start the AI Brain & UI (Docker):**
 This spins up the secure Backend API, the Redis cache, the Postgres Database, and the Frontend UI.
 `ash
 docker-compose up --build -d
-`
+```
 
 3. **Start the Muscle (Native Host Executor):**
 Open a terminal natively on your Windows/Linux machine (NOT inside Docker) and run:

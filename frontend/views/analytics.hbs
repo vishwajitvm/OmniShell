@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-8">
+    <div class="max-w-6xl mx-auto space-y-8">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-blue-400">📊 LLM Token Analytics</h1>
+            <a href="/" class="flex items-center space-x-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-4 py-2 rounded-lg transition-all shadow"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg><span>Back to Command Center</span></a>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-gray-800 p-4 rounded-lg flex space-x-4 items-center shadow-lg border border-gray-700">
+            <span class="text-gray-400 font-semibold uppercase text-sm tracking-wider">Filters:</span>
+            <select id="timeFilter" class="bg-gray-700 text-white p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="year">This Year</option>
+            </select>
+            <select id="providerFilter" class="bg-gray-700 text-white p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Providers</option>
+            </select>
+            <select id="modelFilter" class="bg-gray-700 text-white p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="all">All Models</option>
+            </select>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 text-center">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider mb-2">Total Executions</h3>
+                <p id="totalExec" class="text-4xl font-bold text-blue-400">0</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 text-center">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider mb-2">Total Tokens Used</h3>
+                <p id="totalTokens" class="text-4xl font-bold text-purple-400">0</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 text-center">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider mb-2">Success Rate</h3>
+                <p id="successRate" class="text-4xl font-bold text-green-400">0%</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 text-center">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider mb-2">Failure Rate</h3>
+                <p id="failureRate" class="text-4xl font-bold text-red-400">0%</p>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+                <h3 class="text-lg font-bold mb-4 text-center">Token Usage Over Time</h3>
+                <canvas id="usageChart"></canvas>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+                <h3 class="text-lg font-bold mb-4 text-center">Success vs Failure</h3>
+                <div class="w-2/3 mx-auto">
+                    <canvas id="successChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Fallback Flow -->
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
+            <h3 class="text-lg font-bold mb-4">Current Fallback Flow</h3>
+            <p class="text-sm text-gray-400 mb-2">The system attempts models in this exact order to guarantee execution:</p>
+            <div id="fallbackFlow" class="flex flex-wrap gap-2">
+                <!-- Badges will be injected here -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let rawData = [];
+        let fallbackFlow = [];
+        let chartInstance = null;
+        let pieInstance = null;
+
+        async function loadData() {
+            try {
+                const res = await fetch('http://localhost:8000/api/analytics');
+                const json = await res.json();
+                rawData = json.data || [];
+                fallbackFlow = json.fallback_flow || [];
+                
+                populateFilters();
+                renderFallbackFlow();
+                updateDashboard();
+            } catch(e) {
+                console.error("Failed to load analytics", e);
+            }
+        }
+
+        function renderFallbackFlow() {
+            const container = document.getElementById('fallbackFlow');
+            container.innerHTML = '';
+            fallbackFlow.forEach((model, i) => {
+                const span = document.createElement('span');
+                span.className = 'px-3 py-1 rounded bg-blue-900/50 border border-blue-500 text-blue-300 text-sm';
+                span.innerText = `${i+1}. ${model}`;
+                container.appendChild(span);
+            });
+        }
+
+        function populateFilters() {
+            const providers = new Set();
+            const models = new Set();
+            rawData.forEach(d => {
+                if(d.provider) providers.add(d.provider);
+                if(d.model) models.add(d.model);
+            });
+
+            const pFilter = document.getElementById('providerFilter');
+            providers.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p; opt.innerText = p;
+                pFilter.appendChild(opt);
+            });
+
+            const mFilter = document.getElementById('modelFilter');
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m; opt.innerText = m;
+                mFilter.appendChild(opt);
+            });
+        }
+
+        function filterData() {
+            const tFilter = document.getElementById('timeFilter').value;
+            const pFilter = document.getElementById('providerFilter').value;
+            const mFilter = document.getElementById('modelFilter').value;
+            
+            const now = Date.now() / 1000;
+            const oneDay = 86400;
+
+            return rawData.filter(d => {
+                if(pFilter !== 'all' && d.provider !== pFilter) return false;
+                if(mFilter !== 'all' && d.model !== mFilter) return false;
+
+                const diff = now - d.timestamp;
+                if(tFilter === 'today' && diff > oneDay) return false;
+                if(tFilter === 'yesterday' && (diff < oneDay || diff > oneDay*2)) return false;
+                if(tFilter === 'week' && diff > oneDay*7) return false;
+                if(tFilter === 'month' && diff > oneDay*30) return false;
+                if(tFilter === 'last_month' && (diff < oneDay*30 || diff > oneDay*60)) return false;
+                if(tFilter === 'year' && diff > oneDay*365) return false;
+
+                return true;
+            });
+        }
+
+        function updateDashboard() {
+            const data = filterData();
+            
+            const totalExec = data.length;
+            const successCount = data.filter(d => d.success).length;
+            const failureCount = totalExec - successCount;
+            const totalTokens = data.reduce((sum, d) => sum + (d.total_tokens || 0), 0);
+
+            document.getElementById('totalExec').innerText = totalExec;
+            document.getElementById('totalTokens').innerText = totalTokens.toLocaleString();
+            
+            const successRate = totalExec ? Math.round((successCount / totalExec) * 100) : 0;
+            const failureRate = totalExec ? Math.round((failureCount / totalExec) * 100) : 0;
+            
+            document.getElementById('successRate').innerText = `${successRate}%`;
+            document.getElementById('failureRate').innerText = `${failureRate}%`;
+
+            renderCharts(data, successCount, failureCount);
+        }
+
+        function renderCharts(data, successCount, failureCount) {
+            // Group by date for line chart
+            const grouped = {};
+            data.forEach(d => {
+                const date = new Date(d.timestamp * 1000).toLocaleDateString();
+                grouped[date] = (grouped[date] || 0) + (d.total_tokens || 0);
+            });
+
+            const labels = Object.keys(grouped).sort();
+            const chartData = labels.map(l => grouped[l]);
+
+            if(chartInstance) chartInstance.destroy();
+            const ctx = document.getElementById('usageChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Tokens',
+                        data: chartData,
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96, 165, 250, 0.2)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            if(pieInstance) pieInstance.destroy();
+            const pCtx = document.getElementById('successChart').getContext('2d');
+            pieInstance = new Chart(pCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Success', 'Failure'],
+                    datasets: [{
+                        data: [successCount, failureCount],
+                        backgroundColor: ['#4ade80', '#f87171'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '70%'
+                }
+            });
+        }
+
+        document.getElementById('timeFilter').addEventListener('change', updateDashboard);
+        document.getElementById('providerFilter').addEventListener('change', updateDashboard);
+        document.getElementById('modelFilter').addEventListener('change', updateDashboard);
+
+        loadData();
+    </script>
+</body>
+</html>

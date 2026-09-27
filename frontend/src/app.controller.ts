@@ -7,4 +7,10 @@ export class AppController {
   root() {
     return { title: 'Agentic SaaS Architect (NestJS)' };
   }
+
+  @Get('/analytics')
+  @Render('analytics')
+  analytics() {
+    return { title: 'LLM Analytics Dashboard' };
+  }
 }

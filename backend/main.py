@@ -222,7 +222,43 @@ Search Results:
         logger.warning(f"[Research Agent] Failed: {type(e).__name__} - {str(e)}")
         return None
 
-@app.post("/api/generate-workflow", response_model=MultiAgentResult)
+
+import time
+
+def record_llm_usage(model_name: str, success: bool, tokens: dict, error: str = None):
+    if not redis_client:
+        return
+    try:
+        provider = model_name.split("/")[0] if "/" in model_name else "gemini"
+        data = {
+            "timestamp": int(time.time()),
+            "model": model_name,
+            "provider": provider,
+            "success": success,
+            "prompt_tokens": tokens.get("prompt_tokens", 0),
+            "completion_tokens": tokens.get("completion_tokens", 0),
+            "total_tokens": tokens.get("total_tokens", 0),
+            "error": error
+        }
+        redis_client.lpush("llm_analytics", json.dumps(data))
+    except Exception as e:
+        logger.warning(f"Failed to record LLM usage: {e}")
+
+@app.get("/api/analytics")
+def get_analytics():
+    if not redis_client:
+        return {"data": [], "fallback_flow": FALLBACK_MODELS}
+    records = redis_client.lrange("llm_analytics", 0, -1)
+    data = []
+    for r in records:
+        try:
+            data.append(json.loads(r))
+        except:
+            pass
+    return {"data": data, "fallback_flow": FALLBACK_MODELS}
+
+@app.post("/api/generate-workflow"
+, response_model=MultiAgentResult)
 async def generate_workflow(request: AutomationRequest):
     system_prompt = f"""
     You are a Multi-Agent OS Automation Syndicate. 
@@ -308,7 +344,25 @@ async def generate_workflow(request: AutomationRequest):
                 raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             
             structured_data = json.loads(raw_content)
+            
             logger.debug("Extracted JSON data from model response")
+            
+            # --- Analytics Recording ---
+            usage = getattr(response, "usage", {})
+            if isinstance(usage, dict):
+                t = {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                }
+            else:
+                t = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage, "completion_tokens", 0),
+                    "total_tokens": getattr(usage, "total_tokens", 0)
+                }
+            record_llm_usage(model_name, True, t)
+
             
             # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
             prompt_lower = request.natural_language_prompt.lower()

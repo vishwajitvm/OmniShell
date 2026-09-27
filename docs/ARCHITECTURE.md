@@ -5,10 +5,10 @@ OmniShell relies on a strict separation of concerns to maintain security while e
 ## The 5-Agent Syndicate
 Within the FastAPI backend, requests are processed by a multi-agent system before any code is generated:
 1. **Intent & Planning:** Parses natural language into a logical sequence of actions.
-2. **Content Generation:** Translates rough notes into URL-encoded, professional text payloads (emails, messages, etc.).
-3. **Security Guard:** A rigid rule-engine that strips out destructive commands and forces compliance (e.g., downgrading a "send" command to a "draft" command).
-4. **Command Research Agent:** 🆕 Searches the web in real-time (via DuckDuckGo) to find the correct CLI command. Uses a second LLM to extract the precise command from search results. Stores learned commands in Redis for future use.
-5. **Execution Planner:** Maps the finalized intent to either a `requires_browser=True` Deep Link URL, or a `shell_script` for local OS execution.
+2. **System Reconnaissance:** 🆕 Dynamically writes scripts to discover available applications locally (e.g. searching for text editors) to prevent hallucinating hardcoded paths on different OS builds.
+3. **Security Guard:** A rigid rule-engine that strips out destructive commands and forces compliance.
+4. **Command Research Agent:** Searches the web in real-time (via DuckDuckGo) to find the correct CLI command. Uses a second LLM to extract the precise command from search results. Stores learned commands in Redis for future use.
+5. **Execution Planner:** Maps the finalized intent to either a `requires_browser=True` Deep Link URL, or a robust, fault-tolerant `shell_script` for local OS execution.
 
 ## 3-Tier Command Resolution
 
