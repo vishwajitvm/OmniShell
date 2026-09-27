@@ -1,9 +1,11 @@
 import os
 import json
+import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import litellm
+import redis
 from tracenest.logger import Logger
 from tracenest.fastapi.middleware import TraceNestMiddleware
 from tracenest.ui.router import router as tracenest_router
@@ -44,7 +46,6 @@ class MultiAgentResult(BaseModel):
     expected_process: str | None = Field(default=None, description="The name of the executable process that should be running after execution (e.g. 'excel', 'code', 'spotify', 'explorer'). Used to validate 100% completion.")
     mermaid_diagram_body: str = Field(description="ONLY the body of the flowchart. DO NOT include 'graph TD;'. You MUST map out a highly detailed, branching diagram showing parallel agent work and decision trees. Example: P[Prompt] --> OS[OS Analyzer]; P --> SG[Security Guard]; OS -.-> EP[Execution Planner]; SG -.-> EP; EP -->|Web| W[URL]; EP -->|Local| S[Script]; W --> H[Host]; S --> H; H --> UI[UI];")
     model_used: str | None = Field(default=None)
-    model_used: str | None = Field(default=None)
 
 # Fallback Models (Smartest 70B+ models first to ensure strict prompt adherence)
 FALLBACK_MODELS = [
@@ -56,17 +57,148 @@ FALLBACK_MODELS = [
     "gemini/gemini-1.5-flash"
 ]
 
+# --- LEARNED APP KNOWLEDGE BASE ---
+# This dictionary is the system's "memory" of correct commands.
+# When the LLM hallucinates wrong scripts, the middleware below overrides them.
+# Future: This will be backed by Redis/PostgreSQL for dynamic learning.
+KNOWN_APP_COMMANDS = {
+    # App aliases -> { "script": correct command, "process": expected process name }
+    "vscode": {"script": "code", "process": "Code.exe"},
+    "vs code": {"script": "code", "process": "Code.exe"},
+    "visual studio code": {"script": "code", "process": "Code.exe"},
+    "notepad": {"script": "notepad", "process": "notepad.exe"},
+    "calculator": {"script": "calc", "process": "Calculator.exe"},
+    "paint": {"script": "mspaint", "process": "mspaint.exe"},
+    "file explorer": {"script": 'Start-Process "explorer"', "process": "explorer.exe"},
+    "task manager": {"script": "taskmgr", "process": "Taskmgr.exe"},
+    "camera": {"script": "Start-Process 'microsoft.windows.camera:'", "process": "WindowsCamera.exe"},
+    "recycle bin": {"script": 'Start-Process "shell:RecycleBinFolder"', "process": "explorer.exe"},
+    "git bash": {"script": 'Start-Process "C:\\Program Files\\Git\\git-bash.exe"', "process": "git-bash.exe"},
+    "terminal": {"script": "wt", "process": "WindowsTerminal.exe"},
+    "powershell": {"script": "powershell", "process": "powershell.exe"},
+    "word": {"script": "winword", "process": "WINWORD.EXE"},
+    "excel": {"script": "excel", "process": "EXCEL.EXE"},
+    "powerpoint": {"script": "powerpnt", "process": "POWERPNT.EXE"},
+    "cmd": {"script": "cmd", "process": "cmd.exe"},
+    "snipping tool": {"script": "snippingtool", "process": "SnippingTool.exe"},
+    "settings": {"script": "start ms-settings:", "process": "SystemSettings.exe"},
+    "spotify": {"script": "Start-Process 'spotify:'", "process": "Spotify.exe"},
+}
+
+# --- REDIS LEARNING STORE ---
+# Connect to Redis for persistent command learning across restarts.
+try:
+    redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "redis"), port=6379, db=0, decode_responses=True)
+    redis_client.ping()
+    logger.info("Redis Learning Store connected successfully")
+except Exception as e:
+    redis_client = None
+    logger.warning(f"Redis unavailable, falling back to in-memory only: {e}")
+
+def get_learned_command(app_name: str) -> dict | None:
+    """Check Redis for a previously learned correct command."""
+    if not redis_client:
+        return None
+    try:
+        cached = redis_client.get(f"learned_cmd:{app_name}")
+        if cached:
+            logger.info(f"Redis Cache HIT for '{app_name}'")
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning(f"Redis lookup failed: {e}")
+    return None
+
+def store_learned_command(app_name: str, script: str, process: str):
+    """Store a verified correct command in Redis for future use."""
+    if not redis_client:
+        return
+    try:
+        data = {"script": script, "process": process}
+        redis_client.set(f"learned_cmd:{app_name}", json.dumps(data))
+        logger.info(f"Redis STORED learned command: '{app_name}' -> '{script}'")
+    except Exception as e:
+        logger.warning(f"Redis store failed: {e}")
+
+# --- COMMAND RESEARCH AGENT ---
+# Searches the web in parallel with the main LLM to find the correct command.
+async def research_command(app_query: str, target_os: str) -> dict | None:
+    """
+    Agent 5: Command Research Agent
+    Searches DuckDuckGo for the correct CLI command, then uses a fast LLM
+    to extract the precise command from search results.
+    """
+    try:
+        from duckduckgo_search import DDGS
+        
+        # Determine OS keyword for search
+        os_keyword = "Windows PowerShell" if "windows" in target_os.lower() else "Linux bash"
+        search_query = f"how to open {app_query} from command line {os_keyword}"
+        
+        logger.info(f"[Research Agent] Searching: '{search_query}'")
+        
+        # Run DuckDuckGo search in a thread (it's synchronous)
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, lambda: list(DDGS().text(search_query, max_results=5)))
+        
+        if not results:
+            logger.warning("[Research Agent] No search results found")
+            return None
+        
+        # Build context from search results
+        search_context = "\n\n".join([
+            f"Title: {r.get('title', '')}\nSnippet: {r.get('body', '')}" 
+            for r in results[:5]
+        ])
+        
+        logger.info(f"[Research Agent] Got {len(results)} search results, extracting command...")
+        
+        # Use a fast LLM to extract the correct command from search results
+        extraction_prompt = f"""You are a command extraction agent. Given these search results about opening '{app_query}' on {os_keyword}, extract the SIMPLEST correct command that works.
+
+RULES:
+- Return ONLY valid JSON: {{"script": "the_command", "process": "expected_process.exe"}}
+- For Windows: prefer simple commands like 'code' over long paths like 'Start-Process -FilePath "C:\\..."'
+- If the app adds itself to PATH, just use the short command name
+- The 'process' field should be the .exe name that appears in Task Manager
+- NO explanations, NO markdown, JUST the JSON object
+
+Search Results:
+{search_context}"""
+
+        extract_response = await litellm.acompletion(
+            model="openrouter/google/gemini-2.0-flash-exp:free",
+            messages=[
+                {"role": "system", "content": "You extract CLI commands from search results. Return ONLY raw JSON."},
+                {"role": "user", "content": extraction_prompt}
+            ],
+            timeout=10.0
+        )
+        
+        raw = extract_response.choices[0].message.content.strip()
+        # Clean markdown fencing if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        
+        result = json.loads(raw)
+        logger.info(f"[Research Agent] Extracted command: script='{result.get('script')}', process='{result.get('process')}'")
+        return result
+        
+    except Exception as e:
+        logger.warning(f"[Research Agent] Failed: {type(e).__name__} - {str(e)}")
+        return None
+
 @app.post("/api/generate-workflow", response_model=MultiAgentResult)
 async def generate_workflow(request: AutomationRequest):
     system_prompt = f"""
     You are a Multi-Agent OS Automation Syndicate. 
     You are receiving a request from a user on the following OS environment: '{request.user_agent_os}'.
     
-    You must simulate a highly advanced discussion between FOUR distinct agents:
+    You must simulate a highly advanced discussion between FIVE distinct agents:
     1. Intent & Planning Agent: Breaks down the plain English prompt into logical, multi-step execution sequences.
     2. Content Generation Agent: If the user provides rough instructions for an email, message, or search, this agent expands it into a fully professional, context-aware text body, and URL-encodes it so it can be passed into deep links.
     3. Security Guard: Strictly checks for malicious intent (formatting disks, viruses) AND enforces operational constraints (e.g., if the user asks to SEND an email, the Guard MUST downgrade it to DRAFT ONLY. Sending without manual review is illegal). 
-    4. Execution Planner: Takes the finalized plan and content, then decides if it requires a URL/Deep Link OR a local Desktop App script.
+    4. Command Research Agent: Searches the web in real-time to verify the correct CLI command for the target application. Cross-references with the internal knowledge base and Redis cache to avoid repeating past mistakes.
+    5. Execution Planner: Takes the finalized plan, verified command, and content, then decides if it requires a URL/Deep Link OR a local Desktop App script.
        CRITICAL RULES FOR JSON OUTPUT:
        - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...". DO NOT write a shell script for this.
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email... say X"), construct the exact deep link! Example: target_url="https://mail.google.com/mail/?view=cm&fs=1&to=person@email.com&su=Subject&body=URL_ENCODED_PROFESSIONAL_BODY". DO NOT write a local PowerShell SMTP script.
@@ -176,6 +308,57 @@ async def generate_workflow(request: AutomationRequest):
                         structured_data["requires_browser"] = True
                         if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
                             structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
+
+                # --- INTELLIGENT COMMAND RESOLUTION (3-tier) ---
+                # Tier 1: Redis Cache (instant, previously learned)
+                # Tier 2: KNOWN_APP_COMMANDS (hardcoded knowledge base)
+                # Tier 3: Research Agent (web search + LLM extraction)
+                
+                if not structured_data.get("requires_browser"):
+                    resolved_command = None
+                    resolution_source = None
+                    
+                    # Extract the app name from the prompt for lookups
+                    app_keywords = prompt_lower.replace("open ", "").replace("launch ", "").replace("start ", "").strip()
+                    
+                    # --- TIER 1: Redis Cache ---
+                    redis_result = get_learned_command(app_keywords)
+                    if redis_result:
+                        resolved_command = redis_result
+                        resolution_source = "Redis Cache (previously learned)"
+                    
+                    # --- TIER 2: KNOWN_APP_COMMANDS ---
+                    if not resolved_command:
+                        for app_alias, app_data in KNOWN_APP_COMMANDS.items():
+                            if app_alias in prompt_lower:
+                                resolved_command = app_data
+                                resolution_source = f"Knowledge Base (matched '{app_alias}')"
+                                # Also cache in Redis for faster future lookups
+                                store_learned_command(app_alias, app_data["script"], app_data["process"])
+                                break
+                    
+                    # --- TIER 3: Research Agent (web search) ---
+                    if not resolved_command and not structured_data.get("requires_browser"):
+                        logger.info(f"[Tier 3] No cached/known command. Deploying Research Agent for: '{app_keywords}'")
+                        research_result = await research_command(app_keywords, request.user_agent_os)
+                        if research_result and research_result.get("script"):
+                            resolved_command = research_result
+                            resolution_source = "Research Agent (web search + LLM extraction)"
+                            # Learn it for next time!
+                            store_learned_command(app_keywords, research_result["script"], research_result.get("process", ""))
+                            # Add the Research Agent to the discussion log
+                            structured_data.setdefault("multi_agent_discussion", []).append({
+                                "agent_name": "Command Research Agent",
+                                "thought": f"Searched the web for the correct command to '{app_keywords}'. Found: '{research_result['script']}'. Stored in Redis for instant future lookups."
+                            })
+                    
+                    # Apply the resolved command (from any tier)
+                    if resolved_command:
+                        structured_data["requires_browser"] = False
+                        structured_data["shell_script"] = resolved_command["script"]
+                        structured_data["expected_process"] = resolved_command.get("process", "")
+                        structured_data["target_url"] = ""
+                        logger.info(f"Command resolved via {resolution_source}: script='{resolved_command['script']}'")
             # --------------------------------------
             
             structured_data['model_used'] = model_name

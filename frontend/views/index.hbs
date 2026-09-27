@@ -249,16 +249,43 @@
                     }
                 }
 
-                // Render Mermaid (Dynamically fixing the missing "graph TD;" issue)
+                // Render Mermaid (Dynamically fixing syntax issues)
                 if (data.mermaid_diagram_body) {
                     const container = document.getElementById('mermaid-container');
                     try {
-                        const fullMermaidString = `graph TD;\n${data.mermaid_diagram_body.replace(/graph TD;?/g, '')}`; // Ensure no duplicate headers
+                        // Sanitize the mermaid body to fix common LLM syntax errors
+                        let mermaidBody = data.mermaid_diagram_body
+                            .replace(/graph TD;?\n?/g, '')  // Remove duplicate headers
+                            .replace(/```mermaid/g, '')     // Remove markdown fencing
+                            .replace(/```/g, '')            // Remove closing fences
+                            .replace(/\[\[/g, '[')          // Fix double brackets
+                            .replace(/\]\]/g, ']')          // Fix double brackets
+                            .replace(/[()]/g, match => match === '(' ? '[' : ']')  // Replace parens with brackets in node defs
+                            .replace(/[{}]/g, match => match === '{' ? '[' : ']')  // Replace curlies with brackets  
+                            .replace(/\n\s*\n/g, '\n')      // Remove empty lines
+                            .trim();
+                        
+                        // Ensure each line that looks like a node definition uses safe bracket syntax
+                        const fullMermaidString = `graph TD;\n${mermaidBody}`;
+                        
+                        // Remove previous render if exists
+                        const existingChart = document.getElementById('mermaid-chart');
+                        if (existingChart) existingChart.remove();
+                        
                         const { svg } = await window.mermaid.render('mermaid-chart', fullMermaidString);
                         container.innerHTML = svg;
                     } catch(err) {
-                        console.error('Mermaid render failed', err);
-                        container.innerHTML = `<div class="text-red-500 text-sm">Mermaid Syntax Error</div>`;
+                        console.error('Mermaid render failed:', err);
+                        // Fallback: show a safe static diagram
+                        try {
+                            const fallbackDiagram = `graph TD;\nP[User Prompt] --> A1[Intent Agent];\nP --> A2[Security Guard];\nA1 --> A3[Execution Planner];\nA2 --> A3;\nA3 --> E[Host Execution];\nE --> V[Validation];\nV --> UI[Frontend UI];`;
+                            const existingChart2 = document.getElementById('mermaid-chart');
+                            if (existingChart2) existingChart2.remove();
+                            const { svg } = await window.mermaid.render('mermaid-chart', fallbackDiagram);
+                            container.innerHTML = svg;
+                        } catch(e2) {
+                            container.innerHTML = `<div class="text-red-500 text-sm">Mermaid Syntax Error</div>`;
+                        }
                     }
                 }
 

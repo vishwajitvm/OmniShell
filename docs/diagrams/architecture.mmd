@@ -1,39 +1,70 @@
 graph TD;
-    %% Core Users & Interfaces
-    User((User)) -->|Natural Language| UI[Frontend UI - NestJS]
-    UI -->|HTTP POST| Backend[Backend API - FastAPI]
+    %% ============================================================
+    %% 5-AGENT MULTI-AGENT SYNDICATE ARCHITECTURE
+    %% With 3-Tier Command Resolution Pipeline
+    %% ============================================================
 
-    %% Infrastructure & Tracing
-    Backend -.->|Logs Agent Thoughts| TraceNest[(TraceNest Logger)]
-    Backend -.->|Caches State| Redis[(Redis Cache)]
-    Backend -.->|Saves History| Postgres[(PostgreSQL DB)]
+    User((User)) -->|"Natural Language Prompt"| UI[Frontend UI - NestJS];
+    UI -->|"HTTP POST"| Backend[Backend API - FastAPI];
 
-    %% Agent Swarm (The Syndicate)
-    subgraph Agent Swarm
-        Backend --> IntentPlan[1. Intent & Planning Agent]
-        IntentPlan --> ContentGen[2. Content Generation Agent]
-        ContentGen --> SecGuard[3. Security Guard]
-        SecGuard --> ExecPlanner[4. Execution Planner]
+    %% Infrastructure
+    Backend -.->|"Logs"| TraceNest[(TraceNest Logger)];
+
+    %% 5-Agent Swarm
+    subgraph Agent Swarm - The Syndicate
+        Backend --> IntentPlan["1. Intent and Planning Agent"];
+        IntentPlan --> ContentGen["2. Content Generation Agent"];
+        ContentGen --> SecGuard["3. Security Guard"];
+        SecGuard --> ResearchAgent["4. Command Research Agent"];
+        ResearchAgent --> ExecPlanner["5. Execution Planner"];
     end
 
-    %% Security Logic
-    SecGuard -->|Malicious / Destructive| Block((BLOCKED))
-    SecGuard -.->|Downgrades 'Send' to 'Draft'| ExecPlanner
+    %% Security Gate
+    SecGuard -->|"Malicious"| Block["BLOCKED"];
+    SecGuard -.->|"Downgrades Send to Draft"| ExecPlanner;
+
+    %% 3-Tier Command Resolution
+    subgraph 3-Tier Command Resolution
+        ExecPlanner --> Tier1{"Tier 1: Redis Cache"};
+        Tier1 -->|"Cache HIT"| Resolved["Use Cached Command"];
+        Tier1 -->|"Cache MISS"| Tier2{"Tier 2: KNOWN_APP_COMMANDS"};
+        Tier2 -->|"Match Found"| Resolved;
+        Tier2 -->|"No Match"| Tier3["Tier 3: Research Agent"];
+        Tier3 -->|"DuckDuckGo Search"| WebSearch["Web Search Results"];
+        WebSearch -->|"LLM Extraction"| ExtractCmd["Extract Correct Command"];
+        ExtractCmd --> Resolved;
+        ExtractCmd -->|"Learn for next time"| Redis[(Redis Cache)];
+    end
 
     %% Execution Routing
-    ExecPlanner -->|Decision: Web/URL?| WebTask[requires_browser=True]
-    ExecPlanner -->|Decision: Local OS?| LocalTask[shell_script=Generated Code]
+    Resolved -->|"Web URL"| WebTask["requires_browser = True"];
+    Resolved -->|"Local App"| LocalTask["shell_script = Correct Command"];
 
-    WebTask --> DockerBridge{Docker-to-Host Bridge}
-    LocalTask --> DockerBridge
+    WebTask --> DockerBridge{"Docker-to-Host Bridge"};
+    LocalTask --> DockerBridge;
 
     %% Host Execution
     subgraph Native Host Machine
-        DockerBridge -->|Port 8003| LocalExecutor[local_executor.py]
-        LocalExecutor -->|Web Task| OpenBrowser[Pop Open Browser Native]
-        LocalExecutor -->|Local Task| OpenTerminal[CREATE_NEW_CONSOLE popup]
-        OpenTerminal --> Validation[psutil Validation: Did it launch?]
-        OpenBrowser --> Validation
+        DockerBridge -->|"Port 8003"| LocalExecutor["local_executor.py"];
+        LocalExecutor -->|"Web Task"| OpenBrowser["Open Browser"];
+        LocalExecutor -->|"Local Task"| OpenTerminal["PowerShell Console"];
+        OpenTerminal --> Validation["psutil Process Validation"];
+        OpenBrowser --> Validation;
     end
 
-    Validation -->|Validation Output| UI
+    %% Feedback Loop
+    Validation -->|"Success"| StoreSuccess["Store in Redis + PostgreSQL"];
+    Validation -->|"Failure"| LogFailure["Log for future training"];
+    Validation -->|"Result"| UI;
+
+    %% Styling
+    style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style ResearchAgent fill:#FF9800,stroke:#E65100,color:#fff;
+    style Tier1 fill:#E91E63,stroke:#880E4F,color:#fff;
+    style Tier2 fill:#2196F3,stroke:#1565C0,color:#fff;
+    style Tier3 fill:#FF9800,stroke:#E65100,color:#fff;
+    style Redis fill:#E91E63,stroke:#880E4F,color:#fff;
+    style Resolved fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Block fill:#F44336,stroke:#B71C1C,color:#fff;
+    style StoreSuccess fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style LogFailure fill:#F44336,stroke:#B71C1C,color:#fff;

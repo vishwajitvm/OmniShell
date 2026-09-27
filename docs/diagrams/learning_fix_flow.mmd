@@ -1,15 +1,66 @@
-xgraph TD;
-    Prompt[User Prompt] --> IntentPlan[Intent & Planning Agent];
-    IntentPlan --> ContentGen[Content Generation Agent];
-    IntentPlan --> SecGuard[Security Guard];
-    SecGuard --> ExecPlanner[Execution Planner];
-    ExecPlanner --> Decision{Detect Mistake?};
-    Decision -->|Yes| LogMistake[Log Mistake & Update Cache];
-    LogMistake --> UpdateCache[Update Learning Cache];
-    UpdateCache --> Notify[Notify User of Fix];
-    Notify --> End[Future Runs Use Updated Knowledge];
-    Decision -->|No| ShellNode[Shell Script];
-    ShellNode --> HostEngine[Host Execution];
-    HostEngine --> Validator[Process Validation];
-    Validator --> UI[Frontend UI];
-    UI --> End;
+graph TD;
+    %% ============================================================
+    %% COMPLETE LEARNING & SELF-CORRECTION SYSTEM
+    %% Shows how OmniShell learns from mistakes and self-corrects
+    %% ============================================================
+
+    %% 1. User Prompt Entry
+    User((User)) -->|"Natural language prompt<br/>e.g. 'open vs code'"| Backend[Backend API - FastAPI];
+
+    %% 2. LLM generates a raw command
+    Backend --> LLM["LLM Agent Pipeline<br/>(Intent → Content → Security → Exec)"];
+    LLM --> RawCmd["Raw LLM Output<br/>e.g. Start-Process Code.exe"];
+
+    %% 3. Knowledge Base Check FIRST
+    RawCmd --> KBCheck{"Check KNOWN_APP_COMMANDS<br/>Knowledge Base"};
+
+    %% 4a. Match Found → Override LLM Output
+    KBCheck -->|"✅ Match Found<br/>(key: 'vs code')"| Override["OVERRIDE LLM Output<br/>Use corrected command: 'code'"];
+
+    %% 4b. No Match → Use LLM Output As-Is
+    KBCheck -->|"❌ No Match"| PassThru["Use LLM Output As-Is"];
+
+    %% 5. Execution on Host
+    Override --> Exec["Host Execution<br/>(local_executor.py via Port 8003)"];
+    PassThru --> Exec;
+
+    %% 6. Process Validation with psutil
+    Exec --> Validate{"psutil Process Validator<br/>Is expected_process running?"};
+
+    %% 7a. Validation SUCCESS
+    Validate -->|"✅ Process Found<br/>(e.g. Code.exe running)"| Success["✅ SUCCESS<br/>Return result to user"];
+    Success --> UI[Frontend UI];
+
+    %% 7b. Validation FAILS → Learn from mistake
+    Validate -->|"❌ Process NOT Found"| Fail["❌ VALIDATION FAILED"];
+
+    %% 8. Log the mistake
+    Fail --> LogMistake["Log Mistake<br/>Record: wrong command, expected process,<br/>timestamp, error details"];
+
+    %% 9. Update Knowledge Base for next time
+    LogMistake --> UpdateKB["Update KNOWN_APP_COMMANDS<br/>Add/correct the mapping"];
+
+    %% 10. Redis caches corrected mapping for fast lookup
+    UpdateKB --> RedisCache[("Redis Cache<br/>Fast corrected mapping lookup<br/>key: 'vs code' → val: 'code'")];
+
+    %% 11. PostgreSQL stores full correction history
+    UpdateKB --> Postgres[("PostgreSQL DB<br/>Full correction history<br/>timestamps, attempts, diffs")];
+
+    %% 12. Notify user and prepare for next run
+    RedisCache --> NextRun["✅ Next Run Uses<br/>Corrected Knowledge"];
+    Postgres --> NextRun;
+    NextRun --> UI;
+
+    %% Styling
+    style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style KBCheck fill:#FF9800,stroke:#E65100,color:#fff;
+    style Override fill:#2196F3,stroke:#1565C0,color:#fff;
+    style PassThru fill:#9E9E9E,stroke:#616161,color:#fff;
+    style Validate fill:#FF9800,stroke:#E65100,color:#fff;
+    style Success fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Fail fill:#F44336,stroke:#B71C1C,color:#fff;
+    style LogMistake fill:#F44336,stroke:#B71C1C,color:#fff;
+    style UpdateKB fill:#7C4DFF,stroke:#4A148C,color:#fff;
+    style RedisCache fill:#E91E63,stroke:#880E4F,color:#fff;
+    style Postgres fill:#3F51B5,stroke:#1A237E,color:#fff;
+    style NextRun fill:#4CAF50,stroke:#2E7D32,color:#fff;

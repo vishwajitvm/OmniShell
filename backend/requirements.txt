@@ -4,5 +4,7 @@ pydantic
 litellm
 asyncpg
 redis
+duckduckgo-search
+httpx
 
 tracenest

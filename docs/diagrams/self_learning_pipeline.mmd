@@ -1,0 +1,56 @@
+graph TD;
+    %% ============================================================
+    %% SELF-LEARNING PIPELINE - HOW THE SYSTEM LEARNS FROM MISTAKES
+    %% Real example: User says "open vs code"
+    %% ============================================================
+
+    %% === FIRST TIME: Unknown App ===
+    subgraph First Request - Learning Phase
+        U1((User)) -->|"open vs code"| LLM1["LLM generates script"];
+        LLM1 -->|"WRONG: Start-Process LOCALAPPDATA Code.exe"| T1{"Tier 1: Redis Cache"};
+        T1 -->|"MISS - never seen before"| T2{"Tier 2: Knowledge Base"};
+        T2 -->|"FOUND: vs code = code"| Override1["Override LLM with correct command: code"];
+        Override1 --> Exec1["Host executes: code"];
+        Exec1 --> Val1{"psutil: Is Code.exe running?"};
+        Val1 -->|"YES"| Store1["Store in Redis: vs code = code"];
+        Store1 --> Success1["VS Code opens correctly"];
+    end
+
+    %% === SECOND TIME: Cached Fast Path ===
+    subgraph Second Request - Instant from Cache
+        U2((User)) -->|"open vs code"| T1b{"Tier 1: Redis Cache"};
+        T1b -->|"HIT: vs code = code"| Skip["Skip LLM entirely"];
+        Skip --> Exec2["Host executes: code"];
+        Exec2 --> Success2["VS Code opens instantly"];
+    end
+
+    %% === BRAND NEW APP: Research Agent Deployed ===
+    subgraph Unknown App - Research Agent
+        U3((User)) -->|"open some-new-app"| LLM3["LLM generates best-guess"];
+        LLM3 --> T1c{"Tier 1: Redis Cache"};
+        T1c -->|"MISS"| T2c{"Tier 2: Knowledge Base"};
+        T2c -->|"MISS"| T3c["Tier 3: Research Agent"];
+        T3c --> DDG["DuckDuckGo Search: how to open some-new-app from command line"];
+        DDG --> Extract["Fast LLM extracts correct command from results"];
+        Extract --> Learn["Store in Redis for future"];
+        Learn --> Exec3["Host executes researched command"];
+        Exec3 --> Val3{"psutil validates"};
+        Val3 -->|"SUCCESS"| Done3["App opens + command permanently learned"];
+        Val3 -->|"FAILURE"| Log3["Log failure for manual review"];
+    end
+
+    %% Styling
+    style U1 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style U2 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style U3 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Override1 fill:#2196F3,stroke:#1565C0,color:#fff;
+    style Store1 fill:#E91E63,stroke:#880E4F,color:#fff;
+    style Success1 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Skip fill:#00BCD4,stroke:#006064,color:#fff;
+    style Success2 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style T3c fill:#FF9800,stroke:#E65100,color:#fff;
+    style DDG fill:#FF9800,stroke:#E65100,color:#fff;
+    style Extract fill:#FF9800,stroke:#E65100,color:#fff;
+    style Learn fill:#E91E63,stroke:#880E4F,color:#fff;
+    style Done3 fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Log3 fill:#F44336,stroke:#B71C1C,color:#fff;
