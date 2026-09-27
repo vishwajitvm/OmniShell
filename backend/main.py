@@ -37,25 +37,60 @@ class AgentThought(BaseModel):
     thought: str = Field(description="The internal reasoning and decision making of this agent")
 
 class MultiAgentResult(BaseModel):
-    multi_agent_discussion: list[AgentThought] = Field(description="The step-by-step discussion between the agents.")
-    is_safe: bool = Field(description="True if safe, False if malicious (formatting, viruses).")
-    target_os: str = Field(description="The detected OS (Windows, Linux, macOS, Android, iOS).")
-    requires_browser: bool = Field(description="Set to True ONLY if the user is asking to open a website, url, or web service (like Netflix, GitHub).")
-    target_url: str | None = Field(description="The full URL to open (e.g., 'https://www.netflix.com'). Required if requires_browser is True.")
-    shell_script: str = Field(description="Robust script to execute. Only used if requires_browser is False. E.g., Start-Process 'code'")
-    expected_process: str | None = Field(default=None, description="The name of the executable process that should be running after execution (e.g. 'excel', 'code', 'spotify', 'explorer'). Used to validate 100% completion.")
-    mermaid_diagram_body: str = Field(description="ONLY the body of the flowchart. DO NOT include 'graph TD;'. You MUST map out a highly detailed, branching diagram showing parallel agent work and decision trees. Example: P[Prompt] --> OS[OS Analyzer]; P --> SG[Security Guard]; OS -.-> EP[Execution Planner]; SG -.-> EP; EP -->|Web| W[URL]; EP -->|Local| S[Script]; W --> H[Host]; S --> H; H --> UI[UI];")
+    multi_agent_discussion: list[AgentThought] = Field(default_factory=list, description="The step-by-step discussion between the agents.")
+    is_safe: bool = Field(default=True, description="True if safe, False if malicious (formatting, viruses).")
+    target_os: str = Field(default="", description="The detected OS (Windows, Linux, macOS, Android, iOS).")
+    requires_browser: bool = Field(default=False, description="Set to True ONLY if the user is asking to open a website, url, or web service (like Netflix, GitHub).")
+    target_url: str | None = Field(default=None, description="The full URL to open (e.g., 'https://www.netflix.com'). Required if requires_browser is True.")
+    shell_script: str | None = Field(default=None, description="Robust script to execute. Only used if requires_browser is False. E.g., Start-Process 'code'")
+    expected_process: str | None = Field(default=None, description="The name of the executable process that should be running after execution.")
+    mermaid_diagram_body: str = Field(default="", description="ONLY the body of the flowchart.")
     model_used: str | None = Field(default=None)
 
 # Fallback Models (Smartest 70B+ models first to ensure strict prompt adherence)
-FALLBACK_MODELS = [
-    "openrouter/google/gemini-2.0-flash-exp:free",
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/nvidia/llama-3.1-nemotron-70b-instruct:free",
-    "groq/llama-3.3-70b-versatile",
-    "openrouter/meta-llama/llama-3.1-8b-instruct",
-    "gemini/gemini-1.5-flash"
-]
+FALLBACK_MODELS = []
+if os.getenv("OPENROUTER_API_KEY"):
+    FALLBACK_MODELS.extend([
+        "openrouter/meta-llama/llama-3.3-70b-instruct",
+        "openrouter/qwen/qwen-2.5-72b-instruct",
+        "openrouter/meta-llama/llama-3.1-8b-instruct",
+        "openrouter/mistralai/mistral-nemo",
+        "openrouter/deepseek/deepseek-chat"
+    ])
+if os.getenv("GROQ_API_KEY"):
+    FALLBACK_MODELS.extend([
+        "groq/llama3-8b-8192",
+        "groq/llama3-70b-8192",
+        "groq/mixtral-8x7b-32768"
+    ])
+if os.getenv("GEMINI_API_KEY"):
+    FALLBACK_MODELS.extend([
+        "gemini/gemini-1.5-flash",
+        "gemini/gemini-1.5-pro",
+        "gemini/gemini-pro",
+        "gemini/gemini-1.0-pro"
+    ])
+
+if not FALLBACK_MODELS:
+    # If no keys are found, inject a massive array of 16+ free models in hopes one is cached or allowed
+    FALLBACK_MODELS = [
+        "openrouter/google/gemini-2.0-flash-exp:free",
+        "openrouter/google/gemini-2.0-flash-thinking-exp:free",
+        "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter/nvidia/llama-3.1-nemotron-70b-instruct:free",
+        "openrouter/qwen/qwen-2.5-72b-instruct:free",
+        "openrouter/google/gemma-2-27b-it:free",
+        "openrouter/google/gemma-2-9b-it:free",
+        "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+        "openrouter/meta-llama/llama-3.2-3b-instruct:free",
+        "openrouter/meta-llama/llama-3.2-1b-instruct:free",
+        "openrouter/mistralai/mistral-nemo:free",
+        "openrouter/mistralai/mistral-7b-instruct:free",
+        "openrouter/microsoft/phi-3-medium-128k-instruct:free",
+        "openrouter/microsoft/phi-3-mini-128k-instruct:free",
+        "openrouter/deepseek/deepseek-chat:free",
+        "openrouter/cognitivecomputations/dolphin-3.0-r1-mistral-24b:free"
+    ]
 
 # --- LEARNED APP KNOWLEDGE BASE ---
 # This dictionary is the system's "memory" of correct commands.
@@ -212,6 +247,18 @@ async def generate_workflow(request: AutomationRequest):
        ZERO HALLUCINATION POLICY:
        Your ONLY job is to output the final script/URL. You CANNOT EXECUTE SCRIPTS. The user's machine will execute it.
 
+    YOU MUST OUTPUT STRICTLY A JSON OBJECT MATCHING THIS EXACT SCHEMA (do not omit ANY fields):
+    {{
+      "multi_agent_discussion": [{{"agent_name": "str", "thought": "str"}}],
+      "is_safe": true,
+      "target_os": "str",
+      "requires_browser": true,
+      "target_url": "str or null",
+      "shell_script": "str",
+      "expected_process": "str or null",
+      "mermaid_diagram_body": "str"
+    }}
+
     CRITICAL MERMAID RULES:
     Generate a HIGHLY DETAILED, NON-LINEAR flowchart mapping the exact agent architecture. 
     DO NOT just make a single straight line! Show parallel processes, decision trees, and data flows.
@@ -248,13 +295,17 @@ async def generate_workflow(request: AutomationRequest):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Task: {request.natural_language_prompt}"}
                 ],
-                response_format=MultiAgentResult,
+                response_format={"type": "json_object"},
                 timeout=20.0 
             )
             
             logger.log("TRACE", "Received raw LLM response", raw_content=response.choices[0].message.content)
             
-            structured_data = json.loads(response.choices[0].message.content)
+            raw_content = response.choices[0].message.content.strip()
+            if raw_content.startswith("```"):
+                raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            
+            structured_data = json.loads(raw_content)
             logger.debug("Extracted JSON data from model response")
             
             # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
@@ -371,6 +422,7 @@ async def generate_workflow(request: AutomationRequest):
             return MultiAgentResult(**structured_data)
             
         except Exception as e:
+            print(f"MODEL_FAILURE_DEBUG: Model {model_name} failed: {type(e).__name__} - {str(e)}", flush=True)
             logger.warning(f"Model {model_name} failed: {type(e).__name__} - {str(e)}")
             last_error = e
             continue 
