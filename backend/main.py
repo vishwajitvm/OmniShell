@@ -128,7 +128,29 @@ try:
     redis_client.ping()
     logger.info("Redis Learning Store connected successfully")
 except Exception as e:
-    redis_client = None
+    
+DB_POOL = None
+
+async def init_db():
+    global DB_POOL
+    db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgrespassword@postgres:5432/nl_automation")
+    DB_POOL = await asyncpg.create_pool(db_url)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
+                id SERIAL PRIMARY KEY,
+                message TEXT NOT NULL,
+                trigger_time TIMESTAMP NOT NULL,
+                status VARCHAR(20) DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+@app.on_event("startup")
+async def startup_event():
+    await init_db()
+
+redis_client = None
     logger.warning(f"Redis unavailable, falling back to in-memory only: {e}")
 
 def get_learned_command(app_name: str) -> dict | None:
@@ -280,7 +302,20 @@ async def generate_workflow(request: AutomationRequest):
        - REMINDERS & SCHEDULING: If the user asks to "remind me to...", "schedule", or do something at a specific future time (e.g., "tomorrow at 4pm"), YOU MUST target Google Calendar.
          * You know the current time, so CALCULATE the exact future date/time. Format it as YYYYMMDDTHHmmssZ/YYYYMMDDTHHmmssZ (e.g., 20261001T160000Z/20261001T170000Z).
          * Construct the URL: "https://calendar.google.com/calendar/render?action=TEMPLATE&text=[ENCODED_TITLE]&dates=[DATES]"
-         * The user DEMANDED that you automatically save the event. To do this on Linux/Windows, DO NOT set requires_browser=true. Instead, set requires_browser=false and write a Python shell script that uses `webbrowser.open("URL")`, sleeps for 5 seconds to let the browser load, and then uses `pyautogui` (install it via `pip install pyautogui --break-system-packages` if needed, or catch import error and install it in the script) to press 'ctrl' + 's' to save the Google Calendar event automatically!
+         * The user DEMANDED that you automatically save the event. To do this, DO NOT set requires_browser=true. Instead, set requires_browser=false and write a VALID BASH SCRIPT (using a HEREDOC) that fixes X11 display errors, installs pyautogui, and runs a Python file. Example:
+```bash
+export DISPLAY=:0
+export XAUTHORITY=$HOME/.Xauthority
+xhost +SI:localuser:$(whoami) 2>/dev/null || true
+pip3 install pyautogui --break-system-packages 2>/dev/null || true
+cat << 'EOF' > cal.py
+import webbrowser, time, pyautogui
+webbrowser.open('URL')
+time.sleep(6)
+pyautogui.hotkey('ctrl', 's')
+EOF
+python3 cal.py
+```
 
        - If the user asks to EMPTY/CLEAR the RECYCLE BIN: Look at target_os! If Windows, use `Clear-RecycleBin -Force`. If Linux, use `rm -rf ~/.local/share/Trash/*`. DO NOT hallucinate Windows commands on Linux.
        - If the user asks to OPEN an app (e.g. "text editor"): DO NOT HARDCODE PATHS. 
@@ -500,3 +535,15 @@ async def generate_workflow(request: AutomationRequest):
 
     logger.critical("All fallback models failed", error=str(last_error))
     raise HTTPException(status_code=500, detail=f"All fallback models failed. Last error: {str(last_error)}")
+
+@app.get("/api/reminders")
+async def get_reminders():
+    async with DB_POOL.acquire() as conn:
+        rows = await conn.fetch("SELECT id, message, trigger_time, status FROM reminders WHERE status = 'pending' ORDER BY trigger_time ASC")
+        return [{"id": r["id"], "message": r["message"], "trigger_time": r["trigger_time"].isoformat(), "status": r["status"]} for r in rows]
+
+@app.post("/api/reminders/{reminder_id}/complete")
+async def complete_reminder(reminder_id: int):
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("UPDATE reminders SET status = 'completed' WHERE id = $1", reminder_id)
+        return {"status": "success"}
