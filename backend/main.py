@@ -332,7 +332,10 @@ async def generate_workflow(request: AutomationRequest):
       "target_url": "str or null",
       "shell_script": "str",
       "expected_process": "str or null",
-      "mermaid_diagram_body": "str"
+      "mermaid_diagram_body": "str",
+      "is_reminder": true or false,
+      "reminder_time": "str or null",
+      "reminder_message": "str or null"
     }}
 
     CRITICAL MERMAID RULES:
