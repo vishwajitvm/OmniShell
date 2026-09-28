@@ -54,7 +54,8 @@ docker-compose up --build -d
 Open a terminal natively on your Windows/Linux machine (NOT inside Docker) and run:
 `ash
 pip install psutil
-python local_executor.py
+python local_executor.py or python3 local_executor.py 
+
 `
 *(Leave this window open! This is what listens for approved commands from the UI and executes them on your desktop).*
 
