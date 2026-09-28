@@ -10,6 +10,69 @@
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         window.mermaid = mermaid;
         mermaid.initialize({ startOnLoad: false, theme: 'base' });
+
+        // Zoom and Pan Logic for Mermaid Diagram
+        const mermaidContainer = document.getElementById('mermaid-container');
+        let currentZoom = 1;
+        const zoomStep = 0.15;
+        let isDragging = false;
+        let startX, startY;
+        let translateX = 0, translateY = 0;
+
+        function applyTransform() {
+            mermaidContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentZoom})`;
+        }
+
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            currentZoom += zoomStep;
+            applyTransform();
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            currentZoom = Math.max(0.2, currentZoom - zoomStep);
+            applyTransform();
+        });
+
+        document.getElementById('zoom-reset').addEventListener('click', () => {
+            currentZoom = 1;
+            translateX = 0;
+            translateY = 0;
+            applyTransform();
+        });
+
+        mermaidContainer.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            mermaidContainer.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            applyTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            mermaidContainer.style.cursor = 'move';
+        });
+        
+        // Also allow mouse wheel zoom when holding CTRL or CMD
+        mermaidContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    currentZoom += zoomStep;
+                } else {
+                    currentZoom = Math.max(0.2, currentZoom - zoomStep);
+                }
+                applyTransform();
+            }
+        });
+
     </script>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans p-4 sm:p-8">
@@ -69,7 +132,7 @@
     </div>
 
     <!-- Results -->
-    <div id="results-section" class="hidden max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 pb-20">
+    <div id="results-section" class="hidden max-w-6xl mx-auto flex flex-col gap-8 pb-20">
         
         <!-- Multi-Agent Discussion -->
         <div class="bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
@@ -88,11 +151,18 @@
 
         <!-- Mermaid Diagram -->
         <div class="bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
-            <h2 class="text-xl font-semibold text-slate-200 mb-6 flex items-center gap-2">
-                <span class="text-2xl">📊</span> Workflow Architecture
-            </h2>
-            <div class="flex-1 bg-white rounded-2xl p-6 border border-slate-700 flex items-center justify-center min-h-[300px]">
-                <div id="mermaid-container" class="w-full flex justify-center text-black"></div>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold text-slate-200 flex items-center gap-2">
+                    <span class="text-2xl">📊</span> Workflow Architecture
+                </h2>
+                <div class="flex gap-2">
+                    <button id="zoom-out" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm transition-colors cursor-pointer" type="button" aria-label="Zoom Out">-</button>
+                    <button id="zoom-reset" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm transition-colors cursor-pointer" type="button">Reset</button>
+                    <button id="zoom-in" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded text-sm transition-colors cursor-pointer" type="button" aria-label="Zoom In">+</button>
+                </div>
+            </div>
+            <div class="flex-1 bg-white rounded-2xl p-6 border border-slate-700 flex items-center justify-center min-h-[300px] overflow-hidden relative">
+                <div id="mermaid-container" class="w-full flex justify-center text-black transition-transform duration-200 origin-center cursor-move"></div>
             </div>
         </div>
 
@@ -428,6 +498,69 @@
                 document.getElementById('btn-spinner').classList.add('hidden');
             }
         });
+
+        // Zoom and Pan Logic for Mermaid Diagram
+        const mermaidContainer = document.getElementById('mermaid-container');
+        let currentZoom = 1;
+        const zoomStep = 0.15;
+        let isDragging = false;
+        let startX, startY;
+        let translateX = 0, translateY = 0;
+
+        function applyTransform() {
+            mermaidContainer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentZoom})`;
+        }
+
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            currentZoom += zoomStep;
+            applyTransform();
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            currentZoom = Math.max(0.2, currentZoom - zoomStep);
+            applyTransform();
+        });
+
+        document.getElementById('zoom-reset').addEventListener('click', () => {
+            currentZoom = 1;
+            translateX = 0;
+            translateY = 0;
+            applyTransform();
+        });
+
+        mermaidContainer.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            mermaidContainer.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            applyTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            mermaidContainer.style.cursor = 'move';
+        });
+        
+        // Also allow mouse wheel zoom when holding CTRL or CMD
+        mermaidContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (e.deltaY < 0) {
+                    currentZoom += zoomStep;
+                } else {
+                    currentZoom = Math.max(0.2, currentZoom - zoomStep);
+                }
+                applyTransform();
+            }
+        });
+
     </script>
 </body>
 </html>

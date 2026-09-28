@@ -37,16 +37,16 @@ docker-compose up --build -d
 ```
 > **Note:** The -d flag runs it in the background. To see the logs, you can run docker-compose logs -f.
 
-## 💻 Step 4: Start the Host Executor (Native OS)
+## 💻 Step 4: Start the Host Executor V2 (Native OS)
 The AI Brain is safely isolated in Docker. To allow it to execute approved commands on your actual Windows/Linux desktop, you must run the Host Executor natively.
 
 Open a **new terminal window** on your physical machine and run:
 
-`ash
+```bash
 pip install psutil
 python local_executor.py
 ```
-*(Leave this terminal window open! It listens on Port 8003 for approved commands).*
+*(Leave this terminal window open! It listens on Port 8003 for approved commands. The V2 executor runs safely in the background.)*
 
 ## 🌐 Step 5: Open the UI
 Everything is now running! Open your browser and navigate to:

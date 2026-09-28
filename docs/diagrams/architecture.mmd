@@ -1,27 +1,32 @@
 graph TD;
     %% ============================================================
-    %% 5-AGENT MULTI-AGENT SYNDICATE ARCHITECTURE
-    %% With 3-Tier Command Resolution Pipeline
+    %% 7-AGENT MULTI-AGENT SYNDICATE ARCHITECTURE
+    %% With 4-Layer Defense and V2 Executor
     %% ============================================================
 
     User((User)) -->|"Natural Language Prompt"| UI[Frontend UI - NestJS];
-    UI -->|"HTTP POST"| Backend[Backend API - FastAPI];
+    
+    UI -->|"HTTP POST"| Layer0{"Layer 0: Pre-LLM Regex Guardrail (Backend)"};
+    Layer0 -->|"Malicious Pattern"| Block["BLOCKED"];
+    Layer0 -->|"Safe"| Backend[Backend API - FastAPI];
 
     %% Infrastructure
     Backend -.->|"Logs"| TraceNest[(TraceNest Logger)];
 
-    %% 5-Agent Swarm
+    %% 7-Agent Swarm
     subgraph Agent Swarm - The Syndicate
-        Backend --> IntentPlan["1. Intent and Planning Agent"];
-        IntentPlan --> ContentGen["2. Content Generation Agent"];
-        ContentGen --> SecGuard["3. Security Guard"];
-        SecGuard --> ResearchAgent["4. Command Research Agent"];
-        ResearchAgent --> ExecPlanner["5. Execution Planner"];
+        Backend --> IntentPlan["1. Intent & Planning"];
+        IntentPlan --> SysRecon["2. System Reconnaissance"];
+        SysRecon --> ContentGen["3. Content Generation"];
+        ContentGen --> SecGuard["4. Security Guard (Layer 1)"];
+        SecGuard --> ResearchAgent["5. Command Research"];
+        ResearchAgent --> Critic["6. Command Validator (Critic)"];
+        Critic -->|"Rejects Draft"| ResearchAgent;
+        Critic -->|"Approves Draft"| ExecPlanner["7. Execution Planner"];
     end
 
     %% Security Gate
-    SecGuard -->|"Malicious"| Block["BLOCKED"];
-    SecGuard -.->|"Downgrades Send to Draft"| ExecPlanner;
+    SecGuard -->|"Malicious Intent"| Block;
 
     %% 3-Tier Command Resolution
     subgraph 3-Tier Command Resolution
@@ -40,15 +45,19 @@ graph TD;
     Resolved -->|"Web URL"| WebTask["requires_browser = True"];
     Resolved -->|"Local App"| LocalTask["shell_script = Correct Command"];
 
-    WebTask --> DockerBridge{"Docker-to-Host Bridge"};
-    LocalTask --> DockerBridge;
+    WebTask --> Layer2{"Layer 2: Frontend Double-Confirmation"};
+    LocalTask --> Layer2;
+    
+    Layer2 -->|"Approved"| Layer3{"Layer 3: Frontend Regex Override"};
+    Layer3 -->|"Malicious Script"| Block;
+    Layer3 -->|"Safe"| DockerBridge{"Docker-to-Host Bridge"};
 
     %% Host Execution
     subgraph Native Host Machine
-        DockerBridge -->|"Port 8003"| LocalExecutor["local_executor.py"];
-        LocalExecutor -->|"Web Task"| OpenBrowser["Open Browser"];
-        LocalExecutor -->|"Local Task"| OpenTerminal["PowerShell Console"];
-        OpenTerminal --> Validation["psutil Process Validation"];
+        DockerBridge -->|"Port 8003"| LocalExecutor["Host Executor V2 (local_executor.py)"];
+        LocalExecutor -->|"Web Task"| OpenBrowser["Launch Browser Native"];
+        LocalExecutor -->|"Local Task"| Subprocess["subprocess.Popen Background Job"];
+        Subprocess --> Validation["psutil Validation & stdout/stderr Capture"];
         OpenBrowser --> Validation;
     end
 
@@ -59,6 +68,10 @@ graph TD;
 
     %% Styling
     style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style Layer0 fill:#F44336,stroke:#B71C1C,color:#fff;
+    style Layer2 fill:#FF9800,stroke:#E65100,color:#fff;
+    style Layer3 fill:#F44336,stroke:#B71C1C,color:#fff;
+    style Critic fill:#9C27B0,stroke:#4A148C,color:#fff;
     style ResearchAgent fill:#FF9800,stroke:#E65100,color:#fff;
     style Tier1 fill:#E91E63,stroke:#880E4F,color:#fff;
     style Tier2 fill:#2196F3,stroke:#1565C0,color:#fff;

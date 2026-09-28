@@ -5,7 +5,7 @@ OmniShell is built using a modern, scalable, and highly decoupled architecture.
 ## 🎨 Frontend (The Checkpoint)
 *   **Framework:** [NestJS](https://nestjs.com/)
 *   **Templating:** [Handlebars (HBS)](https://handlebarsjs.com/)
-*   **Styling:** Bootstrap & Custom CSS
+*   **Styling:** [Tailwind CSS](https://tailwindcss.com/) & Custom CSS
 *   **Interactivity:** [SweetAlert2](https://sweetalert2.github.io/) (For strict Human-in-the-Loop execution popups)
 *   **Visualizations:** [Mermaid.js](https://mermaid.js.org/) (For dynamic Agent flowcharts)
 
@@ -21,6 +21,7 @@ OmniShell is built using a modern, scalable, and highly decoupled architecture.
 *   **Caching & Rate Limiting:** [Redis](https://redis.io/)
 
 ## ⚙️ Execution Layer (The Muscle)
-*   **Language:** Python 3
-*   **System APIs:** subprocess.Popen (Windows CREATE_NEW_CONSOLE integration)
-*   **Process Validation:** psutil (Validates cross-platform process spawning)
+*   **Language:** Python 3 (Native Host)
+*   **System APIs:** `subprocess.Popen` (Advanced process piping and tree management in V2)
+*   **Process Validation:** `psutil` (Validates cross-platform process spawning and cleanup)
+*   **HTTP Bridge:** Custom ThreadedHTTPServer on port 8003 for secure UI-to-Host communication

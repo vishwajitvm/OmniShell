@@ -4,13 +4,13 @@ OmniShell relies on a strict separation of concerns to maintain security while e
 
 ## The 7-Agent Syndicate
 Within the FastAPI backend, requests are processed by a multi-agent system before any code is generated:
-1. **Intent & Planning:** Parses natural language into a logical sequence of actions.
-2. **System Reconnaissance:** 🆕 Dynamically writes scripts to discover available applications locally (e.g. searching for text editors) to prevent hallucinating hardcoded paths on different OS builds.
+1. **Intent & Planning Agent:** Parses natural language into a logical sequence of actions.
+2. **System Reconnaissance Agent:** Dynamically writes scripts to discover available applications locally (e.g. searching for text editors) to prevent hallucinating hardcoded paths on different OS builds.
 3. **Content Generation Agent:** Expands rough instructions for emails/messages into fully professional text.
-4. **Security Guard:** A rigid rule-engine that strips out destructive commands and forces compliance.
-5. **Command Research Agent:** Searches the web in real-time (via DuckDuckGo) to find the correct CLI command for the specific target OS.
-6. **Command Validator Agent (CRITIC):** 🆕 A ruthless reviewer that scrutinizes the Command Research Agent's output. Enforces strict case-sensitivity for Linux, checks for robust fallbacks (e.g., using `find`), and forces a complete rewrite if the initial draft is flawed.
-7. **Execution Planner:** Maps the finalized, validated intent to either a `requires_browser=True` Deep Link URL, or a robust, fault-tolerant `shell_script` for local OS execution.
+4. **Security Guard Agent:** A rigid, active AI firewall that hunts for destructive intents (password theft, wiping data) and forces compliance.
+5. **Command Research Agent:** Searches for the exact CLI command for the specific target OS.
+6. **Command Validator Agent (CRITIC):** A ruthless reviewer that scrutinizes the Command Research Agent's output. Enforces strict case-sensitivity for Linux, checks for robust fallbacks (e.g., using `find`), and forces a complete rewrite if the initial draft is flawed.
+7. **Execution Planner:** Maps the finalized, validated intent to either a `requires_browser=True` Deep Link URL, a robust `shell_script` for local OS execution, or a scheduled reminder.
 
 ## 3-Tier Command Resolution
 
@@ -33,15 +33,24 @@ graph LR;
 | **2** | `KNOWN_APP_COMMANDS` | ⚡ < 1ms | Hardcoded knowledge base of 20+ common apps and their correct commands. |
 | **3** | Research Agent | 🔍 3-10s | DuckDuckGo web search → LLM extraction → stores result in Redis for future. |
 
-## Docker-to-Host Bridging
+## 🛡️ 4-Layer Defense Architecture
+
+To ensure zero catastrophic failures, OmniShell implements a rigid 4-Layer Defense:
+
+1. **Layer 0 (Pre-LLM Guardrail):** A hardcoded Python regex interceptor in the backend that scans the raw user prompt. It immediately blocks passwords, system files, dark web, hacking, and mass deletion *before* the AI even sees it. This cannot be jailbroken.
+2. **Layer 1 (AI Security Guard):** The Security Guard Agent in the swarm actively denies malicious intents that slip past Layer 0 (e.g., context-aware semantic threats).
+3. **Layer 2 (Frontend Double-Confirmation):** Destructive commands (`rm`, `delete`) require a secondary Human-in-the-Loop (HITL) popup. The AI never runs silently.
+4. **Layer 3 (Frontend System Override):** Even if the human approves it, a final client-side safeguard blocks known malicious script patterns (like `rm -rf /` or accessing `/etc/shadow`) and permanently terminates the execution.
+
+## Docker-to-Host Bridging (V2 Executor)
 Because the FastAPI backend lives inside an isolated Docker network, it cannot natively launch applications on the host Windows/Linux machine. 
 
 To solve this, OmniShell uses an asynchronous bridge:
 1. The AI generates the script/URL.
 2. The UI intercepts it and triggers a **SweetAlert2** popup for human approval.
-3. Upon approval, the UI sends an HTTP POST request to http://localhost:8003.
-4. `local_executor.py` intercepts this on the host machine.
-5. On Windows, it uses `creationflags=0x00000010` (`CREATE_NEW_CONSOLE`) to physically pop open a highly visible terminal to execute the command.
+3. Upon approval, the UI sends an HTTP POST request to `http://localhost:8003`.
+4. `local_executor.py` (V2) intercepts this on the host machine.
+5. The V2 Executor securely uses Python's `subprocess.Popen` pipeline to execute the script in the background, capturing stdout/stderr, applying exact timeouts, and managing the process tree safely without relying on fragile terminal popups.
 
 ## 🧠 Self-Learning Pipeline
 
