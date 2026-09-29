@@ -49,13 +49,13 @@ class AgentThought(BaseModel):
 
 class MultiAgentResult(BaseModel):
     multi_agent_discussion: list[AgentThought] = Field(default_factory=list, description="The step-by-step discussion between the agents.")
-    is_safe: bool = Field(default=True, description="True if safe, False if malicious (formatting, viruses).")
-    target_os: str = Field(default="", description="The detected OS (Windows, Linux, macOS, Android, iOS).")
-    requires_browser: bool = Field(default=False, description="Set to True ONLY if the user is asking to open a website, url, or web service (like Netflix, GitHub).")
+    is_safe: bool | None = Field(default=True, description="True if safe, False if malicious (formatting, viruses).")
+    target_os: str | None = Field(default="", description="The detected OS (Windows, Linux, macOS, Android, iOS).")
+    requires_browser: bool | None = Field(default=False, description="Set to True ONLY if the user is asking to open a website, url, or web service (like Netflix, GitHub).")
     target_url: str | None = Field(default=None, description="The full URL to open (e.g., 'https://www.netflix.com'). Required if requires_browser is True.")
     shell_script: str | None = Field(default=None, description="Robust script to execute. Only used if requires_browser is False. E.g., Start-Process 'code'")
     expected_process: str | None = Field(default=None, description="The name of the executable process that should be running after execution.")
-    mermaid_diagram_body: str = Field(default="", description="ONLY the body of the flowchart.")
+    mermaid_diagram_body: str | None = Field(default="", description="ONLY the body of the flowchart.")
     model_used: str | None = Field(default=None)
     is_reminder: bool = Field(default=False, description="Set to True if this is a scheduling or reminder task.")
     reminder_time: str | None = Field(default=None, description="ISO 8601 future time for the reminder.")
@@ -64,8 +64,8 @@ class MultiAgentResult(BaseModel):
     scheduled_time: str | None = Field(default=None)
     schedule_timezone: str | None = Field(default=None)
     timing: dict | None = Field(default=None)
-    schedule_type: str = Field(default="one_time")
-    priority: int = Field(default=5, ge=1, le=10)
+    schedule_type: str | None = Field(default="one_time")
+    priority: int | None = Field(default=5, ge=1, le=10)
     approval_timeout_seconds: int | None = Field(default=None, ge=30, le=3600)
     scheduled_task_id: int | None = Field(default=None)
     scheduled_status: str | None = Field(default=None)
@@ -1067,6 +1067,23 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
             raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         
         structured_data = json.loads(raw_content)
+        
+        # --- ROBUSTNESS / SANITIZATION FOR ARBITRARY LLM OUTPUTS ---
+        if structured_data.get("target_os") is None:
+            structured_data["target_os"] = request.user_agent_os or "Unknown OS"
+        if structured_data.get("is_safe") is None:
+            structured_data["is_safe"] = True
+        if structured_data.get("requires_browser") is None:
+            structured_data["requires_browser"] = False
+        if structured_data.get("mermaid_diagram_body") is None:
+            structured_data["mermaid_diagram_body"] = ""
+        if structured_data.get("multi_agent_discussion") is None:
+            structured_data["multi_agent_discussion"] = []
+        if structured_data.get("schedule_type") is None:
+            structured_data["schedule_type"] = "one_time"
+        if structured_data.get("priority") is None:
+            structured_data["priority"] = 5
+            
         logger.info(f'PARSED DATA: {structured_data}')
         
         logger.debug("Extracted JSON data from model response")
