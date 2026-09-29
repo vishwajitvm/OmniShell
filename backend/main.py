@@ -80,6 +80,7 @@ class MultiAgentResult(BaseModel):
     # Clarification & Planning
     requires_clarification: bool | None = Field(default=False, description="Set to True if prompt is ambiguous or missing parameters.")
     clarification_questions: list[str] | None = Field(default=None, description="Specific questions to clarify the user's intent.")
+    augmented_prompt: str | None = Field(default=None, description="The refined prompt after clarification.")
     is_planning_only: bool | None = Field(default=False, description="Set to True if the user only wanted a plan/roadmap without execution.")
     
     # Scheduling & Recurring
@@ -1137,9 +1138,7 @@ async def runtime_supervisor(prompt: str, deterministic_cap: dict[str, Any]) -> 
             "requires_clarification": True,
             "reason": "The execution target or scope is not sufficiently resolved.",
             "ambiguity_reasons": ambiguity,
-            "clarification_questions": [
-                "What exact target/resource should OmniShell operate on?"
-            ],
+            "clarification_questions": synthesize_contextual_clarification(prompt, "Linux"),
         }
 
     return {
@@ -1984,8 +1983,23 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
         elif is_mac: return "ifconfig && netstat -an -p tcp", "macOS network inspection"
         else: return "Get-NetIPAddress -AddressFamily IPv4; Get-NetTCPConnection -State Listen", "Windows network status"
 
+    # Software / Runtime / Python version inspection
+    if any(k in p for k in ["python version", "which python", "check python", "python on my device", "python installed", "python"]):
+        if any(k in p for k in ["path", "where", "location"]):
+            return ("which python3 python 2>/dev/null || where.exe python" if (is_linux or is_mac) else "where.exe python"), "Python binary path lookup"
+        return ("python3 --version 2>/dev/null || python --version 2>/dev/null" if (is_linux or is_mac) else "python --version"), "Python version inspection"
+
+    if any(k in p for k in ["node version", "which node", "nodejs", "npm version"]):
+        return ("node -v 2>/dev/null; npm -v 2>/dev/null" if (is_linux or is_mac) else "node -v; npm -v"), "Node.js and NPM version inspection"
+
+    if any(k in p for k in ["git version", "which git"]):
+        return ("git --version" if (is_linux or is_mac) else "git --version"), "Git version inspection"
+
+    if any(k in p for k in ["rust version", "rustc", "cargo version"]):
+        return ("rustc --version 2>/dev/null || cargo --version" if (is_linux or is_mac) else "rustc --version"), "Rust runtime inspection"
+
     # Uptime & OS version
-    if any(k in p for k in ["uptime", "system info", "os version", "kernel version"]):
+    if any(k in p for k in ["uptime", "system info", "os version", "kernel version", "installed on my device", "device info"]):
         if is_linux: return "uptime && uname -a", "System uptime and kernel metadata"
         elif is_mac: return "uptime && sw_vers", "macOS version and uptime"
         else: return "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,LastBootUpTime", "Windows OS metadata"
@@ -2093,6 +2107,53 @@ def decompose_dynamic_multi_step_plan(prompt: str, user_agent_os: str) -> list[d
         })
 
     return steps
+
+
+def synthesize_contextual_clarification(prompt: str, user_agent_os: str = "Linux") -> list[str]:
+    """Clarification & Intent Disambiguation Agent: generate actionable, contextual options."""
+    p = (prompt or "").lower().strip()
+    if any(k in p for k in ["python", "pip", "package", "virtualenv", "conda", "env"]):
+        return [
+            "Inspect Python runtime version and binary path",
+            "List installed Python pip packages and environment info",
+            "Explain Python versioning and configuration",
+        ]
+    if any(k in p for k in ["node", "npm", "yarn", "javascript", "js"]):
+        return [
+            "Inspect Node.js and NPM versions on host",
+            "Check project package.json dependencies and scripts",
+            "Explain Node.js runtime environment",
+        ]
+    if any(k in p for k in ["deploy", "build", "release"]):
+        return [
+            "Execute deployment workflow on local environment",
+            "Run build test suite and container verification",
+            "Generate dry-run architectural deployment plan only",
+        ]
+    if any(k in p for k in ["delete", "clean", "remove", "wipe", "purge", "trash"]):
+        return [
+            "Purge system trash and temporary caches",
+            "Clean project build artifacts (dist / node_modules / cache)",
+            "Explain cleanup impact without modifying files",
+        ]
+    if any(k in p for k in ["update", "upgrade", "sync"]):
+        return [
+            "Update system package repository and toolchains",
+            "Pull latest changes from remote Git repository",
+            "Review pending updates and system patch status",
+        ]
+    if any(k in p for k in ["test", "verify", "check"]):
+        return [
+            "Run automated test suite and report results",
+            "Perform system environment health inspection",
+            "Explain testing and verification procedures",
+        ]
+    clean_title = (prompt or "target operation").strip()[:35]
+    return [
+        f"Inspect system state regarding '{clean_title}'",
+        f"Execute verified host workflow for '{clean_title}'",
+        f"Provide comprehensive architectural explanation of '{clean_title}'",
+    ]
 
 
 def synthesize_dynamic_multi_agent_discussion(
@@ -2214,13 +2275,8 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             "clarification", confidence=.99, signals=["missing_target_or_scope"],
             execution_mode="clarification_gate", safety_level="low", intent_entities=entities,
             requires_clarification=True,
-            ambiguity_reasons=["Target, environment, or desired scope is not sufficiently specified."],
-            clarification_questions=[
-                "What exact target/project should OmniShell operate on?",
-                "Which environment should be affected (development, staging, or production)?",
-                "Should OmniShell preview the plan first or execute it after approval?",
-            ],
-            direct_answer="I need the target and scope before I can safely execute this request.",
+            clarification_questions=synthesize_contextual_clarification(prompt, user_agent_os),
+            direct_answer="I need a bit more context regarding your preferred action before proceeding safely.",
         )
 
     # Multi-step intent is structural: require multiple actions or explicit sequencing.
@@ -2351,11 +2407,19 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         )
 
     # System inspection is read-only and should outrank generic shell execution.
-    inspection_terms = ["check cpu", "cpu usage", "cpu utilization", "memory usage", "memory utilization", "ram usage", "system memory", "inspect memory", "disk space", "disk usage", "system info", "inspect system", "system inspection", "list processes", "running processes", "top processes", "ip address", "network interfaces"]
+    inspection_terms = [
+        "check cpu", "cpu usage", "cpu utilization", "memory usage", "memory utilization", "ram usage",
+        "system memory", "inspect memory", "disk space", "disk usage", "system info", "inspect system",
+        "system inspection", "list processes", "running processes", "top processes", "ip address", "network interfaces",
+        "which python", "python version", "check python", "what python", "python installed", "python on my device",
+        "node version", "which node", "npm version", "git version", "which git", "rust version", "go version",
+        "java version", "installed on my device", "installed on this device", "installed on this system",
+        "installed on my computer", "device info", "os version", "kernel version", "installed packages", "pip list"
+    ]
     if any(k in p for k in inspection_terms):
         dyn_cmd, dyn_proc = synthesize_dynamic_shell_command(prompt, user_agent_os)
         return _intent_result(
-            "system_inspection", confidence=.97, signals=["read_only_system_query"],
+            "system_inspection", confidence=.99, signals=["read_only_system_query"],
             execution_mode="read_only_inspection", safety_level="low", intent_entities=entities,
             shell_script=dyn_cmd, expected_process=dyn_proc,
             direct_answer=f"System inspection resolved: `{dyn_cmd}`."
@@ -2413,7 +2477,7 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         execution_mode="dynamic_evaluation", safety_level="low", intent_entities=entities,
         requires_clarification=False,
         ambiguity_reasons=[],
-        clarification_questions=["What outcome do you want?", "Should OmniShell only explain/plan, or actually perform the operation?"],
+        clarification_questions=synthesize_contextual_clarification(prompt, user_agent_os),
         direct_answer=None,
     )
 
@@ -3173,13 +3237,21 @@ def get_capabilities():
 
 @app.post("/api/clarify", response_model=MultiAgentResult)
 async def clarify_workflow(request: Request, background_tasks: BackgroundTasks):
-    """Continue an ambiguous workflow with the user's clarified parameters."""
+    """Clarification & Intent Disambiguation Agent: continue workflow with clarified parameters."""
     body = await request.json()
-    original_prompt = body.get("original_prompt", "")
-    clarification_choice = body.get("clarification_choice", "")
+    original_prompt = (body.get("original_prompt") or "").strip()
+    clarification_choice = (body.get("clarification_choice") or body.get("clarification_answer") or "").strip()
     user_os = body.get("user_agent_os", "Unknown OS")
-    combined_prompt = f"{original_prompt} (clarified: {clarification_choice})".strip()
-    return await generate_workflow(
+    
+    choice_clean = clarification_choice.replace("👉", "").strip()
+    if any(choice_clean.lower().startswith(p) for p in ["inspect", "check", "execute", "run", "clean", "deploy", "delete", "purge", "update", "explain", "plan", "install", "list"]):
+        combined_prompt = choice_clean
+    elif original_prompt:
+        combined_prompt = f"{original_prompt} ({choice_clean})".strip()
+    else:
+        combined_prompt = choice_clean or "system inspection"
+
+    res = await generate_workflow(
         AutomationRequest(
             natural_language_prompt=combined_prompt,
             user_agent_os=user_os,
@@ -3188,6 +3260,8 @@ async def clarify_workflow(request: Request, background_tasks: BackgroundTasks):
         ),
         background_tasks,
     )
+    res.augmented_prompt = combined_prompt
+    return res
 
 @app.get("/api/models")
 def list_models():

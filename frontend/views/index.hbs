@@ -1369,19 +1369,12 @@
 
         // Clarification prompt submission
         async function submitClarification(clarifiedAnswer) {
-            const originalPrompt = document.getElementById('prompt-input').value;
-            const res = await fetch('http://localhost:8000/api/clarify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    original_prompt: originalPrompt,
-                    clarification_answer: clarifiedAnswer
-                })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                document.getElementById('prompt-input').value = data.augmented_prompt;
-                document.getElementById('generate-btn').click();
+            const promptInput = document.getElementById('prompt-input');
+            const cleanText = (clarifiedAnswer || '').replace(/^[👉\s]+/, '').trim();
+            if (cleanText) {
+                promptInput.value = cleanText;
+                const genBtn = document.getElementById('generate-btn');
+                if (genBtn) genBtn.click();
             }
         }
 
