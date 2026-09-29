@@ -1,40 +1,108 @@
-# 🐚 OmniShell - Project Overview
+# 🐚 OmniShell - Universal Autonomous Multi-Agent OS & Knowledge Syndicate
 
-## What is this?
-OmniShell is a multi-agent orchestration platform that bridges the gap between Large Language Models (LLMs) and native Operating System execution. 
+## 🌟 Executive Summary
 
-Typically, AI is stuck inside a chat box. If you ask an AI to "open my downloads folder" or "draft an email", it can only give you instructions on how to do it yourself. OmniShell changes that by utilizing a sophisticated Swarm of Agents that translates your natural language into native executable code or deep-linked URLs, and safely executes them directly on your host machine (Windows or Linux).
+**OmniShell** is an enterprise-grade, multi-agent autonomous operating system copilot and knowledge syndicate designed to bridge the gap between Large Language Model (LLM) cognitive reasoning and physical host execution (Linux, macOS, Windows). 
 
-## The Architecture Deep Dive
+Conventional AI chatbots (e.g., ChatGPT, Claude) are constrained to isolated conversational web boxes—they can describe *how* to execute a workflow, but they cannot perform it on your machine. Conversely, naive autonomous agent implementations often execute commands blindly without human verification, risking data corruption, system disruption, or unauthorized actions.
 
-![System Architecture](https://mermaid.ink/img/eyJjb2RlIjogImdyYXBoIFREO1xuICAgICUlIENvcmUgVXNlcnMgJiBJbnRlcmZhY2VzXG4gICAgVXNlcigoVXNlcikpIC0tPnxOYXR1cmFsIExhbmd1YWdlfCBVSVtGcm9udGVuZCBVSSAtIE5lc3RKU11cbiAgICBVSSAtLT58SFRUUCBQT1NUfCBCYWNrZW5kW0JhY2tlbmQgQVBJIC0gRmFzdEFQSV1cblxuICAgICUlIEluZnJhc3RydWN0dXJlICYgVHJhY2luZ1xuICAgIEJhY2tlbmQgLS4tPnxMb2dzIEFnZW50IFRob3VnaHRzfCBUcmFjZU5lc3RbKFRyYWNlTmVzdCBMb2dnZXIpXVxuICAgIEJhY2tlbmQgLS4tPnxDYWNoZXMgU3RhdGV8IFJlZGlzWyhSZWRpcyBDYWNoZSldXG4gICAgQmFja2VuZCAtLi0-fFNhdmVzIEhpc3Rvcnl8IFBvc3RncmVzWyhQb3N0Z3JlU1FMIERCKV1cblxuICAgICUlIEFnZW50IFN3YXJtIChUaGUgU3luZGljYXRlKVxuICAgIHN1YmdyYXBoIEFnZW50IFN3YXJtXG4gICAgICAgIEJhY2tlbmQgLS0-IEludGVudFBsYW5bMS4gSW50ZW50ICYgUGxhbm5pbmcgQWdlbnRdXG4gICAgICAgIEludGVudFBsYW4gLS0-IENvbnRlbnRHZW5bMi4gQ29udGVudCBHZW5lcmF0aW9uIEFnZW50XVxuICAgICAgICBDb250ZW50R2VuIC0tPiBTZWNHdWFyZFszLiBTZWN1cml0eSBHdWFyZF1cbiAgICAgICAgU2VjR3VhcmQgLS0-IEV4ZWNQbGFubmVyWzQuIEV4ZWN1dGlvbiBQbGFubmVyXVxuICAgIGVuZFxuXG4gICAgJSUgU2VjdXJpdHkgTG9naWNcbiAgICBTZWNHdWFyZCAtLT58TWFsaWNpb3VzIC8gRGVzdHJ1Y3RpdmV8IEJsb2NrKChCTE9DS0VEKSlcbiAgICBTZWNHdWFyZCAtLi0-fERvd25ncmFkZXMgJ1NlbmQnIHRvICdEcmFmdCd8IEV4ZWNQbGFubmVyXG5cbiAgICAlJSBFeGVjdXRpb24gUm91dGluZ1xuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogV2ViL1VSTD98IFdlYlRhc2tbcmVxdWlyZXNfYnJvd3Nlcj1UcnVlXVxuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogTG9jYWwgT1M_fCBMb2NhbFRhc2tbc2hlbGxfc2NyaXB0PUdlbmVyYXRlZCBDb2RlXVxuXG4gICAgV2ViVGFzayAtLT4gRG9ja2VyQnJpZGdle0RvY2tlci10by1Ib3N0IEJyaWRnZX1cbiAgICBMb2NhbFRhc2sgLS0-IERvY2tlckJyaWRnZVxuXG4gICAgJSUgSG9zdCBFeGVjdXRpb25cbiAgICBzdWJncmFwaCBOYXRpdmUgSG9zdCBNYWNoaW5lXG4gICAgICAgIERvY2tlckJyaWRnZSAtLT58UG9ydCA4MDAzfCBMb2NhbEV4ZWN1dG9yW2xvY2FsX2V4ZWN1dG9yLnB5XVxuICAgICAgICBMb2NhbEV4ZWN1dG9yIC0tPnxXZWIgVGFza3wgT3BlbkJyb3dzZXJbUG9wIE9wZW4gQnJvd3NlciBOYXRpdmVdXG4gICAgICAgIExvY2FsRXhlY3V0b3IgLS0-fExvY2FsIFRhc2t8IE9wZW5UZXJtaW5hbFtDUkVBVEVfTkVXX0NPTlNPTEUgcG9wdXBdXG4gICAgICAgIE9wZW5UZXJtaW5hbCAtLT4gVmFsaWRhdGlvbltwc3V0aWwgVmFsaWRhdGlvbjogRGlkIGl0IGxhdW5jaD9dXG4gICAgICAgIE9wZW5Ccm93c2VyIC0tPiBWYWxpZGF0aW9uXG4gICAgZW5kXG5cbiAgICBWYWxpZGF0aW9uIC0tPnxWYWxpZGF0aW9uIE91dHB1dHwgVUlcbiIsICJtZXJtYWlkIjogIntcInRoZW1lXCI6IFwiZGVmYXVsdFwifSJ9)
+**OmniShell solves this by combining a decentralized 8-Agent Swarm Syndicate, a strict Request Control Plane (`Intent → Policy → Plan → Execute → Verify`), multi-layer Human-in-the-Loop (HITL) gates, and an isolated local host executor daemon.**
 
-OmniShell is split into three main layers:
+```mermaid
+graph TD
+    User(["👤 User Prompt"]):::userClass --> UI["🖥️ Frontend Control Center (NestJS + Handlebars)"]:::uiClass
+    UI --> Backend["⚡ Agentic Backend Engine (FastAPI)"]:::backendClass
+    
+    subgraph Syndicate ["🤖 8-Agent Swarm Syndicate"]
+        Backend --> A1["1. Intent & Planning Agent"]:::agentClass
+        A1 --> A2["2. System Reconnaissance Agent"]:::agentClass
+        A2 --> A3["3. Content & Knowledge Synthesizer"]:::agentClass
+        A3 --> A4["4. Security Guard"]:::agentClass
+        A4 --> A5["5. Safety & Policy Supervisor"]:::agentClass
+        A5 --> A6["6. Command Research Agent"]:::agentClass
+        A6 --> A7["7. Command Validator Agent"]:::agentClass
+        A7 --> A8["8. Execution Planner"]:::agentClass
+        A5 -.->|"Ambiguity Detected"| Clarify["❓ Clarification Agent"]:::clarifyClass
+    end
 
-### 1. The Frontend UI (NestJS + Handlebars)
-A clean, visual interface where the user types their command. This layer is responsible for:
-- Displaying the real-time reasoning of the AI agents.
-- Rendering the dynamic Mermaid diagrams so the user can visually see the AI's execution plan.
-- Popping up **SweetAlert2 Human-in-the-Loop** confirmation dialogues before ANY code touches the host machine.
+    Backend -.-> DB[("🐘 PostgreSQL\n(Scheduled Tasks & Execution History)")]:::dbClass
+    Backend -.-> Redis[("🔴 Redis Cache\n(Learned Commands & Fast Path)")]:::cacheClass
 
-### 2. The Agentic Backend (FastAPI + Docker)
-Running securely inside an isolated Docker container, the Backend receives the prompt and passes it to an intelligent Agent Swarm powered by LiteLLM. The swarm consists of four distinct agents:
-*   **Intent & Planning Agent:** Breaks the raw English down into logical steps.
-*   **Content Generation Agent:** Expands rough instructions (e.g. "say sorry for missing meeting") into professional, contextual text, and URL-encodes it.
-*   **Security Guard:** A strict rule-engine agent. If a user asks to do something destructive (like formatting a drive) or something that violates operational rules (like trying to silently send an email without human review), this agent blocks it or downgrades the intent (e.g., forcing a "Send Email" intent into a "Draft Email" intent).
-*   **Execution Planner:** The final architect. It decides if the task requires interacting with a web application (creating a Deep Link URL like https://mail.google.com/mail/?view=cm...) or if it requires a local OS action (writing a robust PowerShell script).
+    Syndicate --> ModeDecision{"Capability Routing (19 Modes)"}:::decisionClass
+    ModeDecision -->|"Knowledge (Q&A/Info/Plan)"| DirectMarkdown["💡 Markdown Answer Card\n(Zero Shell Execution)"]:::infoClass
+    ModeDecision -->|"Host Execution"| HITLCheck{"Safety Gate & HITL"}:::decisionClass
+    ModeDecision -->|"Scheduled / Recurring"| PostgresQueue["📅 Scheduled Task Queue"]:::schedClass
 
-**Infrastructure Support:**
-*   **PostgreSQL & Redis:** Maintains execution history, state, and handles rate limiting.
-*   **TraceNest Logging:** A dedicated tracing system that logs the exact internal thoughts and decisions of the LLMs for debugging.
+    HITLCheck -->|"Authorized"| HostDaemon["💻 Local Host Executor (local_executor.py:8003)"]:::hostClass
+    PostgresQueue -->|"Token Verified"| PopoutWindow["📄 Pop-out Approval Window Document"]:::windowClass
+    PopoutWindow -->|"User Approved"| HostDaemon
 
-### 3. The Native Host Executor (local_executor.py)
-Because the backend runs inside an isolated Docker container, it physically cannot open applications on your Windows desktop. We bridge this gap using local_executor.py—a lightweight Python server running natively on your host machine (Port 8003). 
-When the Frontend receives the generated script from the AI, it sends it to the Host Executor. The Host Executor uses native Windows APIs (CREATE_NEW_CONSOLE = 0x00000010) to pop open a highly visible, physical terminal window, runs the command, validates the process using psutil, and reports success back to the UI.
+    HostDaemon --> NativeOS["⚡ Native Host OS (Bash / Zsh / PowerShell)"]:::execClass
+    NativeOS --> ProcessVerify["✅ Process & Exit Code Verification (psutil)"]:::verifyClass
+    ProcessVerify --> UI
 
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef clarifyClass fill:#451a03,stroke:#f59e0b,color:#fde68a,stroke-width:2px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef cacheClass fill:#1e293b,stroke:#ef4444,color:#f87171,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef infoClass fill:#064e3b,stroke:#34d399,color:#ecfdf5,stroke-width:2px;
+    classDef schedClass fill:#3b0764,stroke:#c084fc,color:#fae8ff,stroke-width:2px;
+    classDef windowClass fill:#1e1b4b,stroke:#a855f7,color:#f3e8ff,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;
+```
 
-## Example Flow: Deep Linking Gmail
+---
 
-Here is how the exact Gmail prompt is broken down by the Agent Syndicate and routed safely to the host:
+## 🏛️ System Topology & Decoupled Layers
 
-![Gmail Flow](https://mermaid.ink/img/eyJjb2RlIjogImdyYXBoIFREO1xuICAgICUlIFRoZSBTcGVjaWZpYyBHbWFpbCBFeGFtcGxlXG4gICAgUHJvbXB0Wy9cIlByb21wdDogb3BlbiBnbWFpbCBvbiBicmF2ZSBicm93c2VyIGFuZCBkcmFmdCBhbiBlbWFpbCB0byB3b2x2ZXJpbmV2bTAwMUBnbWFpbC5jb20gYW5kIHdyaXRlIG1lc3NhZ2UgdGhhdCBpIGNhbm5vdCBiZSBhYmxlIHRvIGpvaW4gbWVldGluZyB0b2RheVwiL10gLS0-IEludGVudEFnZW50W0ludGVudCAmIFBsYW5uaW5nIEFnZW50XVxuXG4gICAgc3ViZ3JhcGggQWdlbnRpYyBCcmVha2Rvd25cbiAgICAgICAgSW50ZW50QWdlbnQgLS0-fEJyZWFrcyBpbnRvIHN0ZXBzfCBTdGVwMVtTdGVwIDE6IE9wZW4gQnJvd3Nlcl1cbiAgICAgICAgSW50ZW50QWdlbnQgLS0-IFN0ZXAyW1N0ZXAgMjogRHJhZnQgRW1haWwgdG8gd29sdmVyaW5ldm0wMDFAZ21haWwuY29tXVxuICAgICAgICBJbnRlbnRBZ2VudCAtLT4gU3RlcDNbU3RlcCAzOiBBcG9sb2d5IG1lc3NhZ2UgZm9yIG1pc3NpbmcgbWVldGluZ11cbiAgICAgICAgXG4gICAgICAgIFN0ZXAzIC0tPiBDb250ZW50QWdlbnRbQ29udGVudCBHZW5lcmF0aW9uIEFnZW50XVxuICAgICAgICBDb250ZW50QWdlbnQgLS0-fEdlbmVyYXRlcyBQcm9mZXNzaW9uYWwgVGV4dHwgQm9keVRleHRbXCJEZWFyIHRlYW0sIEkgYXBvbG9naXplIGJ1dCBJIHdpbGwgbm90IGJlIGFibGUgdG8gam9pbiB0b2RheSdzIG1lZXRpbmcuIFJlZ2FyZHMuXCJdXG4gICAgICAgIENvbnRlbnRBZ2VudCAtLT58VVJMIEVuY29kZXMgRGF0YXwgRW5jb2RlZEJvZHlbXCJEZWFyJTIwdGVhbSUyQyUyMEklMjBhcG9sb2dpemUuLi5cIl1cbiAgICAgICAgXG4gICAgICAgIEVuY29kZWRCb2R5IC0tPiBTZWNHdWFyZFtTZWN1cml0eSBHdWFyZCBBZ2VudF1cbiAgICAgICAgU3RlcDIgLS0-IFNlY0d1YXJkXG4gICAgZW5kXG5cbiAgICBzdWJncmFwaCBTZWN1cml0eSBDaGVja1xuICAgICAgICBTZWNHdWFyZCAtLT58Q2hlY2tzIGZvciAnU2VuZCcgY29tbWFuZHwgQ2hlY2tTZW5ke0RpZCB1c2VyIHNheSBTZW5kP31cbiAgICAgICAgQ2hlY2tTZW5kIC0tPnxObywganVzdCBkcmFmdHwgU2FmZVtTdGF0dXM6IFNBRkVdXG4gICAgICAgIENoZWNrU2VuZCAtLT58WWVzfCBCbG9ja1NlbmRbR3VhcmRyYWlsOiBEb3duZ3JhZGUgdG8gRHJhZnRdXG4gICAgICAgIFNhZmUgLS0-IEV4ZWNQbGFubmVyW0V4ZWN1dGlvbiBQbGFubmVyIEFnZW50XVxuICAgIGVuZFxuXG4gICAgc3ViZ3JhcGggRmluYWwgQXNzZW1ibHlcbiAgICAgICAgRXhlY1BsYW5uZXIgLS0-fEJ1aWxkcyBEZWVwIExpbmsgVVJMfCBGaW5hbFVSTFtcImh0dHBzOi8vbWFpbC5nb29nbGUuY29tL21haWwvP3ZpZXc9Y20mZnM9MSZ0bz13b2x2ZXJpbmV2bTAwMUBnbWFpbC5jb20mc3U9TWVldGluZyZib2R5PURlYXIlMjB0ZWFtLi4uXCJdXG4gICAgICAgIEZpbmFsVVJMIC0tPiBPdXRwdXRKU09OW1wiSlNPTjogeyByZXF1aXJlc19icm93c2VyOiB0cnVlLCB0YXJnZXRfdXJsOiAnLi4uJyB9XCJdXG4gICAgZW5kXG5cbiAgICBzdWJncmFwaCBFeGVjdXRpb25cbiAgICAgICAgT3V0cHV0SlNPTiAtLT4gTWlkZGxld2FyZVtBZ2VudGljIE1pZGRsZXdhcmVdXG4gICAgICAgIE1pZGRsZXdhcmUgLS0-fERldGVjdHMgcmVxdWlyZXNfYnJvd3NlcnwgVUlSb3V0ZXJbRnJvbnRlbmQgVUkgUm91dGVyXVxuICAgICAgICBVSVJvdXRlciAtLT58QXNrcyBmb3IgSHVtYW4gQXBwcm92YWx8IFN3ZWV0QWxlcnR7U3dlZXRBbGVydCBQb3B1cH1cbiAgICAgICAgXG4gICAgICAgIFN3ZWV0QWxlcnQgLS0-fERlbmllZHwgQ2FuY2VsKChBY3Rpb24gQ2FuY2VsbGVkKSlcbiAgICAgICAgU3dlZXRBbGVydCAtLT58QXBwcm92ZWQ6IFNlbGVjdHMgQnJhdmV8IEhvc3RBUElbUE9TVCBodHRwOi8vbG9jYWxob3N0OjgwMDMvZXhlY3V0ZV1cbiAgICAgICAgSG9zdEFQSSAtLT4gTG9jYWxQeVtsb2NhbF9leGVjdXRvci5weSBvbiBIb3N0XVxuICAgICAgICBMb2NhbFB5IC0tPiBCcmF2ZUxhdW5jaFtTdGFydC1Qcm9jZXNzICdicmF2ZScgLUFyZ3VtZW50TGlzdCAnaHR0cHM6Ly9tYWlsLmdvb2dsZS5jb20vLi4uJ11cbiAgICAgICAgQnJhdmVMYXVuY2ggLS0-IFVJW1VzZXIgc2VlcyBwcmUtZHJhZnRlZCBlbWFpbCBpbiBCcmF2ZSFdXG4gICAgZW5kXG4iLCAibWVybWFpZCI6ICJ7XCJ0aGVtZVwiOiBcImRlZmF1bHRcIn0ifQ==)
+OmniShell is architected with three cleanly decoupled operational layers:
+
+### 1. The Presentation & Control Plane (NestJS + Handlebars + Tailwind CSS)
+- **Real-time Lifecycle State Machine**: Displays the 5-stage lifecycle badges (`Intent → Policy → Plan → Execute → Verify`) with live color transitions (`COMPLETED`, `ACTIVE`, `PENDING`, `APPROVAL REQ`, `CLARIFICATION`).
+- **Interactive Swarm Telemetry**: Live metric meters tracking LLM reasoning time, web research latency, security validation timing, and native execution duration.
+- **Interactive Multi-Agent Syndicate Discussion**: Expandable transcript detailing the deliberation, AST checks, and execution planning of all 8 agents.
+- **Dynamic Mermaid Flowchart Viewer**: Renders interactive Mermaid workflow diagrams with pan and `- Zoom`, `Reset`, `+ Zoom` canvas controls.
+- **Dual Human-in-the-Loop Dialogues**:
+  - *In-UI SweetAlert2 Modals*: For immediate elevated host operations with syntax-highlighted command previews.
+  - *Pop-out Approval Window Documents (`/scheduled-approval/:token`)*: Standalone dedicated pages with SHA-256 token validation and 300-second countdown timers for background scheduled jobs.
+
+### 2. The Cognitive Engine & Swarm Syndicate (FastAPI + LiteLLM + Redis + PostgreSQL)
+- **8-Agent Swarm Collaboration**: Specialized agents decompose, screen, research, validate, and plan incoming prompts.
+- **Clarification & Intent Disambiguation Engine**: Synthesizes structured, actionable choice options when prompts are ambiguous or missing parameters.
+- **Knowledge Base & 3-Tier Command Caching**: Redis-backed fast-path for sub-millisecond execution of recognized operations without LLM overhead.
+- **PostgreSQL Task & Execution Registry**: Persistent storage for background scheduled tasks, recurrence rules, approval tokens, and comprehensive execution logs.
+
+### 3. The Native Host Execution Daemon (`local_executor.py` on Port 8003)
+- **Isolated Host Bridge**: Runs natively in user-space on Windows, Linux, or macOS.
+- **Safe Subprocess Pipeline**: Executes commands via `/bin/bash` or `powershell.exe` with real-time stdout/stderr capture, process group isolation, and timeout guards.
+- **Process Verification**: Integrates `psutil` to inspect process trees, PID creation, and exit codes.
+- **Cross-Platform Browser Launcher**: Detects installed browsers (Chrome, Brave, Firefox, Edge, Safari) and handles deep-link dispatches.
+- **Background Scheduler Poller**: Periodically checks the backend queue, triggers pop-out approval documents when tasks mature, and executes approved jobs.
+
+---
+
+## 🎯 Primary Use Cases & Capabilities Summary
+
+| Interaction Category | Description | Primary Execution Mechanism |
+|---|---|---|
+| **Direct Knowledge & Q&A** | Answers conceptual, factual, and technical queries | Rich Markdown Card (Zero Host Shell Invocation) |
+| **System Diagnostics** | Inspects CPU, RAM, disk, network, and active processes | Native `psutil` & diagnostic terminal scripts |
+| **Application & Browser Operations** | Launches applications and deep-links browser workflows | Native process dispatch & URL deep-linking |
+| **Multi-Step Workflows** | Decomposes goals into sequential executable steps | Structured step tracker with progress states |
+| **Scheduled & Recurring Tasks** | Runs tasks at future timestamps or recurring intervals | PostgreSQL scheduler queue + Pop-out Approval Window |
+| **Self-Healing Recovery** | Recovers from command failures with retry heuristics | Automatic diagnostic analysis and fallback commands |
+
+---
+
+## 🔒 Enterprise Security & Guardrails
+
+1. **Pre-LLM Regex Red-Line Interceptor**: Hardcoded deterministic filter blocking dangerous shell primitives (`rm -rf /`, `mkfs`, `dd if=/dev/zero`, password theft, credential dumping).
+2. **AI Security Guard Agent**: Contextual AST analysis checking for privilege escalation, network exfiltration, or destructive file modifications.
+3. **Double-Confirmation Human-in-the-Loop**: Destructive host operations require explicit confirmation before execution.
+4. **Cryptographic Token Verification**: Scheduled tasks require single-use, URL-safe SHA-256 tokens to prevent replay or unauthorized execution.

@@ -1,66 +1,57 @@
-graph TD;
+graph TD
     %% ============================================================
-    %% COMPLETE LEARNING & SELF-CORRECTION SYSTEM
-    %% Shows how OmniShell learns from mistakes and self-corrects
+    %% COMPLETE LEARNING, SELF-CORRECTION & FAILURE RECOVERY FLOW
+    %% Demonstrates error trapping, telemetry, self-healing, and cache update
     %% ============================================================
 
     %% 1. User Prompt Entry
-    User((User)) -->|"Natural language prompt<br/>e.g. 'open vs code'"| Backend[Backend API - FastAPI];
+    User(["👤 User Request"]):::userClass -->|"Natural language task e.g., 'start docker engine'"| Backend["⚡ Backend API (FastAPI)"]:::backendClass
 
-    %% 2. LLM generates a raw command
-    Backend --> LLM["LLM Agent Pipeline<br/>(Intent → Content → Security → Exec)"];
-    LLM --> RawCmd["Raw LLM Output<br/>e.g. Start-Process Code.exe"];
+    %% 2. 8-Agent Swarm Processing
+    Backend --> Swarm["🤖 8-Agent Swarm Syndicate\n(Intent → Recon → Security → Planner)"]:::agentClass
+    Swarm --> CommandGen["Generated Script & Execution Payload"]:::agentClass
 
-    %% 3. Knowledge Base Check FIRST
-    RawCmd --> KBCheck{"Check KNOWN_APP_COMMANDS<br/>Knowledge Base"};
+    %% 3. Knowledge Base & Cache Cross-Check
+    CommandGen --> KBCheck{"Cross-check Redis & Known Command Base"}:::decisionClass
+    KBCheck -->|"✅ Match / Cached Correction"| Override["Apply Corrected & Hardened Mapping"]:::execClass
+    KBCheck -->|"❌ Uncached"| PassThru["Use Synthesized Dynamic Command"]:::agentClass
 
-    %% 4a. Match Found → Override LLM Output
-    KBCheck -->|"✅ Match Found<br/>(key: 'vs code')"| Override["OVERRIDE LLM Output<br/>Use corrected command: 'code'"];
+    %% 4. Execution on Native Host
+    Override --> Exec["Host Execution via local_executor.py:8003"]:::hostClass
+    PassThru --> Exec
 
-    %% 4b. No Match → Use LLM Output As-Is
-    KBCheck -->|"❌ No Match"| PassThru["Use LLM Output As-Is"];
+    %% 5. Verification & Telemetry Inspection
+    Exec --> Validate{"Validation Inspection\n1. Exit Code ($? == 0)\n2. psutil Expected Process\n3. stderr Output Analysis"}:::decisionClass
 
-    %% 5. Execution on Host
-    Override --> Exec["Host Execution<br/>(local_executor.py via Port 8003)"];
-    PassThru --> Exec;
+    %% 6a. Success Path
+    Validate -->|"✅ SUCCESS: Clean Exit & Process Found"| Success["✅ Execution Verified\nCapture Telemetry & Metrics"]:::verifyClass
+    Success --> UI["🖥️ Frontend UI & History Log"]:::uiClass
+    Success --> CacheSave["💾 Store in Redis & PostgreSQL Knowledge Base"]:::dbClass
 
-    %% 6. Process Validation with psutil
-    Exec --> Validate{"psutil Process Validator<br/>Is expected_process running?"};
+    %% 6b. Failure Path & Self-Correction
+    Validate -->|"❌ FAILURE: Non-Zero Exit or Missing Process"| Failure["⚠️ Failure Detected (Non-Zero Exit / Crash)"]:::failClass
+    
+    subgraph SelfHealing ["🔁 Self-Healing & Failure Recovery Loop"]
+        Failure --> Diagnostic["Diagnostic Analyzer\n(Inspect stderr, returncode, missing dependencies)"]:::failClass
+        Diagnostic --> RecoveryAgent["Recovery & Self-Correction Agent"]:::healClass
+        RecoveryAgent --> SynthesizeAlternative["Synthesize Alternative Fallback Command\n(e.g., fallback service manager or alternate binary path)"]:::healClass
+        SynthesizeAlternative --> RetryExec["Retry Execution on Host (Attempt N+1)"]:::hostClass
+        RetryExec --> RetryValidate{"Retry Validation"}:::decisionClass
+    end
 
-    %% 7a. Validation SUCCESS
-    Validate -->|"✅ Process Found<br/>(e.g. Code.exe running)"| Success["✅ SUCCESS<br/>Return result to user"];
-    Success --> UI[Frontend UI];
+    RetryValidate -->|"✅ Retry Succeeded"| Success
+    RetryValidate -->|"❌ Max Retries Reached"| UserAlert["🛑 Safe Failure Alert & User Notification"]:::failClass
+    UserAlert --> UI
 
-    %% 7b. Validation FAILS → Learn from mistake
-    Validate -->|"❌ Process NOT Found"| Fail["❌ VALIDATION FAILED"];
-
-    %% 8. Log the mistake
-    Fail --> LogMistake["Log Mistake<br/>Record: wrong command, expected process,<br/>timestamp, error details"];
-
-    %% 9. Update Knowledge Base for next time
-    LogMistake --> UpdateKB["Update KNOWN_APP_COMMANDS<br/>Add/correct the mapping"];
-
-    %% 10. Redis caches corrected mapping for fast lookup
-    UpdateKB --> RedisCache[("Redis Cache<br/>Fast corrected mapping lookup<br/>key: 'vs code' → val: 'code'")];
-
-    %% 11. PostgreSQL stores full correction history
-    UpdateKB --> Postgres[("PostgreSQL DB<br/>Full correction history<br/>timestamps, attempts, diffs")];
-
-    %% 12. Notify user and prepare for next run
-    RedisCache --> NextRun["✅ Next Run Uses<br/>Corrected Knowledge"];
-    Postgres --> NextRun;
-    NextRun --> UI;
-
-    %% Styling
-    style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style KBCheck fill:#FF9800,stroke:#E65100,color:#fff;
-    style Override fill:#2196F3,stroke:#1565C0,color:#fff;
-    style PassThru fill:#9E9E9E,stroke:#616161,color:#fff;
-    style Validate fill:#FF9800,stroke:#E65100,color:#fff;
-    style Success fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Fail fill:#F44336,stroke:#B71C1C,color:#fff;
-    style LogMistake fill:#F44336,stroke:#B71C1C,color:#fff;
-    style UpdateKB fill:#7C4DFF,stroke:#4A148C,color:#fff;
-    style RedisCache fill:#E91E63,stroke:#880E4F,color:#fff;
-    style Postgres fill:#3F51B5,stroke:#1A237E,color:#fff;
-    style NextRun fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    %% Class Styles
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef failClass fill:#450a0a,stroke:#ef4444,color:#fee2e2,stroke-width:2px;
+    classDef healClass fill:#3b0764,stroke:#c084fc,color:#fae8ff,stroke-width:2px;

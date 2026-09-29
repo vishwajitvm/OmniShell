@@ -1,40 +1,53 @@
-graph TD;
-    %% The Specific Gmail Example
-    Prompt[/"Prompt: open gmail on brave browser and draft an email to wolverinevm001@gmail.com and write message that i cannot be able to join meeting today"/] --> IntentAgent[Intent & Planning Agent]
+graph TD
+    %% ============================================================
+    %% COMPLEX GMAIL DEEP LINKING & BROWSER AUTOMATION WORKFLOW
+    %% ============================================================
 
-    subgraph Agentic Breakdown
-        IntentAgent -->|Breaks into steps| Step1[Step 1: Open Browser]
-        IntentAgent --> Step2[Step 2: Draft Email to wolverinevm001@gmail.com]
-        IntentAgent --> Step3[Step 3: Apology message for missing meeting]
+    Prompt[/"👤 Prompt: 'open gmail on brave browser and draft an email to wolverinevm001@gmail.com saying i cannot join today's meeting'"/]:::userClass --> IntentAgent["🎯 Intent & Planning Agent"]:::agentClass
+
+    subgraph SwarmProcessing ["🤖 8-Agent Swarm Collaborative Decomposition"]
+        IntentAgent -->|"Decomposes Goal into Actions"| Step1["Step 1: Detect Target Browser (Brave)"]:::agentClass
+        IntentAgent --> Step2["Step 2: Parse Recipient (wolverinevm001@gmail.com)"]:::agentClass
+        IntentAgent --> Step3["Step 3: Synthesize Professional Apology Context"]:::agentClass
         
-        Step3 --> ContentAgent[Content Generation Agent]
-        ContentAgent -->|Generates Professional Text| BodyText["Dear team, I apologize but I will not be able to join today's meeting. Regards."]
-        ContentAgent -->|URL Encodes Data| EncodedBody["Dear%20team%2C%20I%20apologize..."]
+        Step3 --> ContentAgent["✍️ Content & Knowledge Synthesizer"]:::agentClass
+        ContentAgent -->|"Synthesizes Professional Text"| BodyText["Subject: Meeting Absence\nBody: 'Dear Team, I apologize but I will not be able to attend today's meeting. Regards.'"]:::agentClass
+        ContentAgent -->|"RFC-3986 URL Encodes Payload"| EncodedBody["%20Subject%3DMeeting%20Absence..."]:::agentClass
         
-        EncodedBody --> SecGuard[Security Guard Agent]
+        EncodedBody --> SecGuard["🛡️ Security Guard & Policy Supervisor"]:::secClass
         Step2 --> SecGuard
     end
 
-    subgraph Security Check
-        SecGuard -->|Checks for 'Send' command| CheckSend{Did user say Send?}
-        CheckSend -->|No, just draft| Safe[Status: SAFE]
-        CheckSend -->|Yes| BlockSend[Guardrail: Downgrade to Draft]
-        Safe --> ExecPlanner[Execution Planner Agent]
+    subgraph SecurityGate ["🛡️ Security & Guardrail Verification"]
+        SecGuard -->|"Scans for Autonomous 'Send' Command"| CheckSend{"User requested automatic send?"}:::decisionClass
+        CheckSend -->|"No: Draft Only"| Safe["✅ SAFE: Formatted Deep-Link Draft"]:::verifyClass
+        CheckSend -->|"Yes: Auto-Send Attempt"| Downgrade["⚠️ Guardrail: Downgrade from Send to Draft for Human Safety"]:::secClass
+        Downgrade --> ExecPlanner["🏗️ Execution Planner Agent"]:::agentClass
+        Safe --> ExecPlanner
     end
 
-    subgraph Final Assembly
-        ExecPlanner -->|Builds Deep Link URL| FinalURL["https://mail.google.com/mail/?view=cm&fs=1&to=wolverinevm001@gmail.com&su=Meeting&body=Dear%20team..."]
-        FinalURL --> OutputJSON["JSON: { requires_browser: true, target_url: '...' }"]
+    subgraph AssemblyAndRouting ["📦 Assembly & JSON Protocol"]
+        ExecPlanner -->|"Constructs Gmail Deep Link URL"| FinalURL["https://mail.google.com/mail/?view=cm&fs=1&to=wolverinevm001@gmail.com&su=Meeting&body=Dear%20team..."]:::execClass
+        FinalURL --> OutputJSON["JSON Response:\n{\n  'requires_browser': true,\n  'target_url': 'https://mail.google.com/...',\n  'capability_type': 'browser_operation'\n}"]:::backendClass
     end
 
-    subgraph Execution
-        OutputJSON --> Middleware[Agentic Middleware]
-        Middleware -->|Detects requires_browser| UIRouter[Frontend UI Router]
-        UIRouter -->|Asks for Human Approval| SweetAlert{SweetAlert Popup}
+    subgraph ClientAndHostDispatch ["💻 Client Approval & Native Host Dispatch"]
+        OutputJSON --> FrontendRouter["🖥️ Frontend Control Plane Router"]:::uiClass
+        FrontendRouter --> BrowserModal["🌐 Browser Selector / Confirmation Modal"]:::uiClass
         
-        SweetAlert -->|Denied| Cancel((Action Cancelled))
-        SweetAlert -->|Approved: Selects Brave| HostAPI[POST http://localhost:8003/execute]
-        HostAPI --> LocalPy[local_executor.py on Host]
-        LocalPy --> BraveLaunch[Start-Process 'brave' -ArgumentList 'https://mail.google.com/...']
-        BraveLaunch --> UI[User sees pre-drafted email in Brave!]
+        BrowserModal -->|"User Confirms (Brave Browser)"| HostAPI["POST http://localhost:8003/execute"]:::hostClass
+        HostAPI --> LocalDaemon["⚡ Local Host Daemon (local_executor.py)"]:::hostClass
+        LocalDaemon --> LaunchBrave["Execute: brave 'https://mail.google.com/mail/?view=cm...'"]:::execClass
+        LaunchBrave --> Result["📬 User's Brave browser opens with Gmail pre-filled draft!"]:::verifyClass
     end
+
+    %% Class Styles
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef secClass fill:#450a0a,stroke:#ef4444,color:#fee2e2,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;

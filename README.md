@@ -1,77 +1,161 @@
-# 🐚 OmniShell
+# 🐚 OmniShell - Universal Autonomous Multi-Agent OS & Knowledge Syndicate
 
-**OmniShell** is an advanced, multi-agent execution environment that bridges the gap between AI reasoning and your physical operating system. 
+[![Architecture](https://img.shields.io/badge/Architecture-8--Agent%20Swarm-6366f1.svg)](docs/ARCHITECTURE.md)
+[![Capabilities](https://img.shields.io/badge/Capabilities-19%20Core%20Modes-10b981.svg)](docs/CAPABILITIES_MATRIX.md)
+[![Control Plane](https://img.shields.io/badge/Control%20Plane-Intent%E2%86%92Policy%E2%86%92Plan%E2%86%92Execute%E2%86%92Verify-38bdf8.svg)](docs/ARCHITECTURE.md)
+[![Security](https://img.shields.io/badge/Security-4--Layer%20Defense%20%2B%20HITL-ef4444.svg)](docs/ARCHITECTURE.md)
+[![Tests](https://img.shields.io/badge/Tests-32%2F32%20Passing%20(100%25)-059669.svg)](tests/test_capabilities.py)
 
-Ever wished you could just type *"Open Gmail and draft an apology email for missing the meeting"* and have your computer actually do it for you? That's what OmniShell does. It translates natural language into secure, native OS execution and advanced web automation.
+**OmniShell** is a universal autonomous multi-agent operating system copilot and knowledge syndicate. It bridges cognitive AI reasoning and physical host execution (Linux, macOS, Windows) through a decentralized **8-Agent Swarm Syndicate**, a strict **5-Stage Request Control Plane**, multi-layer **Human-in-the-Loop (HITL)** safety gates, and persistent **browser-independent background scheduling**.
 
-## 🤔 Why this project? What does it solve?
-Most AI tools today (like ChatGPT) are trapped in a chat box. They can tell you *how* to do something, but they can't do it for you. Tools like AutoGPT attempt to solve this, but they are often highly dangerous, prone to breaking, and execute commands blindly in the background without user consent.
+---
 
-**OmniShell solves this by combining the power of AI with strict Human-in-the-Loop security.** 
-It uses a "Swarm" of specialized agents to plan out your request, but before a single line of code touches your computer, the UI halts and asks for your explicit permission. When it executes, it does so in a highly visible, native terminal window so you can see exactly what is happening. No background shadow processes, no blind executions.
+## 🌟 What Sets OmniShell Apart?
 
-## 🧠 How it works (In Layman's Terms)
+- **Trapped in a Chatbox vs. Real OS Automation**: Unlike standard chatbots that only generate instructions, OmniShell translates natural language into verified host operations, deep-linked browser workflows, and background pipelines.
+- **Blind Execution vs. Guarded Control Plane**: Unlike naive autonomous agents that execute commands blindly in background subshells, OmniShell enforces strict policy checks, AST pattern filtering, process verification via `psutil`, and explicit user confirmation.
+- **Direct Knowledge Isolation**: Factual Q&A, research, and planning queries are automatically delivered as rich Markdown cards with **zero shell invocation**.
+- **Browser-Independent Scheduling**: Close your browser or VS Code—the native **Host Executor Daemon (`local_executor.py`)** remains active, automatically opening a dedicated **Pop-out Approval Window Document** when scheduled tasks mature.
 
-![System Architecture](https://mermaid.ink/img/eyJjb2RlIjogImdyYXBoIFREO1xuICAgICUlIENvcmUgVXNlcnMgJiBJbnRlcmZhY2VzXG4gICAgVXNlcigoVXNlcikpIC0tPnxOYXR1cmFsIExhbmd1YWdlfCBVSVtGcm9udGVuZCBVSSAtIE5lc3RKU11cbiAgICBVSSAtLT58SFRUUCBQT1NUfCBCYWNrZW5kW0JhY2tlbmQgQVBJIC0gRmFzdEFQSV1cblxuICAgICUlIEluZnJhc3RydWN0dXJlICYgVHJhY2luZ1xuICAgIEJhY2tlbmQgLS4tPnxMb2dzIEFnZW50IFRob3VnaHRzfCBUcmFjZU5lc3RbKFRyYWNlTmVzdCBMb2dnZXIpXVxuICAgIEJhY2tlbmQgLS4tPnxDYWNoZXMgU3RhdGV8IFJlZGlzWyhSZWRpcyBDYWNoZSldXG4gICAgQmFja2VuZCAtLi0-fFNhdmVzIEhpc3Rvcnl8IFBvc3RncmVzWyhQb3N0Z3JlU1FMIERCKV1cblxuICAgICUlIEFnZW50IFN3YXJtIChUaGUgU3luZGljYXRlKVxuICAgIHN1YmdyYXBoIEFnZW50IFN3YXJtXG4gICAgICAgIEJhY2tlbmQgLS0-IEludGVudFBsYW5bMS4gSW50ZW50ICYgUGxhbm5pbmcgQWdlbnRdXG4gICAgICAgIEludGVudFBsYW4gLS0-IENvbnRlbnRHZW5bMi4gQ29udGVudCBHZW5lcmF0aW9uIEFnZW50XVxuICAgICAgICBDb250ZW50R2VuIC0tPiBTZWNHdWFyZFszLiBTZWN1cml0eSBHdWFyZF1cbiAgICAgICAgU2VjR3VhcmQgLS0-IEV4ZWNQbGFubmVyWzQuIEV4ZWN1dGlvbiBQbGFubmVyXVxuICAgIGVuZFxuXG4gICAgJSUgU2VjdXJpdHkgTG9naWNcbiAgICBTZWNHdWFyZCAtLT58TWFsaWNpb3VzIC8gRGVzdHJ1Y3RpdmV8IEJsb2NrKChCTE9DS0VEKSlcbiAgICBTZWNHdWFyZCAtLi0-fERvd25ncmFkZXMgJ1NlbmQnIHRvICdEcmFmdCd8IEV4ZWNQbGFubmVyXG5cbiAgICAlJSBFeGVjdXRpb24gUm91dGluZ1xuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogV2ViL1VSTD98IFdlYlRhc2tbcmVxdWlyZXNfYnJvd3Nlcj1UcnVlXVxuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogTG9jYWwgT1M_fCBMb2NhbFRhc2tbc2hlbGxfc2NyaXB0PUdlbmVyYXRlZCBDb2RlXVxuXG4gICAgV2ViVGFzayAtLT4gRG9ja2VyQnJpZGdle0RvY2tlci10by1Ib3N0IEJyaWRnZX1cbiAgICBMb2NhbFRhc2sgLS0-IERvY2tlckJyaWRnZVxuXG4gICAgJSUgSG9zdCBFeGVjdXRpb25cbiAgICBzdWJncmFwaCBOYXRpdmUgSG9zdCBNYWNoaW5lXG4gICAgICAgIERvY2tlckJyaWRnZSAtLT58UG9ydCA4MDAzfCBMb2NhbEV4ZWN1dG9yW2xvY2FsX2V4ZWN1dG9yLnB5XVxuICAgICAgICBMb2NhbEV4ZWN1dG9yIC0tPnxXZWIgVGFza3wgT3BlbkJyb3dzZXJbUG9wIE9wZW4gQnJvd3NlciBOYXRpdmVdXG4gICAgICAgIExvY2FsRXhlY3V0b3IgLS0-fExvY2FsIFRhc2t8IE9wZW5UZXJtaW5hbFtDUkVBVEVfTkVXX0NPTlNPTEUgcG9wdXBdXG4gICAgICAgIE9wZW5UZXJtaW5hbCAtLT4gVmFsaWRhdGlvbltwc3V0aWwgVmFsaWRhdGlvbjogRGlkIGl0IGxhdW5jaD9dXG4gICAgICAgIE9wZW5Ccm93c2VyIC0tPiBWYWxpZGF0aW9uXG4gICAgZW5kXG5cbiAgICBWYWxpZGF0aW9uIC0tPnxWYWxpZGF0aW9uIE91dHB1dHwgVUlcbiIsICJtZXJtYWlkIjogIntcInRoZW1lXCI6IFwiZGVmYXVsdFwifSJ9)
+---
 
-When you type a command, it goes through three stages:
+## 🏗️ System Architecture & Workflow Flowchart
 
-1. **The Brain (Agent Swarm):** Your command is sent to a secure Docker container where multiple AI agents debate how to fulfill it. 
-   - *Agent 1* figures out what you want.
-   - *Agent 2* writes any necessary text (like making your rough email notes sound professional).
-   - *Agent 3 (Security Guard)* makes sure you aren't trying to do something dangerous (like deleting system files or extracting passwords).
-   - *Agent 4 (Command Validator)* ruthlessly critiques the generated scripts.
-   - *Agent 5* plans the final execution strategy.
-2. **The 4-Layer Security System:** 
-   - *Layer 0 (Pre-LLM):* Hardcoded Python regex interceptor (un-jailbreakable).
-   - *Layer 1 (AI Guard):* Security Guard agent actively denies malicious intents.
-   - *Layer 2 (Frontend Override):* Final regex check in the browser before dispatching.
-   - *Layer 3 (Human Check):* Double-confirmation popup for any destructive commands.
-3. **The Muscle (Host Executor V2):** If approved, the command hits a tiny background service running natively on your OS. It safely executes processes using Python's subprocess pipeline, captures stdout/stderr, handles timeouts, and tracks execution history. This script physically pops open a new terminal window, runs the task (like opening VS Code, or launching Brave Browser to Gmail), double checks that it worked, and then closes itself.
+```mermaid
+graph TD
+    User(["👤 User Prompt"]):::userClass --> UI["🖥️ Frontend Control Center (NestJS + Handlebars)"]:::uiClass
+    UI --> Backend["⚡ Agentic Backend Engine (FastAPI)"]:::backendClass
+    
+    subgraph ControlPlane ["🎛️ Request Control Plane (5 Stages)"]
+        CP1["1. Intent Analysis"]:::cpClass
+        CP2["2. Policy & Safety Gate"]:::cpClass
+        CP3["3. Workflow Planning"]:::cpClass
+        CP4["4. Host Execution"]:::cpClass
+        CP5["5. Output Verification"]:::cpClass
+        CP1 --> CP2 --> CP3 --> CP4 --> CP5
+    end
 
-## 🚀 Setup & Installation
+    subgraph Syndicate ["🤖 8-Agent Swarm Syndicate"]
+        Backend --> A1["1. Intent & Planning Agent"]:::agentClass
+        A1 --> A2["2. System Reconnaissance Agent"]:::agentClass
+        A2 --> A3["3. Content & Knowledge Synthesizer"]:::agentClass
+        A3 --> A4["4. Security Guard"]:::agentClass
+        A4 --> A5["5. Safety & Policy Supervisor"]:::agentClass
+        A5 --> A6["6. Command Research Agent"]:::agentClass
+        A6 --> A7["7. Command Validator Agent"]:::agentClass
+        A7 --> A8["8. Execution Planner"]:::agentClass
+        A5 -.->|"Ambiguity"| Clarify["❓ Clarification Agent"]:::clarifyClass
+    end
 
-### Prerequisites
-- Docker & Docker Compose
-- Python 3.10+ (Installed natively on your host machine)
-- A GitHub/LiteLLM compatible API key (configured in your .env file)
+    Backend -.-> DB[("🐘 PostgreSQL\n(Scheduled Tasks & Audit Logs)")]:::dbClass
+    Backend -.-> Redis[("🔴 Redis Cache\n(Learned Commands & Fast Path)")]:::cacheClass
 
-### Step-by-Step
+    Syndicate --> ModeDecision{"Capability Routing (19 Modes)"}:::decisionClass
+    ModeDecision -->|"Knowledge (Q&A/Info/Plan)"| DirectMarkdown["💡 Markdown Answer Card\n(Zero Host Execution)"]:::infoClass
+    ModeDecision -->|"Host Execution"| HITLCheck{"Safety Gate & HITL"}:::decisionClass
+    ModeDecision -->|"Scheduled / Recurring"| PostgresQueue["📅 Scheduled Task Queue"]:::schedClass
 
-1. **Clone the repository:**
-`ash
-git clone https://github.com/vishwajitvm/OmniShell.git
-cd OmniShell
+    HITLCheck -->|"Authorized"| HostDaemon["💻 Local Host Daemon (local_executor.py:8003)"]:::hostClass
+    PostgresQueue -->|"Token Verified"| PopoutWindow["📄 Pop-out Approval Window Document"]:::windowClass
+    PopoutWindow -->|"User Approved"| HostDaemon
+
+    HostDaemon --> NativeOS["⚡ Native Host OS (Bash / Zsh / PowerShell)"]:::execClass
+    NativeOS --> ProcessVerify["✅ Process & Exit Code Verification (psutil)"]:::verifyClass
+    ProcessVerify --> UI
+
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef cpClass fill:#0f172a,stroke:#38bdf8,color:#38bdf8,stroke-width:1.5px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef clarifyClass fill:#451a03,stroke:#f59e0b,color:#fde68a,stroke-width:2px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef cacheClass fill:#1e293b,stroke:#ef4444,color:#f87171,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef infoClass fill:#064e3b,stroke:#34d399,color:#ecfdf5,stroke-width:2px;
+    classDef schedClass fill:#3b0764,stroke:#c084fc,color:#fae8ff,stroke-width:2px;
+    classDef windowClass fill:#1e1b4b,stroke:#a855f7,color:#f3e8ff,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;
 ```
 
-2. **Start the AI Brain & UI (Docker):**
-This spins up the secure Backend API, the Redis cache, the Postgres Database, and the Frontend UI.
-`ash
+---
+
+## 🏛️ The 19 Core Capabilities Matrix
+
+| Mode | Capability | Type | Output / Execution |
+|---|---|---|---|
+| **1** | **Question Answering** | `question_answering` | Contextual Markdown Answer Card |
+| **2** | **Information Requests** | `information_request` | Technical Dossiers & Overviews |
+| **3** | **System Inspection** | `system_inspection` | Real-time Diagnostic Terminal Box |
+| **4** | **System Analysis** | `analysis` | Performance & Bottleneck Synthesis |
+| **5** | **Application Operations** | `application_operation` | Cross-Platform Application Launch |
+| **6** | **Browser Operations** | `browser_operation` | Browser Picker & Deep-Link Navigation |
+| **7** | **File Operations** | `file_operation` | Safe Scripting & File Creation |
+| **8** | **Shell Operations** | `shell_operation` | Guarded Terminal Script Execution |
+| **9** | **Multi-Step Pipelines** | `multi_step` | Step-by-Step Visualizer & Checklist |
+| **10** | **Interactive Workflows** | `interactive_workflow` | Multi-Stage Checkpoint Wizard |
+| **11** | **Scheduled Workflows** | `scheduled_workflow` | PostgreSQL Background Queue |
+| **12** | **Recurring Workflows** | `recurring_workflow` | Periodic Recurrence Engine Loop |
+| **13** | **Conditional Workflows** | `conditional_workflow` | Dynamic Condition Branching |
+| **14** | **Desktop Reminders** | `reminder` | Native OS Notification Alerts |
+| **15** | **Research Tasks** | `research` | Deep Synthesis Document |
+| **16** | **Planning-Only Roadmaps** | `planning_only` | Phased Blueprints (Zero Shell Exec) |
+| **17** | **Elevated Human Approval** | `human_approval` | In-UI SweetAlert2 Double-Confirmation |
+| **18** | **Clarification Requests** | `clarification` | Actionable Clarification Buttons |
+| **19** | **Failure Recovery** | `recovery_failure` | Self-Healing Retry Chain & Rollback |
+
+---
+
+## 🚀 Quickstart Guide
+
+### 1. Clone & Configure
+```bash
+git clone https://github.com/vishwajitvm/OmniShell.git
+cd OmniShell/saas_poc
+cp .env.template .env
+```
+
+### 2. Start Dockerized AI Stack (Backend, Database, Redis, UI)
+```bash
 docker-compose up --build -d
 ```
 
-3. **Start the Muscle (Native Host Executor):**
-Open a terminal natively on your Windows/Linux machine (NOT inside Docker) and run:
-`ash
+### 3. Start Host Executor Daemon (Native Host Machine)
+Open a new terminal window natively on your physical OS and run:
+```bash
 pip install psutil
-python local_executor.py or python3 local_executor.py 
+python3 local_executor.py
+```
 
-`
-*(Leave this window open! This is what listens for approved commands from the UI and executes them on your desktop).*
+### 4. Launch Command Center
+Open your browser at [http://localhost:3000](http://localhost:3000).
 
-4. **Access the UI:**
-Open your browser and navigate to http://localhost:3000. Type your command and watch OmniShell go to work!
+---
 
-## 📚 Deep Dive Documentation
-Want to see the exact architecture flowcharts or how the agent swarm works under the hood? Check out the /docs folder!
+## 📚 Complete Technical Documentation
 
-### Guides & Technicals
-- [🛠️ Local Setup Guide (Step-by-Step)](docs/LOCAL_SETUP.md)
-- [💻 Tech Stack Breakdown](docs/TECH_STACK.md)
-- [🏗️ Architecture Deep Dive](docs/ARCHITECTURE.md)
-- [🚀 Deployment Guide](docs/DEPLOYMENT.md)
+- **[🧪 Prompt Testing Playbook (Click-to-Copy)](docs/PROMPT_TEST_SUITE.md)**: Official test suite with copy-pasteable prompts across all 19 capabilities.
+- **[Project Overview](docs/PROJECT_OVERVIEW.md)**: High-level vision, problem statement, and topology.
+- **[System Architecture](docs/ARCHITECTURE.md)**: Swarm syndicate, Request Control Plane, 4-layer defense, and host API.
+- **[Capabilities Matrix](docs/CAPABILITIES_MATRIX.md)**: Detailed specification of all 19 capabilities with examples.
+- **[Scheduled Execution Specification](docs/SCHEDULED_PROMPT_EXECUTION.md)**: Independent scheduling, tokens, and pop-out window documents.
+- **[Security & Guardrails Architecture](docs/SECURITY_AND_GUARDRAILS.md)**: 4-layer defense, AST checks, SHA-256 tokens, and privilege boundaries.
+- **[API Reference Specification](docs/API_REFERENCE.md)**: Complete REST API documentation for Backend and Host Executor daemon.
+- **[Troubleshooting & Operational Runbook](docs/TROUBLESHOOTING_GUIDE.md)**: Diagnostic and remediation steps for local, docker, and network issues.
+- **[Local Setup Guide](docs/LOCAL_SETUP.md)**: Step-by-step installation for Linux, macOS, and Windows.
+- **[Tech Stack Breakdown](docs/TECH_STACK.md)**: NestJS, FastAPI, PostgreSQL, Redis, LiteLLM, and psutil.
+- **[Deployment Guide](docs/DEPLOYMENT.md)**: Cloud deployment topologies and reverse proxy setup.
+- **[Interview & Architecture Pitch Guide](docs/INTERVIEW_PITCH.md)**: Executive elevator pitch and engineering FAQ.
 
-### Flowcharts & Diagrams
-- [Project Overview](docs/PROJECT_OVERVIEW.md)
-- [System Architecture Diagram](https://mermaid.ink/img/eyJjb2RlIjogImdyYXBoIFREO1xuICAgICUlIENvcmUgVXNlcnMgJiBJbnRlcmZhY2VzXG4gICAgVXNlcigoVXNlcikpIC0tPnxOYXR1cmFsIExhbmd1YWdlfCBVSVtGcm9udGVuZCBVSSAtIE5lc3RKU11cbiAgICBVSSAtLT58SFRUUCBQT1NUfCBCYWNrZW5kW0JhY2tlbmQgQVBJIC0gRmFzdEFQSV1cblxuICAgICUlIEluZnJhc3RydWN0dXJlICYgVHJhY2luZ1xuICAgIEJhY2tlbmQgLS4tPnxMb2dzIEFnZW50IFRob3VnaHRzfCBUcmFjZU5lc3RbKFRyYWNlTmVzdCBMb2dnZXIpXVxuICAgIEJhY2tlbmQgLS4tPnxDYWNoZXMgU3RhdGV8IFJlZGlzWyhSZWRpcyBDYWNoZSldXG4gICAgQmFja2VuZCAtLi0-fFNhdmVzIEhpc3Rvcnl8IFBvc3RncmVzWyhQb3N0Z3JlU1FMIERCKV1cblxuICAgICUlIEFnZW50IFN3YXJtIChUaGUgU3luZGljYXRlKVxuICAgIHN1YmdyYXBoIEFnZW50IFN3YXJtXG4gICAgICAgIEJhY2tlbmQgLS0-IEludGVudFBsYW5bMS4gSW50ZW50ICYgUGxhbm5pbmcgQWdlbnRdXG4gICAgICAgIEludGVudFBsYW4gLS0-IENvbnRlbnRHZW5bMi4gQ29udGVudCBHZW5lcmF0aW9uIEFnZW50XVxuICAgICAgICBDb250ZW50R2VuIC0tPiBTZWNHdWFyZFszLiBTZWN1cml0eSBHdWFyZF1cbiAgICAgICAgU2VjR3VhcmQgLS0-IEV4ZWNQbGFubmVyWzQuIEV4ZWN1dGlvbiBQbGFubmVyXVxuICAgIGVuZFxuXG4gICAgJSUgU2VjdXJpdHkgTG9naWNcbiAgICBTZWNHdWFyZCAtLT58TWFsaWNpb3VzIC8gRGVzdHJ1Y3RpdmV8IEJsb2NrKChCTE9DS0VEKSlcbiAgICBTZWNHdWFyZCAtLi0-fERvd25ncmFkZXMgJ1NlbmQnIHRvICdEcmFmdCd8IEV4ZWNQbGFubmVyXG5cbiAgICAlJSBFeGVjdXRpb24gUm91dGluZ1xuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogV2ViL1VSTD98IFdlYlRhc2tbcmVxdWlyZXNfYnJvd3Nlcj1UcnVlXVxuICAgIEV4ZWNQbGFubmVyIC0tPnxEZWNpc2lvbjogTG9jYWwgT1M_fCBMb2NhbFRhc2tbc2hlbGxfc2NyaXB0PUdlbmVyYXRlZCBDb2RlXVxuXG4gICAgV2ViVGFzayAtLT4gRG9ja2VyQnJpZGdle0RvY2tlci10by1Ib3N0IEJyaWRnZX1cbiAgICBMb2NhbFRhc2sgLS0-IERvY2tlckJyaWRnZVxuXG4gICAgJSUgSG9zdCBFeGVjdXRpb25cbiAgICBzdWJncmFwaCBOYXRpdmUgSG9zdCBNYWNoaW5lXG4gICAgICAgIERvY2tlckJyaWRnZSAtLT58UG9ydCA4MDAzfCBMb2NhbEV4ZWN1dG9yW2xvY2FsX2V4ZWN1dG9yLnB5XVxuICAgICAgICBMb2NhbEV4ZWN1dG9yIC0tPnxXZWIgVGFza3wgT3BlbkJyb3dzZXJbUG9wIE9wZW4gQnJvd3NlciBOYXRpdmVdXG4gICAgICAgIExvY2FsRXhlY3V0b3IgLS0-fExvY2FsIFRhc2t8IE9wZW5UZXJtaW5hbFtDUkVBVEVfTkVXX0NPTlNPTEUgcG9wdXBdXG4gICAgICAgIE9wZW5UZXJtaW5hbCAtLT4gVmFsaWRhdGlvbltwc3V0aWwgVmFsaWRhdGlvbjogRGlkIGl0IGxhdW5jaD9dXG4gICAgICAgIE9wZW5Ccm93c2VyIC0tPiBWYWxpZGF0aW9uXG4gICAgZW5kXG5cbiAgICBWYWxpZGF0aW9uIC0tPnxWYWxpZGF0aW9uIE91dHB1dHwgVUlcbiIsICJtZXJtYWlkIjogIntcInRoZW1lXCI6IFwiZGVmYXVsdFwifSJ9)
-- [Example Flow: Complex Gmail Deep Linking](https://mermaid.ink/img/eyJjb2RlIjogImdyYXBoIFREO1xuICAgICUlIFRoZSBTcGVjaWZpYyBHbWFpbCBFeGFtcGxlXG4gICAgUHJvbXB0Wy9cIlByb21wdDogb3BlbiBnbWFpbCBvbiBicmF2ZSBicm93c2VyIGFuZCBkcmFmdCBhbiBlbWFpbCB0byB3b2x2ZXJpbmV2bTAwMUBnbWFpbC5jb20gYW5kIHdyaXRlIG1lc3NhZ2UgdGhhdCBpIGNhbm5vdCBiZSBhYmxlIHRvIGpvaW4gbWVldGluZyB0b2RheVwiL10gLS0-IEludGVudEFnZW50W0ludGVudCAmIFBsYW5uaW5nIEFnZW50XVxuXG4gICAgc3ViZ3JhcGggQWdlbnRpYyBCcmVha2Rvd25cbiAgICAgICAgSW50ZW50QWdlbnQgLS0-fEJyZWFrcyBpbnRvIHN0ZXBzfCBTdGVwMVtTdGVwIDE6IE9wZW4gQnJvd3Nlcl1cbiAgICAgICAgSW50ZW50QWdlbnQgLS0-IFN0ZXAyW1N0ZXAgMjogRHJhZnQgRW1haWwgdG8gd29sdmVyaW5ldm0wMDFAZ21haWwuY29tXVxuICAgICAgICBJbnRlbnRBZ2VudCAtLT4gU3RlcDNbU3RlcCAzOiBBcG9sb2d5IG1lc3NhZ2UgZm9yIG1pc3NpbmcgbWVldGluZ11cbiAgICAgICAgXG4gICAgICAgIFN0ZXAzIC0tPiBDb250ZW50QWdlbnRbQ29udGVudCBHZW5lcmF0aW9uIEFnZW50XVxuICAgICAgICBDb250ZW50QWdlbnQgLS0-fEdlbmVyYXRlcyBQcm9mZXNzaW9uYWwgVGV4dHwgQm9keVRleHRbXCJEZWFyIHRlYW0sIEkgYXBvbG9naXplIGJ1dCBJIHdpbGwgbm90IGJlIGFibGUgdG8gam9pbiB0b2RheSdzIG1lZXRpbmcuIFJlZ2FyZHMuXCJdXG4gICAgICAgIENvbnRlbnRBZ2VudCAtLT58VVJMIEVuY29kZXMgRGF0YXwgRW5jb2RlZEJvZHlbXCJEZWFyJTIwdGVhbSUyQyUyMEklMjBhcG9sb2dpemUuLi5cIl1cbiAgICAgICAgXG4gICAgICAgIEVuY29kZWRCb2R5IC0tPiBTZWNHdWFyZFtTZWN1cml0eSBHdWFyZCBBZ2VudF1cbiAgICAgICAgU3RlcDIgLS0-IFNlY0d1YXJkXG4gICAgZW5kXG5cbiAgICBzdWJncmFwaCBTZWN1cml0eSBDaGVja1xuICAgICAgICBTZWNHdWFyZCAtLT58Q2hlY2tzIGZvciAnU2VuZCcgY29tbWFuZHwgQ2hlY2tTZW5ke0RpZCB1c2VyIHNheSBTZW5kP31cbiAgICAgICAgQ2hlY2tTZW5kIC0tPnxObywganVzdCBkcmFmdHwgU2FmZVtTdGF0dXM6IFNBRkVdXG4gICAgICAgIENoZWNrU2VuZCAtLT58WWVzfCBCbG9ja1NlbmRbR3VhcmRyYWlsOiBEb3duZ3JhZGUgdG8gRHJhZnRdXG4gICAgICAgIFNhZmUgLS0-IEV4ZWNQbGFubmVyW0V4ZWN1dGlvbiBQbGFubmVyIEFnZW50XVxuICAgIGVuZFxuXG4gICAgc3ViZ3JhcGggRmluYWwgQXNzZW1ibHlcbiAgICAgICAgRXhlY1BsYW5uZXIgLS0-fEJ1aWxkcyBEZWVwIExpbmsgVVJMfCBGaW5hbFVSTFtcImh0dHBzOi8vbWFpbC5nb29nbGUuY29tL21haWwvP3ZpZXc9Y20mZnM9MSZ0bz13b2x2ZXJpbmV2bTAwMUBnbWFpbC5jb20mc3U9TWVldGluZyZib2R5PURlYXIlMjB0ZWFtLi4uXCJdXG4gICAgICAgIEZpbmFsVVJMIC0tPiBPdXRwdXRKU09OW1wiSlNPTjogeyByZXF1aXJlc19icm93c2VyOiB0cnVlLCB0YXJnZXRfdXJsOiAnLi4uJyB9XCJdXG4gICAgZW5kXG5cbiAgICBzdWJncmFwaCBFeGVjdXRpb25cbiAgICAgICAgT3V0cHV0SlNPTiAtLT4gTWlkZGxld2FyZVtBZ2VudGljIE1pZGRsZXdhcmVdXG4gICAgICAgIE1pZGRsZXdhcmUgLS0-fERldGVjdHMgcmVxdWlyZXNfYnJvd3NlcnwgVUlSb3V0ZXJbRnJvbnRlbmQgVUkgUm91dGVyXVxuICAgICAgICBVSVJvdXRlciAtLT58QXNrcyBmb3IgSHVtYW4gQXBwcm92YWx8IFN3ZWV0QWxlcnR7U3dlZXRBbGVydCBQb3B1cH1cbiAgICAgICAgXG4gICAgICAgIFN3ZWV0QWxlcnQgLS0-fERlbmllZHwgQ2FuY2VsKChBY3Rpb24gQ2FuY2VsbGVkKSlcbiAgICAgICAgU3dlZXRBbGVydCAtLT58QXBwcm92ZWQ6IFNlbGVjdHMgQnJhdmV8IEhvc3RBUElbUE9TVCBodHRwOi8vbG9jYWxob3N0OjgwMDMvZXhlY3V0ZV1cbiAgICAgICAgSG9zdEFQSSAtLT4gTG9jYWxQeVtsb2NhbF9leGVjdXRvci5weSBvbiBIb3N0XVxuICAgICAgICBMb2NhbFB5IC0tPiBCcmF2ZUxhdW5jaFtTdGFydC1Qcm9jZXNzICdicmF2ZScgLUFyZ3VtZW50TGlzdCAnaHR0cHM6Ly9tYWlsLmdvb2dsZS5jb20vLi4uJ11cbiAgICAgICAgQnJhdmVMYXVuY2ggLS0-IFVJW1VzZXIgc2VlcyBwcmUtZHJhZnRlZCBlbWFpbCBpbiBCcmF2ZSFdXG4gICAgZW5kXG4iLCAibWVybWFpZCI6ICJ7XCJ0aGVtZVwiOiBcImRlZmF1bHRcIn0ifQ==)
+---
+
+## 🧪 Automated Test Verification
+
+OmniShell includes an extensive test suite verifying all 19 capabilities, scheduling calculations, and security guardrails:
+
+```bash
+python3 -m unittest tests/test_capabilities.py
+```
+**Result**: 32/32 tests passing (100% success rate).

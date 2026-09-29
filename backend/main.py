@@ -1945,6 +1945,16 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
     is_mac = "darwin" in user_agent_os.lower() or "mac" in user_agent_os.lower()
     is_win = "windows" in user_agent_os.lower()
 
+    # Common Applications
+    if any(k in p for k in ["vscode", "vs code", "visual studio code", "visual studio"]):
+        return ("code" if (is_linux or is_mac) else "code"), "Visual Studio Code"
+    if "notepad" in p or "text editor" in p:
+        return ("gedit" if is_linux else ("open -a TextEdit" if is_mac else "notepad")), "Text Editor"
+    if "calculator" in p:
+        return ("gnome-calculator" if is_linux else ("open -a Calculator" if is_mac else "calc")), "Calculator"
+    if "terminal" in p:
+        return ("gnome-terminal" if is_linux else ("open -a Terminal" if is_mac else "wt")), "Terminal"
+
     # Trash / Recycle Bin
     if any(k in p for k in ["trash", "recycle bin", "rubbish"]):
         if is_linux:
@@ -2226,7 +2236,7 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
 
     # Hard stop / human approval takes precedence over all other classifications.
     destructive = re.search(
-        r"\b(rm\s+-rf|rm\s+-[^\s]*r|rm\s+-[^\s]*f|delete\b.*(?:folder|file|trash|directory|data)|empty\s+trash|clean\s+trash|trash|wipe|format|mkfs|fdisk|drop\s+database|killall|pkill\s+-9|destroy|nuke|rmdir)\b",
+        r"\b(rm\s+-rf|rm\s+-[^\s]*r|rm\s+-[^\s]*f|delete\b.*(?:folder|files?|cache|trash|directory|data)|empty\s+trash|clean\s+trash|trash|wipe|format|mkfs|fdisk|drop\s+database|killall|pkill\s+-9|destroy|nuke|rmdir)\b",
         p,
     )
     if destructive:
@@ -2428,7 +2438,8 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     # Application operation: explicit action + known app. Avoid treating 'run tests' as app launch.
     apps = ["code", "vscode", "visual studio", "notepad", "calculator", "terminal", "slack", "spotify", "discord", "vlc", "file explorer"]
     if re.search(r"\b(open|launch|start)\b", p) and any(a in p for a in apps):
-        return _intent_result("application_operation", confidence=.98, signals=["explicit_app_action"], execution_mode="local_application", safety_level="low", intent_entities=entities, shell_script=None, expected_process=None, direct_answer="Application operation resolved; the host command registry will select the verified native command.")
+        dyn_cmd, dyn_proc = synthesize_dynamic_shell_command(prompt, user_agent_os)
+        return _intent_result("application_operation", confidence=.98, signals=["explicit_app_action"], execution_mode="local_application", safety_level="low", intent_entities=entities, shell_script=dyn_cmd or "code", expected_process=dyn_proc or "code", direct_answer="Application operation resolved; the host command registry will select the verified native command.")
 
     # File operations are identified by file semantics and target entities.
     file_terms = ["create file", "write file", "read file", "list directory", "list files", "delete file", "search files", "find file", "backup file", "file named", "rename file", "move file", "copy file"]

@@ -1,96 +1,135 @@
-# 🏗️ Architecture Deep Dive
+# 🏗️ OmniShell Architecture Deep Dive
 
-OmniShell is a universal, autonomous multi-agent operating system copilot and knowledge syndicate designed with a strict separation of concerns, multi-layered security guardrails, background scheduling, and self-healing automation.
+OmniShell is architected as an autonomous, multi-agent operating system copilot and knowledge syndicate designed with a strict separation of concerns, multi-layered security guardrails, background scheduling, and self-healing automation.
 
 ---
 
-## 🏛️ The 19 Core Capabilities
+## 🏛️ The 19 Core Capabilities Matrix
 
 OmniShell natively supports 19 core interaction paradigms within a single unified pipeline:
 
-1. **Questions and Answers (`question_answering`):** Direct contextual factual and conceptual answers formatted in rich Markdown with syntax highlighting.
-2. **Information Requests (`information_request`):** System documentation, technical overviews, and structured summaries.
-3. **System Inspection (`system_inspection`):** Real-time diagnostic inspection of CPU, memory, disk, network, processes, and host stats.
-4. **Analysis (`analysis`):** In-depth diagnostic log analysis, performance bottleneck detection, and security audit reports.
-5. **Application Operations (`application_operation`):** Cross-platform application launching and process tracking.
-6. **Browser Operations (`browser_operation`):** Browser-specific URL navigation with interactive browser selection.
-7. **File Operations (`file_operation`):** Safe creation, reading, archiving, and management of local files and directories.
-8. **Shell Operations (`shell_operation`):** Secure command execution on Linux, macOS, and Windows with real-time streaming output.
-9. **Multi-Step Tasks (`multi_step`):** Structured sequential pipelines with visual step checklists and validation tracking.
-10. **Interactive Workflows (`interactive_workflow`):** Guided multi-stage workflows with interactive user inputs and confirmation checkpoints.
-11. **Scheduled Workflows (`scheduled_workflow`):** Autonomous future execution at exact timestamps or relative offsets with human-in-the-loop gates.
-12. **Recurring Workflows (`recurring_workflow`):** Continuous periodic tasks scheduled with interval or daily recurrence rules.
-13. **Conditional Workflows (`conditional_workflow`):** Branching execution paths evaluated dynamically based on system state or script exit codes.
-14. **Reminders (`reminder`):** Contextual scheduled alerts and notifications with native OS alerts.
-15. **Research Tasks (`research`):** Deep multi-tier research synthesizing web data and dynamically discovering unknown commands.
-16. **Planning-Only Requests (`planning_only`):** Architectural blueprints, phased migration plans, and sequence diagrams without execution.
-17. **Tasks Requiring Human Approval (`human_approval`):** Elevated and potentially destructive operations protected by strict multi-step human confirmation.
-18. **Tasks Requiring Clarification (`clarification`):** Ambiguous or underspecified requests automatically prompting user for clarifying choices.
-19. **Recovery After Failure (`recovery_failure`):** Self-healing resilient workflows equipped with automated retries and fallback execution chains.
+| # | Capability Name | Identifier | Execution Required | Primary Output Mode |
+|---|---|---|---|---|
+| **1** | **Question Answering** | `question_answering` | ❌ No | Markdown Direct Answer Card |
+| **2** | **Information Requests** | `information_request` | ❌ No | Structured Technical Dossier |
+| **3** | **System Inspection** | `system_inspection` | ✅ Yes | Real-time Diagnostic Terminal Box |
+| **4** | **System Analysis** | `analysis` | ❌/✅ Optional | Diagnostic Synthesis & Bottleneck Report |
+| **5** | **Application Operations** | `application_operation` | ✅ Yes | Native Process Spawning |
+| **6** | **Browser Operations** | `browser_operation` | ✅ Yes | Browser Picker & Deep-Link Navigation |
+| **7** | **File Operations** | `file_operation` | ✅ Yes | Native File Creation / Script Execution |
+| **8** | **Shell Operations** | `shell_operation` | ✅ Yes | Native Shell Terminal Execution |
+| **9** | **Multi-Step Pipelines** | `multi_step` | ✅ Yes | Sequential Step Visualizer & Checklist |
+| **10** | **Interactive Workflows** | `interactive_workflow` | ✅ Yes | Multi-Stage Interactive Checkpoints |
+| **11** | **Scheduled Workflows** | `scheduled_workflow` | ✅ Yes | PostgreSQL Scheduled Task Queue |
+| **12** | **Recurring Workflows** | `recurring_workflow` | ✅ Yes | Continuous Periodic Recurrence Loop |
+| **13** | **Conditional Workflows** | `conditional_workflow` | ✅ Yes | Dynamic Condition Evaluation & Branching |
+| **14** | **Desktop Reminders** | `reminder` | ✅ Yes | Native Desktop Notification Dispatch |
+| **15** | **Research Tasks** | `research` | ❌ No | Multi-Source Web & System Synthesis |
+| **16** | **Planning-Only Requests** | `planning_only` | ❌ No | Architectural Roadmap (Zero Shell Exec) |
+| **17** | **Elevated Human Approval** | `human_approval` | ✅ Yes | In-UI SweetAlert2 Double-Confirmation |
+| **18** | **Clarification Requests** | `clarification` | ❌ No | Actionable Option Buttons |
+| **19** | **Failure Recovery** | `recovery_failure` | ✅ Yes | Self-Healing Retry Chain & Rollback |
 
 ---
 
-## 🤖 The 7-Agent Syndicate
+## 🤖 The 8-Agent Swarm Syndicate
 
-Within the FastAPI backend, requests are processed by a multi-agent system before any code or answer is generated:
-1. **OS Intent & Capability Analyzer:** Classifies natural language prompts into one of the 19 core capabilities and detects the target OS.
-2. **Security & Guardrail Agent:** A rigid, active AI firewall that hunts for destructive intents (password theft, wiping data) and forces compliance.
-3. **Research & Knowledge Synthesis Agent:** Synthesizes direct answers for non-executable queries and queries DuckDuckGo for missing application commands.
-4. **Execution & Workflow Planner:** Maps validated intents to either Markdown answers, deep-link URLs, multi-step execution plans, or shell scripts.
-5. **Scheduler & Recurrence Agent:** Parses ISO timestamps, relative deltas (`tomorrow at 5pm`), and interval rules (`interval:10s`, `daily:09:00`).
-6. **Human Gatekeeper Agent:** Formulates clear confirmation explanations and interactive options when human intervention is needed.
-7. **Host Verification Agent (CRITIC):** Analyzes expected process names, exit codes, and resource metrics post-execution.
-
----
-
-## 🔄 Dual-Track Execution Architecture
+Every user prompt submitted to the backend is evaluated by a collaborative swarm of specialized agents:
 
 ```mermaid
 graph TD
-    UserPrompt["👤 User Prompt"] --> Syndicate["🤖 7-Agent Syndicate"]
-    Syndicate --> CapabilityRouter{"Capability Type?"}
-    
-    CapabilityRouter -->|"Q&A / Info / Plan / Research"| DirectAnswer["💡 Markdown Answer Card\n(Zero Shell Execution)"]
-    CapabilityRouter -->|"Browser Navigation"| BrowserPicker["🌐 Browser Selector Modal"]
-    CapabilityRouter -->|"Host Automation"| ApprovalModal{"🛡️ Human Confirmation"}
-    CapabilityRouter -->|"Scheduled / Recurring"| PostgresPipeline[("📅 PostgreSQL Scheduled DB")]
-    
-    ApprovalModal -->|"Approved"| HostAgent["💻 Native Host Agent (Port 8003)"]
-    ApprovalModal -->|"Denied"| Terminate["🛑 Safe Termination"]
-    
-    BrowserPicker --> HostAgent
-    HostAgent --> ProcessValidation["✅ Process & Output Verification"]
-    
-    PostgresPipeline --> CronWorker["⏰ Background Scheduler Worker"]
-    CronWorker -->|"Time Elapsed"| TokenValidation{"🔑 SHA-256 Token Check"}
-    TokenValidation -->|"Valid"| HostAgent
-    HostAgent -->|"Recurring Task Done"| Rescheduler["🔁 Compute Next Recurrence"]
-    Rescheduler --> PostgresPipeline
+    User["👤 User Prompt"] --> A1["1. Intent & Planning Agent"]
+    A1 --> A2["2. System Reconnaissance Agent"]
+    A2 --> A3["3. Content & Knowledge Synthesizer"]
+    A3 --> A4["4. Security Guard"]
+    A4 --> A5["5. Safety & Policy Supervisor"]
+    A5 --> A6["6. Command Research Agent"]
+    A6 --> A7["7. Command Validator Agent"]
+    A7 --> A8["8. Execution Planner"]
+
+    A5 -.->|"Ambiguous Intent"| Clarify["❓ Clarification Agent"]
 ```
+
+### Agent Roles & Deliverables:
+1. **Intent & Planning Agent**: Deconstructs raw natural language into structured operational steps, identifying target parameters and the primary capability category (confidence score: 0–100%).
+2. **System Reconnaissance Agent**: Identifies the host environment (Linux, macOS, Windows), inspects binary paths (`/bin/bash`, `which`, `where`), and maps required environment variables.
+3. **Content & Knowledge Synthesizer**: Synthesizes rich, structured Markdown answers for factual queries and drafts contextual email bodies or documentation notes.
+4. **Security Guard**: Evaluates the prompt against prohibited Abstract Syntax Tree (AST) patterns, mass deletion risks, and malicious payloads.
+5. **Safety & Policy Supervisor**: Enforces execution boundaries and assigns risk levels (`LOW`, `MEDIUM`, `HIGH`, `BLOCKED`).
+6. **Command Research Agent**: Queries the local knowledge base and autonomous web search (DuckDuckGo) to discover appropriate command syntax for unknown applications.
+7. **Command Validator Agent**: Validates shell quoting, environment compatibility, process termination criteria, and expected exit codes.
+8. **Execution Planner**: Finalizes the routing path, constructing either a direct Markdown card, a browser deep-link, a multi-step plan, or a persistent host execution payload.
+9. **Clarification & Disambiguation Agent**: Triggered when a prompt is underspecified or ambiguous, generating structured interactive choice buttons for user clarification.
+
+---
+
+## 🎛️ The Request Control Plane Lifecycle
+
+OmniShell implements a formal Request Control Plane tracking 5 continuous stages:
+
+$$\text{Intent} \longrightarrow \text{Policy} \longrightarrow \text{Plan} \longrightarrow \text{Execute} \longrightarrow \text{Verify}$$
+
+1. **Stage 1: Intent Analysis**: Maps prompt signals to capability and confidence score.
+2. **Stage 2: Policy & Safety Gate**: Validates the command against safety rules and determines if human authorization is required.
+3. **Stage 3: Workflow Planning**: Constructs the executable payload or direct answer with the 8-agent swarm.
+4. **Stage 4: Host Execution**: Dispatches commands to the local daemon, opens browsers, or enrolls in the database queue.
+5. **Stage 5: Output Verification**: Inspects exit codes (`$? == 0`), process hierarchies via `psutil`, and captures telemetry timings.
 
 ---
 
 ## 🛡️ 4-Layer Defense Architecture
 
-To ensure zero catastrophic failures, OmniShell implements a rigid 4-Layer Defense:
+OmniShell protects the host machine through four concentric layers of security:
 
-1. **Layer 0 (Pre-LLM Guardrail):** A hardcoded Python regex interceptor in the backend that scans the raw user prompt. It immediately blocks passwords, system files, dark web, hacking, and mass deletion *before* the AI even sees it. This cannot be jailbroken.
-2. **Layer 1 (AI Security Guard):** The Security Guard Agent in the swarm actively denies malicious intents that slip past Layer 0 (e.g., context-aware semantic threats).
-3. **Layer 2 (Frontend Double-Confirmation):** Destructive commands (`rm`, `delete`) require a secondary Human-in-the-Loop (HITL) popup. The AI never runs silently.
-4. **Layer 3 (Frontend System Override):** Even if the human approves it, a final client-side safeguard blocks known malicious script patterns (like `rm -rf /` or accessing `/etc/shadow`) and permanently terminates the execution.
+```mermaid
+graph TD
+    Prompt["👤 Incoming Prompt"] --> L0["Layer 0: Pre-LLM Regex Red-Line Guard"]
+    L0 -->|"Safe"| L1["Layer 1: AI Security Guard Agent"]
+    L0 -->|"Malicious Pattern"| Block0["🛑 Immediate Pre-LLM Block"]
+
+    L1 -->|"Approved"| L2["Layer 2: Frontend Human Confirmation Gate"]
+    L1 -->|"Destructive Intent"| Block1["🛑 Security Policy Block"]
+
+    L2 -->|"User Confirms"| L3["Layer 3: Client-Side Safety Pattern Check"]
+    L2 -->|"User Denies"| Cancel["🛑 User Cancelled"]
+
+    L3 -->|"Passed"| Host["💻 Host Executor Daemon Execution"]
+    L3 -->|"Failed Pattern"| Block3["🛑 Terminal Override Block"]
+```
+
+1. **Layer 0 (Pre-LLM Regex Guard)**: Hardcoded deterministic filter in Python (`re.search`) that blocks mass deletion (`rm -rf /`, `mkfs`), credential dumping (`/etc/shadow`, `SAM`), and crypto-miners before the AI engine is invoked.
+2. **Layer 1 (AI Security Guard Agent)**: Cognitive agent evaluating semantic risk, privilege escalation, and downgrading sensitive intents (e.g., forcing auto-send to draft).
+3. **Layer 2 (Frontend Human Gate)**: Interactive SweetAlert2 dialogs and standalone Pop-out Approval Windows requiring explicit user confirmation before host mutation.
+4. **Layer 3 (Client-Side Terminal Override)**: Final regex screening in the browser client prior to dispatching HTTP payloads to port 8003.
 
 ---
 
-## 🔌 Host Agent API (`local_executor.py`)
+## 🔒 Dual Approval Architecture
 
-The native host execution agent runs on port 8003 and provides:
+OmniShell provides specialized approval flows tailored for user context:
 
-- `GET /health` — Health check and uptime.
-- `GET /capabilities` — List of 19 supported execution modes.
-- `GET /system/metrics` — Real-time CPU, RAM, disk, network, and uptime metrics.
-- `GET /browsers` — Auto-detected installed browsers on Windows, Linux, and macOS.
-- `POST /execute` — Guarded command execution with expected process verification.
-- `POST /execute/multi-step` — Sequential execution of structured sub-steps.
-- `POST /execute/conditional` — Dynamic condition evaluation with branch dispatch.
-- `POST /notify` — Cross-platform desktop notification dispatcher.
+### 1. In-UI SweetAlert2 Confirmation Modal (Immediate Operations)
+- **Use Case**: Real-time elevated shell operations, file cleanups, and trash purges.
+- **Workflow**: Renders an interactive modal displaying the exact script payload, warning labels, and "Authorize & Execute" / "Cancel" buttons directly in the active session.
 
+### 2. Pop-out Approval Window Document (Scheduled & Background Operations)
+- **Use Case**: Scheduled tasks (`scheduled_workflow`) and recurring cron jobs (`recurring_workflow`) where the original browser tab may be closed or inactive.
+- **Workflow**: When the task timestamp matures, the Host Executor Daemon automatically launches a standalone window pointing to `http://localhost:3000/scheduled-approval/<token>?taskId=<id>`.
+- **Security**: Validates single-use URL-safe SHA-256 tokens and enforces a 300-second countdown timeout before automatic expiration.
+
+---
+
+## 💻 Host Daemon Specification (`local_executor.py` on Port 8003)
+
+The Host Executor Daemon is a Python service running natively on the host machine:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | `GET` | Reports daemon uptime, platform OS, and status |
+| `/capabilities` | `GET` | Returns list of 19 supported execution modes |
+| `/system/metrics` | `GET` | Real-time CPU, RAM, disk, network, and system uptime |
+| `/browsers` | `GET` | Returns auto-detected installed web browsers |
+| `/execute` | `POST` | Executes shell commands with process and exit code validation |
+| `/execute/multi-step` | `POST` | Executes structured sequential sub-steps with status tracking |
+| `/execute/conditional` | `POST` | Evaluates system conditions and dispatches conditional branches |
+| `/notify` | `POST` | Dispatches native cross-platform OS notifications |

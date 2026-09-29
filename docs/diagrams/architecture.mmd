@@ -1,83 +1,87 @@
-graph TD;
-    %% ============================================================
-    %% 7-AGENT MULTI-AGENT SYNDICATE ARCHITECTURE
-    %% With 4-Layer Defense and V2 Executor
-    %% ============================================================
-
-    User((User)) -->|"Natural Language Prompt"| UI[Frontend UI - NestJS];
+graph TD
+    %% User & Frontend Interface
+    User(["👤 User Prompt"]):::userClass --> UI["🖥️ Frontend UI (NestJS + Handlebars)"]:::uiClass
     
-    UI -->|"HTTP POST"| Layer0{"Layer 0: Pre-LLM Regex Guardrail (Backend)"};
-    Layer0 -->|"Malicious Pattern"| Block["BLOCKED"];
-    Layer0 -->|"Safe"| Backend[Backend API - FastAPI];
-
-    %% Infrastructure
-    Backend -.->|"Logs"| TraceNest[(TraceNest Logger)];
-
-    %% 7-Agent Swarm
-    subgraph Agent Swarm - The Syndicate
-        Backend --> IntentPlan["1. Intent & Planning"];
-        IntentPlan --> SysRecon["2. System Reconnaissance"];
-        SysRecon --> ContentGen["3. Content Generation"];
-        ContentGen --> SecGuard["4. Security Guard (Layer 1)"];
-        SecGuard --> ResearchAgent["5. Command Research"];
-        ResearchAgent --> Critic["6. Command Validator (Critic)"];
-        Critic -->|"Rejects Draft"| ResearchAgent;
-        Critic -->|"Approves Draft"| ExecPlanner["7. Execution Planner"];
+    subgraph ControlPlane ["🎛️ Request Control Plane (Intent → Policy → Plan → Execute → Verify)"]
+        UI --> CP_Intent["1. Intent Analysis\n(Confidence & Signals)"]:::cpClass
+        CP_Intent --> CP_Policy["2. Policy & Safety Gate\n(AST & Risk Check)"]:::cpClass
+        CP_Policy --> CP_Plan["3. Workflow Planning\n(8-Agent Syndicate)"]:::cpClass
+        CP_Plan --> CP_Execute["4. Host Execution\n(Local Daemon / Browser)"]:::cpClass
+        CP_Execute --> CP_Verify["5. Output Verification\n(Exit Code & Process)"]:::cpClass
     end
 
-    %% Security Gate
-    SecGuard -->|"Malicious Intent"| Block;
+    %% Backend API Routing
+    CP_Intent --> Backend["⚡ Backend API (FastAPI)"]:::backendClass
 
-    %% 3-Tier Command Resolution
-    subgraph 3-Tier Command Resolution
-        ExecPlanner --> Tier1{"Tier 1: Redis Cache"};
-        Tier1 -->|"Cache HIT"| Resolved["Use Cached Command"];
-        Tier1 -->|"Cache MISS"| Tier2{"Tier 2: KNOWN_APP_COMMANDS"};
-        Tier2 -->|"Match Found"| Resolved;
-        Tier2 -->|"No Match"| Tier3["Tier 3: Research Agent"];
-        Tier3 -->|"DuckDuckGo Search"| WebSearch["Web Search Results"];
-        WebSearch -->|"LLM Extraction"| ExtractCmd["Extract Correct Command"];
-        ExtractCmd --> Resolved;
-        ExtractCmd -->|"Learn for next time"| Redis[(Redis Cache)];
+    %% Persistence & Telemetry
+    Backend -.-> DB[("🐘 PostgreSQL\n(Scheduled Tasks & Audit Logs)")]:::dbClass
+    Backend -.-> Cache[("🔴 Redis Cache\n(Learned Commands & Worker Queue)")]:::cacheClass
+
+    %% 8-Agent Swarm Syndicate
+    subgraph AgentSyndicate ["🤖 OmniShell 8-Agent Swarm Syndicate"]
+        Backend --> A1["1. Intent & Planning Agent\n(Deconstructs Prompt & Mapped Capability)"]:::agentClass
+        A1 --> A2["2. System Reconnaissance Agent\n(Host OS, Shell & Binary Path Probes)"]:::agentClass
+        A2 --> A3["3. Content & Knowledge Synthesizer\n(Contextual Dossier & Direct Answers)"]:::agentClass
+        A3 --> A4["4. Security Guard\n(Prohibited AST & Risk Evaluation)"]:::agentClass
+        A4 --> A5["5. Safety & Policy Supervisor\n(Boundary Enforcement & Safety Level)"]:::agentClass
+        A5 --> A6["6. Command Research Agent\n(System Interfaces & Native Synthesizer)"]:::agentClass
+        A6 --> A7["7. Command Validator Agent\n(Shell Quoting & Exit Code Verification)"]:::agentClass
+        A7 --> A8["8. Execution Planner\n(Pipeline Routing & Execution Mode)"]:::agentClass
+        
+        A5 -.->|"Ambiguous / Missing Target"| ClarifyAgent["❓ Clarification Agent\n(Contextual Disambiguation Options)"]:::clarifyClass
     end
 
-    %% Execution Routing
-    Resolved -->|"Web URL"| WebTask["requires_browser = True"];
-    Resolved -->|"Local App"| LocalTask["shell_script = Correct Command"];
+    %% Routing & Gatekeeper Decisions
+    A8 --> Decision{"Execution Mode?"}:::decisionClass
 
-    WebTask --> Layer2{"Layer 2: Frontend Double-Confirmation"};
-    LocalTask --> Layer2;
+    %% Branches
+    Decision -->|"Q&A / Info / Plan"| DirectAns["💡 Markdown Answer Card\n(Direct Delivery, Zero Host Execution)"]:::infoClass
+    Decision -->|"Web Navigation"| BrowserFlow["🌐 Browser Dispatch & Picker"]:::browserClass
+    Decision -->|"Immediate Host Action"| ApprovalCheck{"Requires Approval?"}:::decisionClass
+    Decision -->|"Scheduled / Recurring"| SchedQueue["⏰ PostgreSQL Task Queue\n(Background Scheduler Worker)"]:::schedClass
+
+    %% Dual Approval Paths
+    ApprovalCheck -->|"Destructive / Elevated"| ModalApprove["🔒 In-UI Confirmation Modal\n(Command Preview & Authorize)"]:::approvalClass
+    ApprovalCheck -->|"Safe / Read-Only"| AutoExec["⚡ Direct Execution Dispatch"]:::execClass
     
-    Layer2 -->|"Approved"| Layer3{"Layer 3: Frontend Regex Override"};
-    Layer3 -->|"Malicious Script"| Block;
-    Layer3 -->|"Safe"| DockerBridge{"Docker-to-Host Bridge"};
+    SchedQueue -->|"Trigger Due"| WindowDoc["📄 Pop-out Approval Window Document\n(/scheduled-approval/:token)"]:::windowClass
 
-    %% Host Execution
-    subgraph Native Host Machine
-        DockerBridge -->|"Port 8003"| LocalExecutor["Host Executor V2 (local_executor.py)"];
-        LocalExecutor -->|"Web Task"| OpenBrowser["Launch Browser Native"];
-        LocalExecutor -->|"Local Task"| Subprocess["subprocess.Popen Background Job"];
-        Subprocess --> Validation["psutil Validation & stdout/stderr Capture"];
-        OpenBrowser --> Validation;
+    %% Native Host Daemon Execution
+    subgraph HostEnv ["💻 Native Host Environment (localhost:8003)"]
+        ModalApprove -->|"Authorized"| HostDaemon["⚡ Local Host Executor (local_executor.py)\n(Persistent Detached Session)"]:::hostClass
+        WindowDoc -->|"Approved"| HostDaemon
+        AutoExec --> HostDaemon
+        BrowserFlow --> HostDaemon
+
+        HostDaemon --> LinuxRunner["🐧 Linux Bash (/bin/bash)"]:::osClass
+        HostDaemon --> MacRunner["🍎 macOS Zsh (/bin/zsh)"]:::osClass
+        HostDaemon --> WinRunner["🪟 Windows PowerShell (pwsh)"]:::osClass
+
+        LinuxRunner --> Subprocess["⚙️ Subprocess Pipeline\n(stdout / stderr capture & process probe)"]:::execClass
+        MacRunner --> Subprocess
+        WinRunner --> Subprocess
     end
 
-    %% Feedback Loop
-    Validation -->|"Success"| StoreSuccess["Store in Redis + PostgreSQL"];
-    Validation -->|"Failure"| LogFailure["Log for future training"];
-    Validation -->|"Result"| UI;
+    %% Lifecycle Return
+    Subprocess --> Validation["✅ Exit Code ($? == 0) & Process Hierarchy Validation"]:::verifyClass
+    Validation --> UI
 
     %% Styling
-    style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Layer0 fill:#F44336,stroke:#B71C1C,color:#fff;
-    style Layer2 fill:#FF9800,stroke:#E65100,color:#fff;
-    style Layer3 fill:#F44336,stroke:#B71C1C,color:#fff;
-    style Critic fill:#9C27B0,stroke:#4A148C,color:#fff;
-    style ResearchAgent fill:#FF9800,stroke:#E65100,color:#fff;
-    style Tier1 fill:#E91E63,stroke:#880E4F,color:#fff;
-    style Tier2 fill:#2196F3,stroke:#1565C0,color:#fff;
-    style Tier3 fill:#FF9800,stroke:#E65100,color:#fff;
-    style Redis fill:#E91E63,stroke:#880E4F,color:#fff;
-    style Resolved fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Block fill:#F44336,stroke:#B71C1C,color:#fff;
-    style StoreSuccess fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style LogFailure fill:#F44336,stroke:#B71C1C,color:#fff;
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef cpClass fill:#0f172a,stroke:#38bdf8,color:#38bdf8,stroke-width:1.5px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef cacheClass fill:#1e293b,stroke:#ef4444,color:#f87171,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef clarifyClass fill:#451a03,stroke:#f59e0b,color:#fde68a,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef infoClass fill:#064e3b,stroke:#34d399,color:#ecfdf5,stroke-width:2px;
+    classDef browserClass fill:#0c4a6e,stroke:#38bdf8,color:#e0f2fe,stroke-width:2px;
+    classDef schedClass fill:#3b0764,stroke:#c084fc,color:#fae8ff,stroke-width:2px;
+    classDef approvalClass fill:#451a03,stroke:#f59e0b,color:#fef3c7,stroke-width:2px;
+    classDef windowClass fill:#1e1b4b,stroke:#a855f7,color:#f3e8ff,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef osClass fill:#1e293b,stroke:#64748b,color:#f1f5f9,stroke-width:1.5px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;

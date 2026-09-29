@@ -1,24 +1,26 @@
 graph TD
     %% OmniShell 19 Capabilities Architecture Diagram
-    User["👤 User Request (Natural Language)"] --> Router["🧠 Intent Classifier & 7-Agent Syndicate"]
+    User["👤 User Request (Natural Language)"] --> Router["🧠 Request Control Plane & 8-Agent Swarm Syndicate"]
 
-    subgraph AgentSyndicate["🤖 7-Agent Syndicate Pipeline"]
-        A1["1. OS Intent & Capability Analyzer"]
-        A2["2. Security & Red-Line Guard"]
-        A3["3. Research & Knowledge Synthesis"]
-        A4["4. Execution & Workflow Planner"]
-        A5["5. Scheduler & Recurrence Engine"]
-        A6["6. Human Gatekeeper"]
-        A7["7. Host Verification Agent"]
+    subgraph AgentSyndicate["🤖 8-Agent Swarm Syndicate Pipeline"]
+        A1["1. Intent & Planning Agent"]
+        A2["2. System Reconnaissance Agent"]
+        A3["3. Content & Knowledge Synthesizer"]
+        A4["4. Security Guard"]
+        A5["5. Safety & Policy Supervisor"]
+        A6["6. Command Research Agent"]
+        A7["7. Command Validator Agent"]
+        A8["8. Execution Planner"]
         
-        A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7
+        A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7 --> A8
+        A5 -.->|"Underspecified Prompt"| ClarifyAgent["❓ Clarification Agent"]
     end
     
     Router --> AgentSyndicate
-    AgentSyndicate --> CapBranch{"Capability Classifier (19 Modes)"}
+    AgentSyndicate --> CapBranch{"19 Core Capabilities Matrix"}
 
-    subgraph DirectKnowledge["💡 Non-Executable Knowledge Modes"]
-        C1["1. Questions & Answers (Q&A)"]
+    subgraph DirectKnowledge["💡 Non-Executable Direct Knowledge Modes"]
+        C1["1. Question Answering (Q&A)"]
         C2["2. Information Requests"]
         C4["4. Deep System Analysis"]
         C15["15. Research Tasks"]
@@ -26,36 +28,40 @@ graph TD
         C18["18. Clarification Requests"]
     end
 
-    subgraph NativeAutomation["⚡ Host Execution Modes (Port 8003)"]
-        C3["3. System Inspection"]
+    subgraph NativeAutomation["⚡ Native Host Automation Modes (Port 8003)"]
+        C3["3. System Inspection & Diagnostics"]
         C5["5. Application Operations"]
-        C6["6. Browser Operations"]
-        C7["7. File Operations"]
-        C8["8. Shell Operations"]
-        C9["9. Multi-Step Pipelines"]
-        C10["10. Interactive Workflows"]
-        C13["13. Conditional Workflows"]
-        C14["14. Desktop Reminders"]
-        C17["17. Elevated Human Approval"]
+        C6["6. Browser Deep-Linking & Launch"]
+        C7["7. File Operations & Scripting"]
+        C8["8. Direct Shell Operations"]
+        C9["9. Multi-Step Execution Pipelines"]
+        C10["10. Interactive Workflows & Prompts"]
+        C13["13. Conditional Logic Workflows"]
+        C14["14. Host Desktop Reminders"]
+        C17["17. Elevated Human Approval Tasks"]
         C19["19. Failure Recovery with Rollback"]
     end
 
-    subgraph AutonomousBackground["⏰ Background Scheduling Pipeline"]
-        C11["11. Scheduled Workflows (Timestamp/Delta)"]
-        C12["12. Recurring Workflows (Interval/Daily)"]
+    subgraph AutonomousBackground["⏰ Autonomous Background & Recurrence"]
+        C11["11. Scheduled Workflows (UTC / Relative Offset)"]
+        C12["12. Recurring Workflows (Interval / Daily Cron)"]
     end
 
     CapBranch --> DirectKnowledge
     CapBranch --> NativeAutomation
     CapBranch --> AutonomousBackground
 
-    DirectKnowledge --> MarkdownCard["📋 Contextual Markdown Answer Card\n(Zero Shell Execution)"]
-    NativeAutomation --> HumanGate{"🛡️ HITL Confirmation"}
-    HumanGate -->|"Approved"| HostAgent["💻 Native Host Agent (local_executor.py)"]
-    HumanGate -->|"Cancelled / Blocked"| BlockOutput["🛑 Safe Abort"]
+    DirectKnowledge --> MarkdownCard["📋 Contextual Markdown Answer Card\n(Direct Delivery, Zero Shell Execution)"]
+    
+    NativeAutomation --> GateCheck{"🛡️ Safety Policy Gate"}
+    GateCheck -->|"Standard Safe"| DirectHostExec["⚡ Host Dispatch (local_executor.py)"]
+    GateCheck -->|"Elevated / Destructive"| ModalHITL["🔒 In-UI SweetAlert Confirmation Modal"]
+    ModalHITL -->|"Approved"| DirectHostExec
+    ModalHITL -->|"Cancelled"| SafeAbort["🛑 Safe Termination"]
 
     AutonomousBackground --> PostgresDB[("📅 PostgreSQL Scheduled Pipeline")]
-    PostgresDB --> BgWorker["⚙️ Background Async Worker"]
-    BgWorker -->|"Token & Time Verified"| HostAgent
-    HostAgent -->|"Recurring Task Completed"| RescheduleEngine["🔁 Next Recurrence Calculator"]
+    PostgresDB --> BgWorker["⚙️ Background Async Worker & Host Poller"]
+    BgWorker -->|"Trigger Time Due"| PopoutWindow["📄 Pop-out Approval Window Document\n(/scheduled-approval/:token)"]
+    PopoutWindow -->|"User Approved"| DirectHostExec
+    DirectHostExec -->|"Recurring Interval Done"| RescheduleEngine["🔁 Next Recurrence Calculator"]
     RescheduleEngine --> PostgresDB

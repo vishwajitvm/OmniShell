@@ -1,30 +1,83 @@
-# 🚀 Deployment Guide
+# 🚀 OmniShell Production Deployment Guide
 
-OmniShell's decoupled architecture means you can deploy the **Brain** (Docker) in the cloud, while keeping the **Muscle** (Host Executor) running securely on your local machine.
+OmniShell's decoupled architecture allows flexible deployment models:
+1. **Full Local Deployment**: Running all containers and host executor locally on the same physical machine.
+2. **Hybrid Cloud Deployment**: Running the **Brain** (FastAPI backend, PostgreSQL, Redis, and NestJS frontend) on a cloud VM/Kubernetes cluster, while running the **Muscle** (`local_executor.py`) natively on user workstations.
 
-## ☁️ Cloud Deployment (The Brain & UI)
-You can host the Dockerized stack on any VPS (AWS EC2, DigitalOcean, Linode).
+---
 
-1. SSH into your VPS.
-2. Clone the repository:
-`ash
+## ☁️ Hybrid Cloud Deployment Model
+
+```mermaid
+graph LR
+    subgraph CloudEnv ["☁️ Cloud Server / VPC (AWS, GCP, DigitalOcean)"]
+        Frontend["🖥️ NestJS Frontend (:3000)"]
+        Backend["⚡ FastAPI Backend (:8000)"]
+        DB[("🐘 PostgreSQL (:5432)")]
+        Redis[("🔴 Redis (:6379)")]
+        Frontend --> Backend
+        Backend --> DB
+        Backend --> Redis
+    end
+
+    subgraph UserMachine ["💻 Native Workstation (Linux / macOS / Windows)"]
+        HostDaemon["⚡ local_executor.py (:8003)"]
+        Browser["🌐 User Browser (Connects to Cloud UI)"]
+    end
+
+    Browser -->|"HTTP Request"| Frontend
+    Frontend -->|"Guarded Dispatch to Localhost"| HostDaemon
+    HostDaemon -->|"Internal Scheduler Poll"| Backend
+```
+
+---
+
+## 🛠️ Step-by-Step Server Setup
+
+### 1. Provision Server & Clone Repo
+```bash
 git clone https://github.com/vishwajitvm/OmniShell.git
-cd OmniShell
-`
-3. Set up your .env file with production API keys.
-4. Run Docker Compose:
-`ash
+cd OmniShell/saas_poc
+```
+
+### 2. Configure Production `.env`
+Ensure all production secrets, database credentials, and LLM API keys are configured:
+```env
+LITELLM_MODEL=nvidia/deepseek-ai/deepseek-r1
+NVIDIA_NIM_API_KEY=your_production_key
+POSTGRES_USER=omnishell_admin
+POSTGRES_PASSWORD=strong_production_password
+POSTGRES_DB=omnishell_db
+REDIS_HOST=redis
+REDIS_PORT=6379
+```
+
+### 3. Deploy Stack with Docker Compose
+```bash
 docker-compose up --build -d
-`
-5. Ensure Port 3000 (Frontend) is exposed to the web, or place it behind a reverse proxy like Nginx or Traefik.
+```
 
-## 🔌 Connecting Your Local Machine
-If the Brain is in the cloud, how does it control your laptop?
+### 4. Reverse Proxy & SSL (Nginx / Caddy)
+Configure Nginx to reverse-proxy port 3000 with HTTPS (Let's Encrypt SSL):
 
-1. You must update the Frontend UI to send execution commands to your localhost:8003, or use a secure tunnel (like **Ngrok** or **Cloudflare Tunnels**) to expose your local executor to your cloud instance.
-2. Run the executor natively on your machine:
-`ash
-python local_executor.py
-`
+```nginx
+server {
+    server_name omnishell.yourdomain.com;
 
-> **⚠️ SECURITY WARNING:** Never expose port 8003 to the public internet without strict authentication. The local_executor.py script has full execution privileges on your host machine.
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+---
+
+## 🔒 Security Best Practices
+
+> [!CAUTION]
+> **Host Daemon Security Warning**: Never expose port `8003` (`local_executor.py`) directly to the public internet without mutual TLS or loopback-only binding (`127.0.0.1`). The host executor runs with native user privileges on the workstation.
