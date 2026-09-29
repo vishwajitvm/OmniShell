@@ -10,7 +10,15 @@
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         window.mermaid = mermaid;
-        mermaid.initialize({ startOnLoad: false, theme: 'base' });
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            flowchart: {
+                curve: 'basis',
+                htmlLabels: true,
+                padding: 12
+            }
+        });
 
         // Zoom and Pan Logic for Mermaid Diagram
         const mermaidContainer = document.getElementById('mermaid-container');
@@ -328,20 +336,25 @@
             </div>
         </div>
 
-        <!-- Mermaid Diagram -->
+        <!-- Dynamic Workflow Architecture -->
         <div class="bg-slate-900/60 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-800">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-semibold text-slate-200 flex items-center gap-2">
-                    <span class="text-2xl">📊</span> Dynamic Workflow Architecture
-                </h2>
+            <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+                <div>
+                    <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+                        <span class="text-2xl">📊</span> Dynamic Workflow Architecture
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Complete multi-agent execution topology, policy gates, recurrence loops & verification flow</p>
+                </div>
                 <div class="flex gap-2">
-                    <button id="zoom-out" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded-lg text-xs transition border border-slate-700" type="button" aria-label="Zoom Out">-</button>
-                    <button id="zoom-reset" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded-lg text-xs transition border border-slate-700" type="button">Reset</button>
-                    <button id="zoom-in" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded-lg text-xs transition border border-slate-700" type="button" aria-label="Zoom In">+</button>
+                    <button id="zoom-out" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition border border-slate-700 cursor-pointer shadow-sm" type="button" aria-label="Zoom Out">- Zoom</button>
+                    <button id="zoom-reset" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition border border-slate-700 cursor-pointer shadow-sm" type="button">Reset</button>
+                    <button id="zoom-in" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition border border-slate-700 cursor-pointer shadow-sm" type="button" aria-label="Zoom In">+ Zoom</button>
                 </div>
             </div>
-            <div class="flex-1 bg-slate-950 rounded-2xl p-6 border border-slate-800 flex items-center justify-center min-h-[300px] overflow-hidden relative">
-                <div id="mermaid-container" class="w-full flex justify-center text-white transition-transform duration-200 origin-center cursor-move"></div>
+            
+            <!-- High-contrast crisp white canvas for clear workflow diagram inspection -->
+            <div class="flex-1 bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-inner flex items-center justify-center min-h-[420px] overflow-hidden relative" style="background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px); background-size: 24px 24px;">
+                <div id="mermaid-container" class="w-full flex justify-center text-slate-900 transition-transform duration-200 origin-center cursor-move select-none"></div>
             </div>
         </div>
 
@@ -580,19 +593,35 @@
                 const multiCard = document.getElementById('multistep-card');
                 const multiItems = document.getElementById('multistep-items');
                 const runMultiBtn = document.getElementById('run-multistep-btn');
-                if (data.multi_step_plan && data.multi_step_plan.length > 0) {
-                    multiItems.innerHTML = data.multi_step_plan.map(step => `
-                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-start gap-3">
-                            <span class="w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/40 flex items-center justify-center text-xs font-bold shrink-0">
-                                ${step.step}
-                            </span>
-                            <div class="flex-1">
-                                <div class="text-sm font-semibold text-slate-200">${step.description}</div>
-                                ${step.command ? `<pre class="text-xs text-emerald-400 font-mono bg-slate-900 p-2 rounded-lg mt-1 overflow-x-auto">${step.command}</pre>` : ''}
-                                ${step.validation ? `<div class="text-[11px] text-slate-400 mt-1">Validation: ${step.validation}</div>` : ''}
+                if (data.multi_step_plan && Array.isArray(data.multi_step_plan) && data.multi_step_plan.length > 0) {
+                    multiItems.innerHTML = data.multi_step_plan.map((step, idx) => {
+                        const stepNum = step.step_id || step.step || step.id || (idx + 1);
+                        const stepTitle = step.name || step.title || step.action || step.description || `Step ${stepNum}`;
+                        const stepDesc = (step.description && step.description !== stepTitle) ? step.description : '';
+                        const stepCmd = step.command || step.script || step.cmd || '';
+                        
+                        let stepExpected = step.expected || step.expected_outcome || step.validation || step.verify || '';
+                        if (typeof stepExpected === 'object' && stepExpected !== null) {
+                            stepExpected = Object.entries(stepExpected).map(([k, v]) => `${k}: ${v}`).join(', ');
+                        }
+
+                        return `
+                            <div class="bg-slate-950/90 p-4 rounded-2xl border border-slate-800/90 hover:border-sky-500/40 transition flex items-start gap-3.5 shadow-md">
+                                <span class="w-7 h-7 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center text-xs font-bold shrink-0 font-mono">
+                                    ${stepNum}
+                                </span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-semibold text-slate-100 flex items-center justify-between">
+                                        <span>${escHtml(stepTitle)}</span>
+                                        <span class="text-[10px] font-mono text-sky-400 uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">Step ${stepNum}</span>
+                                    </div>
+                                    ${stepDesc ? `<div class="text-xs text-slate-400 mt-1 leading-relaxed">${escHtml(stepDesc)}</div>` : ''}
+                                    ${stepCmd ? `<pre class="text-xs text-emerald-400 font-mono bg-slate-900/90 p-2.5 rounded-xl mt-2 overflow-x-auto border border-slate-800">${escHtml(stepCmd)}</pre>` : ''}
+                                    ${stepExpected ? `<div class="text-[11px] text-cyan-300/90 mt-2 flex items-center gap-1.5 font-medium"><span class="text-xs">🎯</span> <span>Expected:</span> <span class="text-slate-300">${escHtml(stepExpected)}</span></div>` : ''}
+                                </div>
                             </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
                     multiCard.classList.remove('hidden');
                     if (data.is_safe && !data.is_scheduled && !data.is_planning_only) {
                         runMultiBtn.classList.remove('hidden');
@@ -621,7 +650,18 @@
                 }
 
                 if (data.recovery_strategy) {
-                    recovText.innerText = data.recovery_strategy;
+                    if (typeof data.recovery_strategy === 'object') {
+                        const strat = data.recovery_strategy;
+                        recovText.innerHTML = `
+                            <div class="space-y-1 text-xs">
+                                ${strat.retry_limit ? `<div><span class="text-slate-400">Retry Limit:</span> <span class="text-amber-300 font-bold">${strat.retry_limit} attempts</span></div>` : ''}
+                                ${strat.diagnostic_command ? `<div><span class="text-slate-400">Diagnostic:</span> <code class="text-cyan-300">${escHtml(strat.diagnostic_command)}</code></div>` : ''}
+                                ${strat.fallback_script ? `<div><span class="text-slate-400">Fallback:</span> <code class="text-emerald-300">${escHtml(strat.fallback_script)}</code></div>` : ''}
+                            </div>
+                        `;
+                    } else {
+                        recovText.innerText = data.recovery_strategy;
+                    }
                     recovBox.classList.remove('hidden');
                     showAdv = true;
                 } else {
@@ -839,8 +879,12 @@
         // Multi-Step Execution handler
         async function executeMultiStepPlan(steps) {
             const runMultiBtn = document.getElementById('run-multistep-btn');
+            if (!runMultiBtn) return;
             runMultiBtn.disabled = true;
-            runMultiBtn.innerText = "Executing steps...";
+            runMultiBtn.innerHTML = `
+                <svg class="animate-spin h-3.5 w-3.5 text-white mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                Executing Steps...
+            `;
             try {
                 const res = await fetch('http://localhost:8003/execute/multi-step', {
                     method: 'POST',
@@ -848,14 +892,19 @@
                     body: JSON.stringify({ steps })
                 });
                 const data = await res.json();
+                runMultiBtn.disabled = false;
                 runMultiBtn.innerText = data.overall_success ? "✅ All Steps Passed" : "❌ Step Failed";
                 
+                const existingBoxes = document.querySelectorAll('.multistep-terminal-output');
+                existingBoxes.forEach(b => b.remove());
+
                 const outputDiv = document.createElement('div');
-                outputDiv.className = "terminal-output-box mt-4 p-4 bg-black text-green-400 font-mono text-xs rounded-xl border border-sky-900 overflow-auto whitespace-pre-wrap w-full max-h-64 shadow-inner";
-                outputDiv.innerText = JSON.stringify(data.results, null, 2);
+                outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-72 shadow-2xl";
+                outputDiv.innerText = JSON.stringify(data.results || data, null, 2);
                 document.getElementById('multistep-card').appendChild(outputDiv);
             } catch (e) {
-                runMultiBtn.innerText = "Error executing";
+                runMultiBtn.disabled = false;
+                runMultiBtn.innerText = "❌ Host Offline";
             }
         }
     </script>

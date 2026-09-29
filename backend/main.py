@@ -782,17 +782,54 @@ def record_llm_usage(model_name: str, success: bool, tokens: dict, error: str = 
         logger.warning(f"Failed to record LLM usage: {e}")
 
 @app.get("/api/analytics")
-def get_analytics():
-    if not redis_client:
-        return {"data": [], "fallback_flow": FALLBACK_MODELS}
-    records = redis_client.lrange("llm_analytics", 0, -1)
-    data = []
-    for r in records:
+async def get_analytics():
+    records = []
+    if redis_client:
+        raw_records = redis_client.lrange("llm_analytics", 0, -1)
+        for r in raw_records:
+            try:
+                records.append(json.loads(r))
+            except:
+                pass
+
+    db_logs = []
+    if DB_POOL:
         try:
-            data.append(json.loads(r))
-        except:
-            pass
-    return {"data": data, "fallback_flow": FALLBACK_MODELS}
+            async with DB_POOL.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT id, prompt, os_context, model_used, is_safe, requires_browser, 
+                           target_url, shell_script, expected_process, is_reminder, 
+                           created_at, raw_response
+                    FROM execution_logs 
+                    ORDER BY id DESC LIMIT 50
+                ''')
+                for row in rows:
+                    raw_resp = {}
+                    try:
+                        raw_resp = json.loads(row["raw_response"]) if row["raw_response"] else {}
+                    except:
+                        pass
+                    db_logs.append({
+                        "id": row["id"],
+                        "prompt": row["prompt"],
+                        "os_context": row["os_context"],
+                        "model_used": row["model_used"],
+                        "is_safe": row["is_safe"],
+                        "requires_browser": row["requires_browser"],
+                        "target_url": row["target_url"],
+                        "capability_type": raw_resp.get("capability_type") or "shell_operation",
+                        "timing": raw_resp.get("timing") or {},
+                        "created_at": row["created_at"].isoformat() if row.get("created_at") else None
+                    })
+        except Exception as e:
+            logger.warning(f"Error reading execution_logs from DB: {e}")
+
+    return {
+        "data": records,
+        "fallback_flow": FALLBACK_MODELS,
+        "execution_history": db_logs,
+        "capabilities_summary": CAPABILITIES_REGISTRY,
+    }
 
 
 async def log_execution_to_db(prompt: str, os_context: str, result: dict):
@@ -1486,6 +1523,163 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     )
 
 
+def normalize_multi_step_plan(plan: Any) -> list[dict]:
+    """Normalize multi-step plan array from any LLM/schema structure into clean, verified step dictionaries."""
+    if not plan:
+        return []
+    if isinstance(plan, dict):
+        plan = [plan]
+    if not isinstance(plan, list):
+        return []
+    
+    normalized = []
+    for idx, item in enumerate(plan):
+        if isinstance(item, str):
+            clean_str = item.strip()
+            normalized.append({
+                "step_id": idx + 1,
+                "name": clean_str,
+                "description": clean_str,
+                "command": None,
+                "expected": "Step completes successfully"
+            })
+        elif isinstance(item, dict):
+            step_id = item.get("step_id") or item.get("step") or item.get("id") or (idx + 1)
+            name = item.get("name") or item.get("title") or item.get("action") or item.get("description") or f"Step {step_id}"
+            desc = item.get("description") or name
+            cmd = item.get("command") or item.get("script") or item.get("cmd") or None
+            expected = item.get("expected") or item.get("expected_outcome") or item.get("validation") or item.get("verify") or "Step completed and verified"
+            if isinstance(expected, dict):
+                expected = ", ".join(f"{k}: {v}" for k, v in expected.items())
+            
+            normalized.append({
+                "step_id": step_id,
+                "name": str(name),
+                "description": str(desc),
+                "command": str(cmd) if cmd else None,
+                "expected": str(expected)
+            })
+    return normalized
+
+
+def generate_dynamic_mermaid_diagram(data: dict, prompt: str, user_os: str) -> str:
+    """Generate an extensive, rich Mermaid flowchart covering all 7 agents, policy gates,
+    multi-step pipelines, recurrence loops, conditions, and host execution verification."""
+    p_clean = prompt.replace('"', "'").replace("\n", " ")[:40]
+    cap = data.get("capability_type") or "workflow"
+    cap_label = cap.replace("_", " ").title()
+    is_safe = data.get("is_safe", True)
+    safe_text = "Safe (Approved)" if is_safe else "Blocked (Guardrail)"
+    target_os = data.get("target_os") or user_os or "Native OS"
+    requires_browser = data.get("requires_browser", False)
+    target_url = data.get("target_url")
+    is_recurring = data.get("is_recurring", False)
+    rec_rule = data.get("recurrence_rule")
+    is_scheduled = data.get("is_scheduled", False)
+    multi_step = data.get("multi_step_plan") or []
+    has_recovery = bool(data.get("recovery_strategy"))
+    has_condition = bool(data.get("conditional_logic"))
+    
+    lines = []
+    lines.append(f'User["👤 User Request<br/><b>{p_clean}</b>"]')
+    lines.append(f'A1["🧠 Intent & Planning Agent<br/><b>Capability:</b> {cap_label}"]')
+    lines.append(f'A2["💻 System Recon Agent<br/><b>Target OS:</b> {target_os}"]')
+    lines.append(f'A3["📝 Content Gen Agent<br/><b>Synthesis:</b> Contextual"]')
+    lines.append(f'A4{{"🛡️ Security Guardrail<br/><b>Status:</b> {safe_text}"}}')
+    lines.append(f'A5["⚡ Command Research<br/><b>Target:</b> Resilient Command"]')
+    lines.append(f'A6["🔍 Validator (CRITIC)<br/><b>Status:</b> Syntax & Risk Checked"]')
+    lines.append(f'A7["📋 Execution Planner<br/><b>Decision:</b> Finalized Workflow"]')
+    
+    # Core flow
+    lines.append('User --> A1')
+    lines.append('A1 --> A2 & A3')
+    lines.append('A2 & A3 --> A4')
+    
+    if not is_safe:
+        lines.append('A4 -->|Threat Detected| BlockedNode["🛑 Blocked by Security Policy"]')
+        return "\n".join(lines)
+        
+    lines.append('A4 -->|Safe: Verified| A5')
+    lines.append('A5 --> A6')
+    lines.append('A6 --> A7')
+    
+    prev_node = "A7"
+    
+    # Conditional logic branch
+    if has_condition:
+        cond_data = data["conditional_logic"] if isinstance(data["conditional_logic"], dict) else {}
+        cond_script = str(cond_data.get("condition_script", "test condition"))[:30].replace('"', "'")
+        lines.append(f'CondGate{{"❓ Condition Check<br/><code>{cond_script}</code>"}}')
+        lines.append(f'{prev_node} --> CondGate')
+        lines.append('CondGate -->|True: Success| BranchSuccess["✅ Success Handler"]')
+        lines.append('CondGate -->|False: Failure| BranchFail["⚠️ Failure / Fallback Handler"]')
+        prev_node = "BranchSuccess"
+
+    # Multi-step plan chain
+    if multi_step and isinstance(multi_step, list) and len(multi_step) > 0:
+        lines.append('subgraph Pipeline ["📋 Autonomous Multi-Step Execution Plan"]')
+        step_nodes = []
+        for idx, s in enumerate(multi_step):
+            s_num = s.get("step_id") or s.get("step") or (idx + 1)
+            s_name = (s.get("name") or s.get("title") or s.get("description") or f"Step {s_num}")[:28].replace('"', "'")
+            s_node = f"Step{s_num}"
+            lines.append(f'  {s_node}["Step {s_num}: {s_name}"]')
+            step_nodes.append(s_node)
+        
+        # Link steps sequentially
+        for i in range(len(step_nodes) - 1):
+            lines.append(f'  {step_nodes[i]} -->|Verify Pass| {step_nodes[i+1]}')
+        lines.append('end')
+        
+        lines.append(f'{prev_node} --> {step_nodes[0]}')
+        prev_node = step_nodes[-1]
+
+    # Recurrence & Scheduling loop
+    if is_recurring:
+        lines.append(f'RecurNode["🔁 Recurrence Engine<br/><b>Rule:</b> {rec_rule or "Interval"}"]')
+        lines.append('QueueNode["⏳ Background Worker Queue"]')
+        lines.append(f'{prev_node} --> RecurNode')
+        lines.append('RecurNode --> QueueNode')
+        lines.append('QueueNode -.->|Next Cycle Trigger| A7')
+        prev_node = "RecurNode"
+    elif is_scheduled:
+        lines.append('SchedNode["⏰ Scheduled Timer<br/>Registered in DB"]')
+        lines.append(f'{prev_node} --> SchedNode')
+        prev_node = "SchedNode"
+
+    # Final execution or answer node
+    if requires_browser and target_url:
+        u_clean = target_url[:35].replace('"', "'")
+        lines.append(f'ExecTarget["🌐 Browser Deep Link<br/><code>{u_clean}</code>"]')
+        lines.append('HostBridge["🚀 Host Launch Agent<br/>(Port 8003)"]')
+        lines.append(f'{prev_node} --> ExecTarget --> HostBridge')
+    elif data.get("shell_script"):
+        script_snippet = str(data["shell_script"])[:35].replace('"', "'").replace("\n", " ")
+        lines.append(f'ExecTarget["⚡ Host Shell Execution<br/><code>{script_snippet}</code>"]')
+        lines.append('VerifyNode["✅ Process & Output Verification"]')
+        lines.append(f'{prev_node} --> ExecTarget --> VerifyNode')
+        if has_recovery:
+            lines.append('RecoveryNode["🛡️ Self-Healing Recovery<br/>Auto-Retry & Fallback"]')
+            lines.append('VerifyNode -.->|On Failure| RecoveryNode --> ExecTarget')
+    elif cap in {"question_answering", "information_request"}:
+        lines.append('DirectAnswerNode["💡 Contextual Insights & Direct Answer<br/>Delivered to UI"]')
+        lines.append(f'{prev_node} --> DirectAnswerNode')
+    elif cap == "planning_only":
+        lines.append('PlanNode["📝 Architectural Plan Delivered<br/>Non-Executing"]')
+        lines.append(f'{prev_node} --> PlanNode')
+    elif data.get("requires_clarification"):
+        lines.append('ClarifyNode["❓ Interactive Clarification Gate<br/>Awaiting User Input"]')
+        lines.append(f'{prev_node} --> ClarifyNode')
+    elif data.get("requires_approval"):
+        lines.append('ApprovalNode["🔒 Human Approval Gate<br/>Awaiting Confirmation"]')
+        lines.append(f'{prev_node} --> ApprovalNode')
+    else:
+        lines.append('DoneNode["✅ Execution Pipeline Complete"]')
+        lines.append(f'{prev_node} --> DoneNode')
+
+    return "\n".join(lines)
+
+
 @app.post("/api/generate-workflow", response_model=MultiAgentResult)
 async def generate_workflow(request: AutomationRequest, background_tasks: BackgroundTasks):
     import time
@@ -1866,8 +2060,18 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     structured_data.setdefault("is_safe", True)
     structured_data.setdefault("target_os", request.user_agent_os or "Unknown OS")
     structured_data.setdefault("requires_browser", False)
-    structured_data.setdefault("mermaid_diagram_body", 'User["User Request"] --> Agents["7-Agent Syndicate"]\nAgents --> Result["Resolved Workflow"]')
     structured_data.setdefault("capability_type", "shell_operation")
+
+    # Normalize multi-step plan to guarantee clean dictionary structures
+    if structured_data.get("multi_step_plan"):
+        structured_data["multi_step_plan"] = normalize_multi_step_plan(structured_data["multi_step_plan"])
+    elif structured_data.get("capability_type") == "multi_step":
+        structured_data["multi_step_plan"] = normalize_multi_step_plan(deterministic_cap.get("multi_step_plan"))
+
+    # Generate complete dynamic flowchart reflecting all agents, policies, loops, and execution targets
+    structured_data["mermaid_diagram_body"] = generate_dynamic_mermaid_diagram(
+        structured_data, request.natural_language_prompt, request.user_agent_os
+    )
 
     background_tasks.add_task(log_execution_to_db, request.natural_language_prompt, request.user_agent_os, structured_data)
     return MultiAgentResult(**structured_data)

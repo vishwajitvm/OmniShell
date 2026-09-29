@@ -1,2 +1,604 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{{title}} — OmniShell Analytics</title><script src="https://cdn.tailwindcss.com"></script><script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head><body class="min-h-screen bg-slate-950 text-white p-5 sm:p-8"><main class="max-w-7xl mx-auto"><header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-7"><div><div class="text-[10px] uppercase tracking-[.25em] text-indigo-400">OmniShell / Telemetry</div><h1 class="text-3xl sm:text-4xl font-black mt-1">Reliability & Model Analytics</h1><p class="text-slate-400 mt-2">Observe model usage, failures, fallback behavior and execution reliability.</p></div><nav class="flex gap-2"><a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 text-sm font-bold">Command Center</a><a href="/pipeline" class="px-4 py-2 rounded-xl bg-slate-800 text-sm">Pipeline</a></nav></header><section class="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-5"><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Requests</div><div id="exec" class="text-2xl font-black mt-1">0</div></div><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Tokens</div><div id="tokens" class="text-2xl font-black text-violet-300 mt-1">0</div></div><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Success</div><div id="success" class="text-2xl font-black text-emerald-300 mt-1">0%</div></div><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Failures</div><div id="failure" class="text-2xl font-black text-red-300 mt-1">0%</div></div><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Recovered</div><div id="recovered" class="text-2xl font-black text-cyan-300 mt-1">0</div></div><div class="bg-slate-900 border border-slate-800 rounded-2xl p-4"><div class="text-[10px] text-slate-500 uppercase">Fallbacks</div><div id="fallbacks" class="text-2xl font-black text-amber-300 mt-1">0</div></div></section><section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-5 flex flex-wrap gap-3"><select id="time" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm"><option value="all">All time</option><option value="today">Today</option><option value="week">7 days</option><option value="month">30 days</option></select><select id="provider" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm"><option value="all">All providers</option></select><select id="model" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm"><option value="all">All models</option></select></section><section class="grid lg:grid-cols-2 gap-5"><div class="bg-slate-900 border border-slate-800 rounded-3xl p-5"><h2 class="font-bold mb-4">Token / Request Volume</h2><canvas id="usage"></canvas></div><div class="bg-slate-900 border border-slate-800 rounded-3xl p-5"><h2 class="font-bold mb-4">Success / Failure</h2><canvas id="successChart"></canvas></div></section><section class="grid lg:grid-cols-2 gap-5 mt-5"><div class="bg-slate-900 border border-slate-800 rounded-3xl p-5"><h2 class="font-bold mb-3">Fallback Chain</h2><div id="flow" class="flex flex-wrap gap-2"></div></div><div class="bg-slate-900 border border-slate-800 rounded-3xl p-5"><h2 class="font-bold mb-3">Failure Categories</h2><div id="failures" class="space-y-2"></div></div></section></main><script>
-let raw=[],flow=[],uChart,pChart;const one=86400;async function load(){const r=await fetch('http://localhost:8000/api/analytics');const j=await r.json();raw=j.data||[];flow=j.fallback_flow||[];fill();render()}function fill(){const ps=[...new Set(raw.map(x=>x.provider).filter(Boolean))],ms=[...new Set(raw.map(x=>x.model).filter(Boolean))];for(const [id,arr] of [['provider',ps],['model',ms]]){const el=document.getElementById(id);for(const x of arr){const o=document.createElement('option');o.value=x;o.textContent=x;el.appendChild(o)}}document.getElementById('flow').innerHTML=flow.map((x,i)=>`<span class="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-mono">${i+1}. ${x}</span>`).join('')||'<span class="text-slate-500 text-sm">No fallback models configured</span>'}function data(){const t=document.getElementById('time').value,p=document.getElementById('provider').value,m=document.getElementById('model').value,now=Date.now()/1000;return raw.filter(x=>(p==='all'||x.provider===p)&&(m==='all'||x.model===m)&& (t==='all'||now-x.timestamp<({today:one,week:one*7,month:one*30}[t]||Infinity)))}function render(){const d=data(),ok=d.filter(x=>x.success).length,bad=d.length-ok,tok=d.reduce((a,x)=>a+(x.total_tokens||0),0);document.getElementById('exec').textContent=d.length;document.getElementById('tokens').textContent=tok.toLocaleString();document.getElementById('success').textContent=(d.length?Math.round(ok/d.length*100):0)+'%';document.getElementById('failure').textContent=(d.length?Math.round(bad/d.length*100):0)+'%';document.getElementById('recovered').textContent=d.filter(x=>x.recovered||x.recovery).length;document.getElementById('fallbacks').textContent=d.filter(x=>x.fallback_used||x.fallback).length;const g={};d.forEach(x=>{const k=new Date(x.timestamp*1000).toLocaleDateString();g[k]=(g[k]||0)+(x.total_tokens||0)});if(uChart)uChart.destroy();uChart=new Chart(document.getElementById('usage'),{type:'line',data:{labels:Object.keys(g),datasets:[{label:'Tokens',data:Object.values(g),borderColor:'#818cf8',backgroundColor:'rgba(129,140,248,.12)',fill:true,tension:.35}]},options:{responsive:true}});if(pChart)pChart.destroy();pChart=new Chart(document.getElementById('successChart'),{type:'doughnut',data:{labels:['Success','Failure'],datasets:[{data:[ok,bad],backgroundColor:['#34d399','#f87171'],borderWidth:0}]},options:{cutout:'70%',responsive:true}});const cats={};d.filter(x=>!x.success).forEach(x=>{const c=x.error_category||x.failure_category||x.error||'unknown';cats[c]=(cats[c]||0)+1});document.getElementById('failures').innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,v])=>`<div class="flex justify-between bg-slate-950 rounded-xl p-3 border border-slate-800 text-xs"><span class="text-slate-300">${k}</span><span class="text-red-300 font-bold">${v}</span></div>`).join('')||'<div class="text-slate-500 text-sm">No failures in the selected range.</div>'}['time','provider','model'].forEach(id=>document.getElementById(id).addEventListener('change',render));load();setInterval(load,10000);</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}} — OmniShell Telemetry & Model Analytics</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background: radial-gradient(circle at top, #1e1b4b 0%, #090d16 50%, #020617 100%);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .glass-card {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.35);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 9999px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.6);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-100 p-4 sm:p-8">
+    <main class="max-w-7xl mx-auto space-y-7">
+
+        <!-- Top Header & Navigation -->
+        <header class="flex flex-col lg:flex-row lg:items-end justify-between gap-5 pb-2 border-b border-slate-800/80">
+            <div>
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    OmniShell / Telemetry & Observability
+                </div>
+                <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-300">
+                    Reliability & Model Analytics
+                </h1>
+                <p class="text-slate-400 text-sm mt-1 max-w-3xl leading-relaxed">
+                    Real-time multi-agent execution telemetry, token economics, fallback health, latency breakdown, and execution audit trails.
+                </p>
+            </div>
+            
+            <div class="flex items-center gap-3 shrink-0">
+                <span id="live-indicator" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-400 font-mono">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="refresh-time">live sync</span>
+                </span>
+                <a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                    Command Center
+                </a>
+                <a href="/pipeline" class="px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                    Pipeline Dashboard
+                </a>
+            </div>
+        </header>
+
+        <!-- KPI Metrics Grid -->
+        <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-indigo-500/10 rounded-full blur-xl group-hover:bg-indigo-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Total Requests</div>
+                <div id="k-requests" class="text-2xl sm:text-3xl font-black text-white mt-1">0</div>
+                <div class="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                    <span>⚡ Real-time stream</span>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-violet-500/10 rounded-full blur-xl group-hover:bg-violet-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Tokens Consumed</div>
+                <div id="k-tokens" class="text-2xl sm:text-3xl font-black text-violet-300 mt-1">0</div>
+                <div id="k-tokens-sub" class="text-[10px] text-slate-400 mt-1 truncate">Prompt + Comp</div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-emerald-500/10 rounded-full blur-xl group-hover:bg-emerald-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Success Rate</div>
+                <div id="k-success" class="text-2xl sm:text-3xl font-black text-emerald-300 mt-1">100%</div>
+                <div class="text-[10px] text-slate-400 mt-1">Guarded operations</div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-cyan-500/10 rounded-full blur-xl group-hover:bg-cyan-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Avg LLM Reasoning</div>
+                <div id="k-latency" class="text-2xl sm:text-3xl font-black text-cyan-300 mt-1">0.0s</div>
+                <div class="text-[10px] text-slate-400 mt-1">Synthesizing speed</div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-amber-500/10 rounded-full blur-xl group-hover:bg-amber-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Fallbacks Active</div>
+                <div id="k-fallbacks" class="text-2xl sm:text-3xl font-black text-amber-300 mt-1">0</div>
+                <div class="text-[10px] text-slate-400 mt-1">Cascaded models</div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-4 shadow-xl relative overflow-hidden group">
+                <div class="absolute -right-2 -bottom-2 w-16 h-16 bg-rose-500/10 rounded-full blur-xl group-hover:bg-rose-500/20 transition"></div>
+                <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Failure / Blocked</div>
+                <div id="k-failures" class="text-2xl sm:text-3xl font-black text-rose-300 mt-1">0%</div>
+                <div class="text-[10px] text-slate-400 mt-1">Intercepted threats</div>
+            </div>
+        </section>
+
+        <!-- Interactive Filter Control Bar -->
+        <section class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div class="flex flex-wrap items-center gap-3 flex-1">
+                <div class="relative min-w-[140px]">
+                    <select id="filter-time" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition cursor-pointer">
+                        <option value="all">All Time History</option>
+                        <option value="today">Today (24h)</option>
+                        <option value="week">Last 7 Days</option>
+                        <option value="month">Last 30 Days</option>
+                    </select>
+                </div>
+
+                <div class="relative min-w-[150px]">
+                    <select id="filter-provider" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition cursor-pointer">
+                        <option value="all">All AI Providers</option>
+                    </select>
+                </div>
+
+                <div class="relative min-w-[180px]">
+                    <select id="filter-model" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition cursor-pointer">
+                        <option value="all">All Model Architectures</option>
+                    </select>
+                </div>
+
+                <div class="relative flex-1 min-w-[200px]">
+                    <input id="filter-search" type="text" placeholder="Search execution prompts, capabilities, errors..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition" />
+                </div>
+            </div>
+
+            <button onclick="loadAnalytics()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                Refresh Data
+            </button>
+        </section>
+
+        <!-- Charts Section (2 Columns) -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <!-- Token & Request Dynamics Line Chart -->
+            <div class="glass-card rounded-3xl p-6 shadow-2xl flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>📈</span> Token & Request Volume Dynamics
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Timeline token usage and load frequency</p>
+                    </div>
+                    <span id="chart-total-label" class="text-xs font-mono px-2.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300"></span>
+                </div>
+                <div class="relative w-full h-[280px]">
+                    <canvas id="usage-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Reliability & Outcomes Doughnut Chart -->
+            <div class="glass-card rounded-3xl p-6 shadow-2xl flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>🎯</span> Reliability & Execution Outcome Split
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Ratio of successful completions, recovery loops & blocked threats</p>
+                    </div>
+                    <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">Guarded Policy</span>
+                </div>
+                <div class="relative w-full h-[280px] flex items-center justify-center">
+                    <canvas id="outcome-chart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Fallback Chain Cascade & Capability Distribution -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <!-- Multi-Tier Fallback Chain Topology -->
+            <div class="glass-card rounded-3xl p-6 shadow-2xl flex flex-col">
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>🔗</span> Multi-Tier Autonomous Fallback Chain
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Cascading failover sequence across OpenRouter, NVIDIA NIM, and Gemini engines</p>
+                    </div>
+                    <span id="chain-count" class="text-xs font-mono px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">16 Models</span>
+                </div>
+
+                <div id="fallback-chain-container" class="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                    <div class="text-slate-500 text-xs italic">Loading fallback models...</div>
+                </div>
+            </div>
+
+            <!-- Capabilities Usage Breakdown -->
+            <div class="glass-card rounded-3xl p-6 shadow-2xl flex flex-col">
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>⚙️</span> Capability Usage Distribution
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Execution volume across the 19 core OmniShell capabilities</p>
+                    </div>
+                    <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">19 Cap Matrix</span>
+                </div>
+
+                <div id="capability-distribution-container" class="space-y-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                    <div class="text-slate-500 text-xs italic">Calculating capability usage...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Execution Audit Log Table -->
+        <section class="glass-card rounded-3xl overflow-hidden shadow-2xl">
+            <div class="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <span>📋</span> Recent Execution Audit & Telemetry Log
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Complete record of user prompts, capability resolutions, models invoked & latency breakdown</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="log-count-badge" class="text-xs font-mono px-3 py-1 bg-slate-900 border border-slate-800 text-slate-400 rounded-xl">0 Records</span>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-950/80 text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                        <tr>
+                            <th class="p-4 font-semibold">ID / Timestamp</th>
+                            <th class="p-4 font-semibold">Prompt Request</th>
+                            <th class="p-4 font-semibold">Capability Type</th>
+                            <th class="p-4 font-semibold">Model Used</th>
+                            <th class="p-4 font-semibold">Latency</th>
+                            <th class="p-4 font-semibold">Security State</th>
+                        </tr>
+                    </thead>
+                    <tbody id="execution-logs-body" class="divide-y divide-slate-800/60 text-xs">
+                        <tr>
+                            <td colspan="6" class="p-8 text-center text-slate-500 italic">Loading execution audit log...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        let rawAnalytics = [];
+        let fallbackFlow = [];
+        let executionLogs = [];
+        let usageChartInstance = null;
+        let outcomeChartInstance = null;
+        const ONE_DAY = 86400;
+
+        const esc = str => String(str ?? '').replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        async function loadAnalytics() {
+            try {
+                const res = await fetch('http://localhost:8000/api/analytics');
+                if (!res.ok) throw new Error('Backend analytics unavailable');
+                const json = await res.json();
+                rawAnalytics = json.data || [];
+                fallbackFlow = json.fallback_flow || [];
+                executionLogs = json.execution_history || [];
+                
+                populateFilterDropdowns();
+                renderAll();
+                document.getElementById('refresh-time').innerText = 'updated ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            } catch (err) {
+                document.getElementById('refresh-time').innerText = 'offline';
+            }
+        }
+
+        function populateFilterDropdowns() {
+            const providers = [...new Set(rawAnalytics.map(x => x.provider).filter(Boolean))];
+            const models = [...new Set(rawAnalytics.map(x => x.model).filter(Boolean))];
+
+            const provSelect = document.getElementById('filter-provider');
+            const modSelect = document.getElementById('filter-model');
+
+            // Preserve selections
+            const currProv = provSelect.value;
+            const currMod = modSelect.value;
+
+            provSelect.innerHTML = '<option value="all">All AI Providers</option>' + providers.map(p => `<option value="${p}">${p.toUpperCase()}</option>`).join('');
+            modSelect.innerHTML = '<option value="all">All Model Architectures</option>' + models.map(m => `<option value="${m}">${m}</option>`).join('');
+
+            if (providers.includes(currProv)) provSelect.value = currProv;
+            if (models.includes(currMod)) modSelect.value = currMod;
+        }
+
+        function getFilteredData() {
+            const timeFilter = document.getElementById('filter-time').value;
+            const providerFilter = document.getElementById('filter-provider').value;
+            const modelFilter = document.getElementById('filter-model').value;
+            const searchFilter = document.getElementById('filter-search').value.toLowerCase().trim();
+            const nowSec = Date.now() / 1000;
+
+            return rawAnalytics.filter(item => {
+                const matchProv = (providerFilter === 'all' || item.provider === providerFilter);
+                const matchMod = (modelFilter === 'all' || item.model === modelFilter);
+                
+                let matchTime = true;
+                if (timeFilter === 'today') matchTime = (nowSec - item.timestamp < ONE_DAY);
+                else if (timeFilter === 'week') matchTime = (nowSec - item.timestamp < ONE_DAY * 7);
+                else if (timeFilter === 'month') matchTime = (nowSec - item.timestamp < ONE_DAY * 30);
+
+                let matchSearch = true;
+                if (searchFilter) {
+                    const text = `${item.model} ${item.provider} ${item.error || ''}`.toLowerCase();
+                    matchSearch = text.includes(searchFilter);
+                }
+
+                return matchProv && matchMod && matchTime && matchSearch;
+            });
+        }
+
+        function renderAll() {
+            const filtered = getFilteredData();
+            const totalCount = filtered.length;
+            const successfulCount = filtered.filter(x => x.success).length;
+            const failureCount = totalCount - successfulCount;
+            const totalTokens = filtered.reduce((acc, curr) => acc + (curr.total_tokens || 0), 0);
+            const promptTokens = filtered.reduce((acc, curr) => acc + (curr.prompt_tokens || 0), 0);
+            const completionTokens = filtered.reduce((acc, curr) => acc + (curr.completion_tokens || 0), 0);
+            const fallbackCount = filtered.filter(x => x.fallback_used || x.fallback).length;
+
+            // KPI Cards
+            document.getElementById('k-requests').innerText = totalCount.toLocaleString();
+            document.getElementById('k-tokens').innerText = totalTokens.toLocaleString();
+            document.getElementById('k-tokens-sub').innerText = `Prompt: ${promptTokens.toLocaleString()} | Comp: ${completionTokens.toLocaleString()}`;
+            document.getElementById('k-success').innerText = totalCount ? `${Math.round((successfulCount / totalCount) * 100)}%` : '100%';
+            document.getElementById('k-failures').innerText = totalCount ? `${Math.round((failureCount / totalCount) * 100)}%` : '0%';
+            document.getElementById('k-fallbacks').innerText = fallbackCount;
+
+            // Average latency calculation from executionLogs
+            let avgLatency = 0;
+            const timedLogs = executionLogs.filter(l => l.timing && l.timing.total);
+            if (timedLogs.length > 0) {
+                const sum = timedLogs.reduce((acc, curr) => acc + curr.timing.total, 0);
+                avgLatency = (sum / timedLogs.length).toFixed(2);
+            }
+            document.getElementById('k-latency').innerText = `${avgLatency}s`;
+
+            renderCharts(filtered, successfulCount, failureCount);
+            renderFallbackChain();
+            renderCapabilityDistribution();
+            renderExecutionLogsTable();
+        }
+
+        function renderCharts(filtered, successfulCount, failureCount) {
+            // Usage timeline grouping
+            const dateGroups = {};
+            filtered.forEach(x => {
+                const dateKey = new Date(x.timestamp * 1000).toLocaleDateString([], {month: 'short', day: 'numeric'});
+                if (!dateGroups[dateKey]) dateGroups[dateKey] = { tokens: 0, count: 0 };
+                dateGroups[dateKey].tokens += (x.total_tokens || 0);
+                dateGroups[dateKey].count += 1;
+            });
+
+            const labels = Object.keys(dateGroups);
+            const tokenData = labels.map(k => dateGroups[k].tokens);
+            const countData = labels.map(k => dateGroups[k].count);
+
+            document.getElementById('chart-total-label').innerText = `${tokenData.reduce((a,b)=>a+b, 0).toLocaleString()} tokens`;
+
+            // Line Chart
+            const usageCanvas = document.getElementById('usage-chart');
+            if (usageChartInstance) usageChartInstance.destroy();
+            usageChartInstance = new Chart(usageCanvas, {
+                type: 'line',
+                data: {
+                    labels: labels.length ? labels : ['No Data'],
+                    datasets: [
+                        {
+                            label: 'Total Tokens Consumed',
+                            data: tokenData.length ? tokenData : [0],
+                            borderColor: '#818cf8',
+                            backgroundColor: 'rgba(129, 140, 248, 0.15)',
+                            fill: true,
+                            tension: 0.35,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#6366f1',
+                            pointRadius: 4,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Requests Count',
+                            data: countData.length ? countData : [0],
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'transparent',
+                            borderDash: [4, 4],
+                            borderWidth: 2,
+                            pointBackgroundColor: '#38bdf8',
+                            pointRadius: 3,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } },
+                        tooltip: { backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1 }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#818cf8', font: { size: 10 } } },
+                        y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#38bdf8', font: { size: 10 } } }
+                    }
+                }
+            });
+
+            // Outcome Doughnut Chart
+            const outcomeCanvas = document.getElementById('outcome-chart');
+            if (outcomeChartInstance) outcomeChartInstance.destroy();
+            outcomeChartInstance = new Chart(outcomeCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful Guarded Ops', 'Intercepted / Failed'],
+                    datasets: [{
+                        data: [successfulCount || 1, failureCount],
+                        backgroundColor: ['#10b981', '#f43f5e'],
+                        borderColor: '#0f172a',
+                        borderWidth: 4,
+                        hoverOffset: 6
+                    }]
+                },
+                options: {
+                    cutout: '72%',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#cbd5e1', font: { size: 11 }, padding: 16 } },
+                        tooltip: { backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1 }
+                    }
+                }
+            });
+        }
+
+        function renderFallbackChain() {
+            const container = document.getElementById('fallback-chain-container');
+            document.getElementById('chain-count').innerText = `${fallbackFlow.length} Models`;
+
+            if (!fallbackFlow || fallbackFlow.length === 0) {
+                container.innerHTML = '<div class="text-slate-500 text-xs italic">No fallback models configured.</div>';
+                return;
+            }
+
+            container.innerHTML = fallbackFlow.map((model, idx) => {
+                const isPrimary = idx === 0;
+                const isSecondary = idx < 3;
+                const tier = isPrimary ? 'Primary Active' : (isSecondary ? 'High Priority' : 'Emergency Backup');
+                const tierColor = isPrimary ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : (isSecondary ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-400 bg-slate-900 border-slate-800');
+                const provider = model.split('/')[0] || 'engine';
+
+                return `
+                    <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 flex items-center justify-between gap-3 text-xs transition">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-5 h-5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-[10px] font-mono text-slate-400 shrink-0">
+                                ${idx + 1}
+                            </span>
+                            <div class="truncate">
+                                <span class="font-mono text-slate-200 font-medium">${esc(model)}</span>
+                                <span class="ml-2 text-[10px] text-slate-500 font-mono uppercase">(${esc(provider)})</span>
+                            </div>
+                        </div>
+                        <span class="px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-semibold shrink-0 ${tierColor}">
+                            ${tier}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderCapabilityDistribution() {
+            const container = document.getElementById('capability-distribution-container');
+            const capCounts = {};
+
+            executionLogs.forEach(l => {
+                const cap = l.capability_type || 'shell_operation';
+                capCounts[cap] = (capCounts[cap] || 0) + 1;
+            });
+
+            // Ensure baseline capabilities are visible
+            const keys = Object.keys(capCounts).length > 0 ? Object.keys(capCounts) : [
+                'question_answering', 'browser_operation', 'system_inspection', 'multi_step', 'recurring_workflow', 'reminder'
+            ];
+
+            const totalLogs = executionLogs.length || 1;
+            const sortedCaps = keys.sort((a,b) => (capCounts[b] || 0) - (capCounts[a] || 0));
+
+            container.innerHTML = sortedCaps.map(cap => {
+                const count = capCounts[cap] || 0;
+                const pct = Math.round((count / totalLogs) * 100) || 5;
+                const formattedName = cap.replace(/_/g, ' ').toUpperCase();
+
+                return `
+                    <div class="bg-slate-950/70 p-3 rounded-xl border border-slate-800/80">
+                        <div class="flex justify-between items-center text-xs mb-1.5">
+                            <span class="font-mono text-slate-300 font-medium">${formattedName}</span>
+                            <span class="text-xs font-mono text-indigo-400 font-bold">${count} runs</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                            <div class="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all duration-500" style="width: ${pct}%;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderExecutionLogsTable() {
+            const tbody = document.getElementById('execution-logs-body');
+            const countBadge = document.getElementById('log-count-badge');
+            const search = document.getElementById('filter-search').value.toLowerCase().trim();
+
+            const filteredLogs = executionLogs.filter(log => {
+                if (!search) return true;
+                const combined = `${log.prompt} ${log.model_used} ${log.capability_type} ${log.id}`.toLowerCase();
+                return combined.includes(search);
+            });
+
+            countBadge.innerText = `${filteredLogs.length} Records`;
+
+            if (filteredLogs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="p-8 text-center text-slate-500 italic">
+                            No execution logs match the current filters.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filteredLogs.slice(0, 25).map(log => {
+                const dateStr = log.created_at ? new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '—';
+                const capType = log.capability_type || 'shell_operation';
+                const isSafe = log.is_safe !== false;
+                const latency = log.timing && log.timing.total ? `${Number(log.timing.total).toFixed(2)}s` : '—';
+                const model = log.model_used || 'OpenRouter Llama 3.3';
+
+                return `
+                    <tr class="hover:bg-slate-900/50 transition">
+                        <td class="p-4 whitespace-nowrap font-mono text-slate-400 text-[11px]">
+                            <span class="text-indigo-400 font-bold">#${log.id}</span>
+                            <span class="ml-1 text-slate-500">${dateStr}</span>
+                        </td>
+                        <td class="p-4 max-w-[280px]">
+                            <div class="truncate text-slate-200 font-medium" title="${esc(log.prompt)}">${esc(log.prompt)}</div>
+                            <div class="text-[10px] text-slate-500 font-mono mt-0.5">${esc(log.os_context || 'Linux')}</div>
+                        </td>
+                        <td class="p-4 whitespace-nowrap">
+                            <span class="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono text-[10px] uppercase font-semibold">
+                                ${esc(capType.replace(/_/g, ' '))}
+                            </span>
+                        </td>
+                        <td class="p-4 whitespace-nowrap font-mono text-slate-300 text-[11px]">
+                            ${esc(model.split('/').pop() || model)}
+                        </td>
+                        <td class="p-4 whitespace-nowrap font-mono text-cyan-400 text-[11px]">
+                            ${latency}
+                        </td>
+                        <td class="p-4 whitespace-nowrap">
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase font-mono ${isSafe ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'}">
+                                ${isSafe ? '✓ Safe' : '🛑 Blocked'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Attach filter listeners
+        ['filter-time', 'filter-provider', 'filter-model', 'filter-search'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', renderAll);
+        });
+
+        loadAnalytics();
+        setInterval(loadAnalytics, 5000);
+    </script>
+</body>
+</html>
