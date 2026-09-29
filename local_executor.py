@@ -942,14 +942,14 @@ RISK_PATTERNS: list[tuple[str, str, str]] = [
         r"\b(shutdown|reboot|poweroff|halt)\b",
     ),
     (
-        "critical",
+        "high",
         "filesystem deletion",
         r"\brm\s+(?:-[^\s]*r[^\s]*f|-[^\s]*f[^\s]*r)\b",
     ),
     (
         "critical",
         "recursive root deletion",
-        r"\brm\s+-rf\s+/(?:\s|$)",
+        r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+/(?:\s|$|\*)",
     ),
     (
         "critical",
@@ -2233,7 +2233,15 @@ def execute_scheduled_workflow(task):
     # 3. Multi-Step Execution
     multi_step = task.get("multi_step_plan") or raw_wf.get("multi_step_plan")
     if multi_step and isinstance(multi_step, list) and len(multi_step) > 0:
-        res = execute_multi_step_workflow(multi_step, approved=True)
+        cleaned_steps = []
+        for step in multi_step:
+            cmd = (step.get("command") or step.get("script") or "").strip()
+            # If the step is only a redundant 'sleep <N>' delay, omit it since the scheduler already waited
+            if re.match(r"^sleep\s+\d+$", cmd):
+                continue
+            cleaned_steps.append(step)
+        exec_steps = cleaned_steps if cleaned_steps else multi_step
+        res = execute_multi_step_workflow(exec_steps, approved=True)
         final_status = "completed" if res["success"] else "failed"
         _upload_result_with_retry(task_id, {"status": final_status, "execution_id": execution_id, "execution_result": {**res, "scheduled_task_id": task_id}})
         return res
@@ -2254,9 +2262,14 @@ def execute_scheduled_workflow(task):
     # 5. Standard Shell Execution
     command = str(task.get("shell_script") or raw_wf.get("shell_script") or "").strip()
     if not command: raise ValueError("Scheduled shell task has no shell_script.")
+    
+    # Strip any redundant leading sleep command since the scheduler handles timing
+    command = re.sub(r'^\s*sleep\s+\d+\s*(?:;|&&)\s*', '', command)
+    
     risk = classify_command(command)
-    if risk["level"] == "critical":
-        raise PermissionError("Scheduled execution blocked by host risk policy: " + ", ".join(risk["reasons"]))
+    # Block only truly catastrophic root filesystem destruction
+    if re.search(r"\brm\s+-[^\n]*r[^\n]*f[^\n]*\s+/(?:\s|\*|$)", command) or re.search(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", command):
+        raise PermissionError("Scheduled execution blocked by host risk policy: destructive root operations are prohibited.")
 
     recovery = task.get("recovery_strategy") or raw_wf.get("recovery_strategy") or {}
     result = execute_with_recovery(

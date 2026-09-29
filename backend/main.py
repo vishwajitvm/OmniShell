@@ -1762,6 +1762,10 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
       * Set `capability_type="multi_step"`.
       * Populate `multi_step_plan` array with step objects: `[{{"step_id": 1, "name": "...", "command": "...", "expected": "..."}}]`.
       * Set `shell_script` to the compound resilient script.
+    - If user requests a Scheduled, Delayed, or Reminder Task (e.g. "after 3 minutes", "open spotify in 5 mins", "delete trash after 2 mins"):
+      * Set `capability_type="scheduled_workflow"` (or `reminder`), `is_scheduled=true`, `scheduled_time="<ISO_TIMESTAMP>"`.
+      * Set `shell_script` to the actual direct command (e.g. `rm -rf ~/.local/share/Trash/*` or `xdg-open https://...`).
+      * CRITICAL: DO NOT put `sleep <seconds>` inside `shell_script` or `multi_step_plan`! The OmniShell background scheduler handles the timing automatically.
     - If user asks a Recurring Task (e.g. "every 5 minutes...", "daily at 10 AM..."):
       * Set `capability_type="recurring_workflow"`, `is_scheduled=true`, `is_recurring=true`, and specify `recurrence_rule`.
     - If user asks a Conditional Task:
@@ -2023,6 +2027,16 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         if not structured_data.get("scheduled_time"):
             scheduled_now = _utc_now() + datetime.timedelta(seconds=60)
             structured_data["scheduled_time"] = scheduled_now.isoformat()
+        
+        # Clean redundant delay prefixes from scripts/plans since scheduler handles timing
+        if structured_data.get("shell_script"):
+            structured_data["shell_script"] = re.sub(r'^\s*sleep\s+\d+\s*(?:;|&&)\s*', '', str(structured_data["shell_script"])).strip()
+        if isinstance(structured_data.get("multi_step_plan"), list):
+            structured_data["multi_step_plan"] = [
+                s for s in structured_data["multi_step_plan"]
+                if not (isinstance(s, dict) and re.match(r"^\s*sleep\s+\d+\s*$", str(s.get("command") or s.get("script") or "").strip()))
+            ]
+
         try:
             schedule_tz = _safe_timezone(request.timezone or structured_data.get("schedule_timezone"))
             scheduled_dt = _parse_schedule_datetime(structured_data["scheduled_time"], schedule_tz)
