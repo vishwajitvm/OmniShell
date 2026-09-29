@@ -2071,6 +2071,15 @@ def open_new_browser_window(url):
     raise RuntimeError("Could not launch a browser approval window." + (f" {' | '.join(errors)}" if errors else ""))
 
 
+def _upload_result_with_retry(task_id, payload):
+    for attempt in range(100):
+        try:
+            status, _ = _http_json("POST", f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json=payload)
+            if status in {200, 400, 404, 409}: return
+        except Exception as e:
+            print(f"[SCHEDULER] Result upload failed (attempt {attempt+1}): {e}")
+        time.sleep(min(5 * (2 ** attempt), 60))
+
 def execute_scheduled_workflow(task):
     task_id=int(task["id"])
     execution_id=uuid.uuid4().hex
@@ -2089,8 +2098,7 @@ def execute_scheduled_workflow(task):
             raise ValueError("Scheduled browser target must use http/https.")
         browser_result=open_new_browser_window(target_url)
         result={"execution_id":execution_id,"status":"completed","success":True,"mode":"browser_new_window","target_url":target_url,"browser_launch":browser_result,"scheduled_task_id":task_id}
-        _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
-                   json={"status":"completed","execution_id":execution_id,"execution_result":result})
+        _upload_result_with_retry(task_id, {"status":"completed","execution_id":execution_id,"execution_result":result})
         return result
 
     command=str(task.get("shell_script") or "").strip()
@@ -2102,8 +2110,7 @@ def execute_scheduled_workflow(task):
     result=execute_command(command,execution_id=execution_id,expected_process=task.get("expected_process"),approved=True)
     payload=asdict(result)
     final_status="completed" if result.success else "failed"
-    _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
-               json={"status":final_status,"execution_id":execution_id,
+    _upload_result_with_retry(task_id, {"status":final_status,"execution_id":execution_id,
                      "execution_result":{**payload,"scheduled_task_id":task_id,"risk_recheck":risk},
                      "failure_reason":None if result.success else result.stderr or result.output})
     return payload
@@ -2130,14 +2137,13 @@ def handle_claimed_task(task):
                 status,data=_http_json("GET",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}")
                 if status==200:
                     current=data.get("status")
-                    if current=="approved":
+                    if current in {"approved", "executing"}:
                         resolved=True
-                        try: execute_scheduled_workflow(task)
-                        except Exception as exc:
-                            print(f"[SCHEDULER] Execution failed: {exc}")
-                            _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
-                                       json={"status":"failed","execution_id":None,"failure_reason":str(exc),
-                                             "execution_result":{"scheduled_task_id":task_id}})
+                        if current == "approved":
+                            try: execute_scheduled_workflow(task)
+                            except Exception as exc:
+                                print(f"[SCHEDULER] Execution failed: {exc}")
+                                _upload_result_with_retry(task_id, {"status":"failed","execution_id":None,"failure_reason":str(exc),"is_permanent":isinstance(exc, (ValueError, PermissionError)),"execution_result":{"scheduled_task_id":task_id}})
                         break
                     if current in {"denied","cancelled","expired","completed","failed"}:
                         resolved=True

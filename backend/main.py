@@ -1318,7 +1318,7 @@ async def cancel_scheduled_task(task_id: int):
         async with conn.transaction():
             record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"] in {"completed","failed","cancelled","denied","expired"}:
+            if record["status"] in {"completed","failed","cancelled","denied","expired","executing"}:
                 raise HTTPException(status_code=400, detail=f"Cannot cancel task in {record['status']} state")
             await conn.execute("""UPDATE scheduled_tasks SET status='cancelled',
                 cancelled_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,
@@ -1345,6 +1345,25 @@ async def retry_scheduled_task(task_id: int):
 async def poll_due_tasks():
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
+            # Clean up stale awaiting_approval tasks
+            await conn.execute("""
+                UPDATE scheduled_tasks SET status='expired', 
+                expired_at=CURRENT_TIMESTAMP, approval_token_hash=NULL, approval_expires_at=NULL,
+                last_error='Approval window expired (reaped)'
+                WHERE status='awaiting_approval' AND approval_expires_at <= CURRENT_TIMESTAMP
+            """)
+
+            # Clean up stale approved tasks (executor crashed before running)
+            await conn.execute("""
+                UPDATE scheduled_tasks SET status=CASE WHEN attempt_count<max_attempts THEN 'scheduled' ELSE 'failed' END,
+                scheduled_for=CASE WHEN attempt_count<max_attempts THEN CURRENT_TIMESTAMP + INTERVAL '15 seconds' ELSE scheduled_for END,
+                failed_at=CASE WHEN attempt_count>=max_attempts THEN CURRENT_TIMESTAMP ELSE failed_at END,
+                last_error='Executor crashed after approval (reaped)',
+                failure_reason='Executor crashed after approval (reaped)'
+                WHERE status='approved' AND approved_at <= CURRENT_TIMESTAMP - INTERVAL '5 minutes'
+            """)
+            
+
             record = await conn.fetchrow("""SELECT * FROM scheduled_tasks
                 WHERE status='scheduled' AND scheduled_for<=CURRENT_TIMESTAMP
                 AND attempt_count<max_attempts
@@ -1422,14 +1441,17 @@ async def store_scheduled_task_result(task_id: int, request: Request):
     execution_result=body.get("execution_result") or {}
     execution_id=body.get("execution_id")
     failure_reason=body.get("failure_reason")
+    is_permanent=bool(body.get("is_permanent", False))
     if status not in {"completed","failed"}:
         raise HTTPException(status_code=400, detail="status must be completed or failed")
 
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            record=await conn.fetchrow("SELECT status,attempt_count,max_attempts FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            record=await conn.fetchrow("SELECT status,attempt_count,max_attempts,execution_id FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
             if record["status"] not in {"approved","executing"}:
+                return {"status":"ignored","reason":f"Task is {record['status']}"}
+            if record["status"] == "executing" and execution_id and record.get("execution_id") and execution_id != record["execution_id"]:
                 return {"status":"ignored","reason":f"Task is {record['status']}"}
 
             if status=="completed":
@@ -1437,7 +1459,7 @@ async def store_scheduled_task_result(task_id: int, request: Request):
                     completed_at=CURRENT_TIMESTAMP,execution_result=$1,execution_id=$2,last_error=NULL WHERE id=$3""",
                     json.dumps(execution_result),execution_id,task_id)
             else:
-                terminal=record["attempt_count"]>=record["max_attempts"]
+                terminal=is_permanent or record["attempt_count"]>=record["max_attempts"]
                 next_status="failed" if terminal else "scheduled"
                 await conn.execute("""UPDATE scheduled_tasks SET status=$1,
                     failed_at=CASE WHEN $1='failed' THEN CURRENT_TIMESTAMP ELSE failed_at END,
