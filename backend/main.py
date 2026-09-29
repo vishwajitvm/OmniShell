@@ -63,6 +63,7 @@ class MultiAgentResult(BaseModel):
     is_scheduled: bool = Field(default=False)
     scheduled_time: str | None = Field(default=None)
     schedule_timezone: str | None = Field(default=None)
+    timing: dict | None = Field(default=None)
     schedule_type: str = Field(default="one_time")
     priority: int = Field(default=5, ge=1, le=10)
     approval_timeout_seconds: int | None = Field(default=None, ge=30, le=3600)
@@ -927,6 +928,10 @@ async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_nam
 
 , response_model=MultiAgentResult)
 async def generate_workflow(request: AutomationRequest, background_tasks: BackgroundTasks):
+    import time
+    t_start = time.time()
+    timing = {"llm_reasoning": 0.0, "research": 0.0, "validation": 0.0, "execution": 0.0, "total": 0.0}
+
     # LAYER 0: Hardcoded pre-LLM guardrail (un-jailbreakable)
     is_blocked, block_reason = hardcoded_guardrail_check(request.natural_language_prompt)
     if is_blocked:
@@ -1045,6 +1050,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     logger.debug("System prompt built successfully", length=len(system_prompt))
 
     try:
+        t_llm_start = time.time()
         response, model_name = await call_llm_with_fallback(
             [
                 {"role": "system", "content": system_prompt},
@@ -1054,6 +1060,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
             timeout=float(os.getenv("LLM_REQUEST_TIMEOUT", "30")),
         )
         logger.log("TRACE", "Received raw LLM response", raw_content=response.choices[0].message.content)
+        timing["llm_reasoning"] = time.time() - t_llm_start
             
         raw_content = response.choices[0].message.content.strip()
         if raw_content.startswith("```"):
@@ -1082,6 +1089,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
 
         
         # --- AGENTIC MIDDLEWARE INTERCEPTOR ---
+        t_res = time.time()
         prompt_lower = request.natural_language_prompt.lower()
         
         
@@ -1134,7 +1142,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                     if not structured_data.get("target_url") or "google.com" in structured_data.get("target_url", ""):
                         structured_data["target_url"] = forced_url if forced_url else "https://www.google.com"
 
-            # --- INTELLIGENT COMMAND RESOLUTION (3-tier) ---
+        # --- INTELLIGENT COMMAND RESOLUTION (3-tier) ---
             # Tier 1: Redis Cache (instant, previously learned)
             # Tier 2: KNOWN_APP_COMMANDS (hardcoded knowledge base)
             # Tier 3: Research Agent (web search + LLM extraction)
@@ -1186,6 +1194,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                     structured_data["target_url"] = ""
                     logger.info(f"Command resolved via {resolution_source}: script='{resolved_command['script']}'")
         # --------------------------------------
+        timing["research"] = time.time() - t_res
         
 
         # Persist only after all middleware has resolved the final executable workflow.
@@ -1237,6 +1246,9 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
             logger.log("TRACE", f"Agent Action: {agent.get('agent_name')}", thought=agent.get('thought'))
         
         logger.info("Successfully architected workflow", model=model_name)
+        timing["total"] = time.time() - t_start
+        timing["execution"] = max(0.0, timing["total"] - timing["llm_reasoning"] - timing["research"])
+        structured_data["timing"] = timing
         return MultiAgentResult(**structured_data)
 
     except Exception as e:

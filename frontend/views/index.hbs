@@ -149,6 +149,21 @@
             </div>
         </div>
 
+        <!-- Timing Breakdown -->
+        <div id="timing-section" class="hidden bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
+            <h2 class="text-xl font-semibold text-slate-200 mb-6 flex items-center gap-2">
+                <span class="text-2xl">⏱️</span> Execution Metrics
+            </h2>
+            <div class="font-mono text-sm text-slate-300 bg-slate-900 p-4 rounded-xl border border-slate-700 inline-block">
+                <div class="flex justify-between w-64"><span class="text-slate-400">LLM reasoning</span><span id="time-llm">0.00s</span></div>
+                <div class="flex justify-between w-64"><span class="text-slate-400">Research</span><span id="time-res">0.00s</span></div>
+                <div class="flex justify-between w-64"><span class="text-slate-400">Validation</span><span id="time-val">0.00s</span></div>
+                <div class="flex justify-between w-64"><span class="text-slate-400">Execution</span><span id="time-exe">0.00s</span></div>
+                <div class="border-t border-slate-700 my-2 w-64"></div>
+                <div class="flex justify-between w-64 font-bold text-white"><span>Total</span><span id="time-tot">0.00s</span></div>
+            </div>
+        </div>
+
         <!-- Mermaid Diagram -->
         <div class="bg-slate-800/40 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-700/50">
             <div class="flex justify-between items-center mb-6">
@@ -234,7 +249,19 @@
                     statusDiv.innerHTML += ` <span class="ml-4 text-blue-300">📅 Scheduled Successfully for ${new Date(data.scheduled_time).toLocaleString()}!</span>`;
                     document.getElementById('btn-text').innerText = 'Execute';
                     document.getElementById('btn-spinner').classList.add('hidden');
-                    return; // DO NOT EXECUTE NOW
+                    // DO NOT RETURN HERE, we want Mermaid to render
+                }
+
+                // Populate timing if available
+                if (data.timing) {
+                    document.getElementById('timing-section').classList.remove('hidden');
+                    document.getElementById('time-llm').innerText = data.timing.llm_reasoning.toFixed(2) + 's';
+                    document.getElementById('time-res').innerText = data.timing.research.toFixed(2) + 's';
+                    document.getElementById('time-val').innerText = data.timing.validation.toFixed(2) + 's';
+                    document.getElementById('time-exe').innerText = data.timing.execution.toFixed(2) + 's';
+                    document.getElementById('time-tot').innerText = data.timing.total.toFixed(2) + 's';
+                } else {
+                    document.getElementById('timing-section').classList.add('hidden');
                 }
 
                 // Trigger Native Host Execution Agent with STRICT Human-in-the-Loop
