@@ -99,6 +99,27 @@ MAX_HISTORY = int(
     os.getenv("OMNISHELL_MAX_HISTORY", "500")
 )
 
+MAX_RECOVERY_ATTEMPTS = int(
+    os.getenv("OMNISHELL_MAX_RECOVERY_ATTEMPTS", "5")
+)
+
+EXECUTION_BUDGET_SECONDS = float(
+    os.getenv("OMNISHELL_EXECUTION_BUDGET_SECONDS", "300")
+)
+
+MAX_OUTPUT_BYTES = int(
+    os.getenv("OMNISHELL_MAX_OUTPUT_BYTES", str(10 * 1024 * 1024))
+)
+
+SCHEDULER_UPLOAD_MAX_ATTEMPTS = int(
+    os.getenv("OMNISHELL_UPLOAD_MAX_ATTEMPTS", "5")
+)
+
+SCHEDULER_UPLOAD_BUDGET_SECONDS = float(
+    os.getenv("OMNISHELL_UPLOAD_BUDGET_SECONDS", "30")
+)
+
+
 
 # ============================================================
 # DATA MODELS
@@ -2242,22 +2263,41 @@ def _http_json(method,url,**kwargs):
     return response.status_code,payload
 
 
-def _browser_candidates():
+def _browser_candidates(url):
     system=platform.system().lower()
     if system=="windows":
-        return [("msedge",["--new-window"]),("chrome",["--new-window"]),("brave",["--new-window"]),("firefox",["--new-window"])]
+        return [
+            ("msedge", [f"--app={url}"]),
+            ("chrome", [f"--app={url}"]),
+            ("brave", [f"--app={url}"]),
+            ("msedge", ["--new-window", url]),
+            ("chrome", ["--new-window", url]),
+            ("brave", ["--new-window", url]),
+            ("firefox", ["--new-window", url])
+        ]
     if system=="darwin":
-        return [("open",["-na","Google Chrome","--args","--new-window"]),("open",["-na","Brave Browser","--args","--new-window"]),("open",["-na","Firefox","--args","--new-window"])]
+        return [
+            ("open", ["-na", "Google Chrome", "--args", f"--app={url}"]),
+            ("open", ["-na", "Brave Browser", "--args", f"--app={url}"]),
+            ("open", ["-na", "Google Chrome", "--args", "--new-window", url]),
+            ("open", ["-na", "Brave Browser", "--args", "--new-window", url]),
+            ("open", ["-na", "Firefox", "--args", "--new-window", url])
+        ]
     return [
-        ("brave-browser", ["--new-window"]),
-        ("firefox", ["--new-window"]),
-        ("google-chrome", ["--new-window"]),
-        ("google-chrome-stable", ["--new-window"]),
-        ("chromium", ["--new-window"]),
-        ("chromium-browser", ["--new-window"]),
-        ("xdg-open", []),
-        ("x-www-browser", []),
-        ("gnome-open", []),
+        ("brave-browser", [f"--app={url}"]),
+        ("google-chrome", [f"--app={url}"]),
+        ("google-chrome-stable", [f"--app={url}"]),
+        ("chromium", [f"--app={url}"]),
+        ("chromium-browser", [f"--app={url}"]),
+        ("brave-browser", ["--new-window", url]),
+        ("google-chrome", ["--new-window", url]),
+        ("google-chrome-stable", ["--new-window", url]),
+        ("chromium", ["--new-window", url]),
+        ("chromium-browser", ["--new-window", url]),
+        ("firefox", ["--new-window", url]),
+        ("xdg-open", [url]),
+        ("x-www-browser", [url]),
+        ("gnome-open", [url]),
     ]
 
 
@@ -2268,18 +2308,18 @@ def open_new_browser_window(url):
     errors=[]
     system=platform.system().lower()
     env = os.environ.copy()
-    for executable,args in _browser_candidates():
+    for executable,args in _browser_candidates(url):
         resolved=shutil.which(executable)
         if not resolved: continue
         try:
             subprocess.Popen(
-                [resolved,*args,url],
+                [resolved,*args],
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,stdin=subprocess.DEVNULL,
                 start_new_session=system!="windows",
                 creationflags=(subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP if system=="windows" else 0),
                 env=env,
             )
-            return {"opened":True,"browser":executable,"method":"native-new-window","url":url}
+            return {"opened":True,"browser":executable,"method":"native-app-window","url":url}
         except Exception as exc:
             errors.append(f"{executable}: {exc}")
     try:
@@ -2430,7 +2470,11 @@ def handle_claimed_task(task):
             return
         if not token: raise RuntimeError("No approval token was returned for approval-gated task.")
         approval_url=f"{APPROVAL_UI_BASE}/{token}?taskId={task_id}"
-        print(f"[SCHEDULER] Task {task_id} due; opening approval window.")
+        print(f"[SCHEDULER] Task {task_id} due; tossing approval window document.")
+        try:
+            prompt_preview = str(task.get("original_prompt") or "Action authorization required")[:60]
+            send_desktop_notification("OmniShell Scheduled Approval", f"Task #{task_id}: {prompt_preview}")
+        except Exception: pass
         try: open_new_browser_window(approval_url)
         except Exception as exc: print(f"[SCHEDULER] Approval browser launch failed: {exc}")
 

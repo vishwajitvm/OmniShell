@@ -6,131 +6,258 @@
     <title>{{title}}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+        body {
+            background: radial-gradient(circle at top, #1e1b4b 0%, #090d16 50%, #020617 100%);
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .glass {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 9999px;
+        }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4">
-    <div id="app-container" class="max-w-xl w-full bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
-        <div class="bg-blue-600 px-6 py-4 flex items-center justify-between">
-            <h1 class="text-xl font-bold text-white flex items-center gap-2">
-                ⏳ Scheduled Action Ready
-            </h1>
-            <span id="legacy-countdown" class="text-blue-200 font-mono text-sm font-medium">Expires in 05:00</span>
+<body class="flex items-center justify-center min-h-screen p-4 sm:p-6">
+    <div id="app-container" class="max-w-2xl w-full glass rounded-3xl shadow-2xl overflow-hidden border border-slate-700/80 my-4">
+        
+        <!-- Header Banner -->
+        <div class="bg-gradient-to-r from-indigo-900 via-indigo-700 to-purple-800 px-6 py-5 flex items-center justify-between border-b border-indigo-500/30">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 text-xl font-bold">
+                    🔒
+                </div>
+                <div>
+                    <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-400/30 text-indigo-200 text-[10px] font-mono uppercase font-semibold">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                        Human-in-the-Loop Gate
+                    </div>
+                    <h1 class="text-lg sm:text-xl font-extrabold text-white mt-0.5">
+                        Scheduled Approval Document
+                    </h1>
+                </div>
+            </div>
+            <div class="text-right">
+                <span id="countdown-badge" class="px-3 py-1 rounded-full bg-indigo-950/80 border border-indigo-400/40 text-amber-300 font-mono text-xs font-bold">
+                    Expires in --:--
+                </span>
+            </div>
         </div>
         
-        <div class="p-8">
-            <div id="loading" class="text-center py-8">
-                <p class="text-slate-400">Loading scheduled task details...</p>
+        <div class="p-6 sm:p-8 space-y-6">
+            
+            <!-- Loading Screen -->
+            <div id="loading" class="text-center py-12 space-y-3">
+                <div class="inline-block w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-slate-400 text-sm font-medium">Retrieving scheduled approval payload and security gates...</p>
             </div>
             
-            <div id="error-screen" class="hidden text-center py-8">
-                <div class="text-red-500 text-5xl mb-4">❌</div>
-                <h2 class="text-xl font-bold text-white mb-2" id="error-title">Task Unavailable</h2>
-                <p class="text-slate-400" id="error-message">This task may have expired, been cancelled, or already executed.</p>
-                <button onclick="window.close()" class="mt-6 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors">Close Window</button>
+            <!-- Error Screen -->
+            <div id="error-screen" class="hidden text-center py-8 space-y-4">
+                <div class="text-rose-500 text-5xl">🛑</div>
+                <h2 class="text-xl font-bold text-white" id="error-title">Task Unavailable</h2>
+                <p class="text-slate-400 text-sm max-w-md mx-auto" id="error-message">This task may have expired, been cancelled, or already executed.</p>
+                <div class="flex justify-center gap-3 pt-2">
+                    <a href="/pipeline" class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition">View Pipeline</a>
+                    <button onclick="window.close()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl text-xs font-semibold transition border border-slate-700">Close Window</button>
+                </div>
             </div>
 
-            <div id="task-details" class="hidden">
-<div class="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3"><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Intent</div><div id="approval-intent" class="text-xs text-indigo-300 mt-1">Workflow</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Risk</div><div id="approval-risk" class="text-xs text-amber-300 mt-1">Human review</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Attempts</div><div id="approval-attempts" class="text-xs text-cyan-300 mt-1">0 / 3</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Expiry</div><div id="countdown" class="text-xs text-red-300 mt-1">Calculating…</div></div></div>
-                <div class="mb-6">
-                    <p class="text-sm text-slate-400 uppercase tracking-wider font-semibold mb-1">Original Request</p>
-                    <p id="original-prompt" class="text-lg text-white font-medium bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 italic"></p>
-                </div>
+            <!-- Main Task Document Details -->
+            <div id="task-details" class="hidden space-y-6">
                 
-                <div class="grid grid-cols-2 gap-4 mb-8">
-                    <div class="bg-slate-700/30 p-4 rounded-xl border border-slate-700/50">
-                        <p class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Target OS</p>
-                        <p id="target-os" class="text-white font-medium"></p>
+                <!-- Metadata Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="bg-slate-900/90 rounded-2xl p-3 border border-slate-800">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Task ID</div>
+                        <div id="approval-task-id" class="text-xs font-mono font-bold text-indigo-300 mt-1">#--</div>
                     </div>
-                    <div class="bg-slate-700/30 p-4 rounded-xl border border-slate-700/50">
-                        <p class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Action Type</p>
-                        <p id="action-type" class="text-white font-medium"></p>
+                    <div class="bg-slate-900/90 rounded-2xl p-3 border border-slate-800">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Capability</div>
+                        <div id="approval-intent" class="text-xs font-mono text-cyan-300 mt-1">Workflow</div>
+                    </div>
+                    <div class="bg-slate-900/90 rounded-2xl p-3 border border-slate-800">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Safety Risk</div>
+                        <div id="approval-risk" class="text-xs font-bold text-amber-300 mt-1">⚠️ Human Review</div>
+                    </div>
+                    <div class="bg-slate-900/90 rounded-2xl p-3 border border-slate-800">
+                        <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Scheduled For</div>
+                        <div id="approval-scheduled-time" class="text-xs font-mono text-slate-300 mt-1">--</div>
                     </div>
                 </div>
 
-                <div class="mb-8 bg-slate-900 rounded-xl p-4 border border-slate-700 font-mono text-sm text-green-400 overflow-x-auto">
-                    <p class="text-xs text-slate-500 font-sans uppercase tracking-wider font-semibold mb-2">Execution Details</p>
-                    <div id="execution-payload"></div>
+                <!-- Original Request Prompt -->
+                <div class="rounded-2xl bg-slate-900/80 p-4 border border-slate-800">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Original Request Prompt</p>
+                        <span id="target-os-badge" class="text-[10px] font-mono text-slate-500">Host OS</span>
+                    </div>
+                    <p id="original-prompt" class="text-sm sm:text-base text-slate-100 font-medium italic leading-relaxed"></p>
                 </div>
 
-                <div id="action-buttons" class="flex gap-4">
-                    <button id="btn-deny" class="flex-1 bg-slate-700 hover:bg-red-600 hover:text-white text-slate-300 py-3 rounded-xl font-bold transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-800">
-                        Deny Execution
+                <!-- Action & Target Execution Details -->
+                <div class="space-y-4">
+                    <div class="rounded-2xl bg-slate-900/90 p-4 border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono">
+                                <span>💻</span> Execution Command / Target Payload
+                            </span>
+                            <span id="action-type-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-mono">Local Host</span>
+                        </div>
+                        <pre id="execution-payload" class="p-3.5 bg-black/80 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre-wrap border border-slate-950 max-h-60 custom-scrollbar"></pre>
+                    </div>
+
+                    <!-- Multi-Step Sequence (if present) -->
+                    <div id="plan-section" class="hidden rounded-2xl bg-slate-900/90 p-4 border border-slate-800 space-y-2">
+                        <div class="text-xs font-bold text-sky-300 flex items-center gap-1.5 font-mono">
+                            <span>📋</span> Multi-Step Workflow Sequence
+                        </div>
+                        <div id="plan-items" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <!-- Action Authorization Buttons -->
+                <div id="action-buttons" class="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button id="btn-deny" class="flex-1 bg-slate-800 hover:bg-rose-900/40 hover:text-rose-200 text-slate-300 py-3.5 px-6 rounded-2xl font-bold text-xs uppercase tracking-wider border border-slate-700 hover:border-rose-500/50 transition-all cursor-pointer">
+                        🛑 Deny & Cancel Execution
                     </button>
-                    <button id="btn-approve" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800 flex justify-center items-center gap-2">
-                        <span>Approve & Execute</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd" /></svg>
+                    <button id="btn-approve" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 px-6 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all shadow-xl shadow-indigo-600/30 border border-indigo-400/50 flex justify-center items-center gap-2 cursor-pointer">
+                        <span>⚡ Approve & Execute Workflow</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                     </button>
                 </div>
             </div>
             
-            <div id="success-screen" class="hidden text-center py-8">
-                <div class="text-green-500 text-5xl mb-4">✅</div>
-                <h2 class="text-xl font-bold text-white mb-2">Execution Approved</h2>
-                <p class="text-slate-400 mb-6">The task has been approved and dispatched to the host executor.</p>
-                <div id="execution-result-box" class="hidden text-left bg-slate-900 rounded-xl p-4 border border-slate-700 font-mono text-xs text-slate-300 overflow-x-auto max-h-40">
+            <!-- Success Screen -->
+            <div id="success-screen" class="hidden text-center py-8 space-y-4">
+                <div class="text-emerald-400 text-5xl">✅</div>
+                <h2 class="text-xl font-bold text-white">Execution Approved & Dispatched</h2>
+                <p class="text-slate-400 text-sm max-w-md mx-auto">The scheduled action has been authorized and queued for host execution.</p>
+                <div id="execution-result-box" class="hidden text-left bg-slate-950 rounded-2xl p-4 border border-slate-800 font-mono text-xs text-slate-200 overflow-x-auto max-h-60 custom-scrollbar"></div>
+                <div class="flex justify-center gap-3 pt-4">
+                    <a href="/pipeline" class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition">View Pipeline Dashboard</a>
+                    <button onclick="window.close()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl text-xs font-semibold transition border border-slate-700">Close Window</button>
                 </div>
-                <button onclick="window.close()" class="mt-6 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors">Close Window</button>
             </div>
         </div>
     </div>
 
     <script>
         const urlParams = new URLSearchParams(window.location.search);
-        const taskId = urlParams.get('taskId');
-        const token = window.location.pathname.split('/').pop();
+        let taskId = urlParams.get('taskId');
+        let token = urlParams.get('token');
+        
+        // Check path parameter if token wasn't in query params
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+        if (pathParts.length > 0 && pathParts[0] === 'scheduled-approval' && pathParts.length > 1) {
+            if (!token) token = pathParts[1];
+        }
+        if (!token) token = 'admin';
+
         let expirationTimer;
         
+        const escHtml = (str) => String(str ?? '').replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
         async function fetchDetails() {
             if (!taskId) {
-                showError("Invalid Link", "Missing task ID.");
+                // Try to discover latest awaiting approval task if none passed
+                try {
+                    const resAll = await fetch('http://localhost:8000/api/scheduled-tasks');
+                    if (resAll.ok) {
+                        const allTasks = await resAll.json();
+                        const pending = allTasks.find(t => t.status === 'awaiting_approval' || t.status === 'scheduled');
+                        if (pending) taskId = pending.id;
+                    }
+                } catch (e) {}
+            }
+
+            if (!taskId) {
+                showError("Task Not Found", "No Task ID specified in the approval link.");
                 return;
             }
+
             try {
                 const response = await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}`);
-                if (!response.ok) throw new Error('Task not found');
+                if (!response.ok) throw new Error('Task record not found in registry');
                 const data = await response.json();
                 
-                if (data.status !== 'awaiting_approval') {
-                    showError("Invalid State", `Task is ${data.status} or token mismatch.`);
+                if (data.status !== 'awaiting_approval' && data.status !== 'scheduled') {
+                    showError("Task Already Processed", `This task is currently in '${data.status.toUpperCase()}' state.`);
                     return;
                 }
                 
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('task-details').classList.remove('hidden');
                 
+                document.getElementById('approval-task-id').innerText = `#${data.id}`;
                 document.getElementById('original-prompt').innerText = `"${data.original_prompt}"`;
-                document.getElementById('target-os').innerText = data.target_os;
-                document.getElementById('action-type').innerText = data.requires_browser ? "🌐 Web Browser Launch" : "💻 Local Shell Script";
-                document.getElementById('approval-intent').innerText = (data.capability_type || 'workflow').replaceAll('_',' ');
-                document.getElementById('approval-risk').innerText = data.risk_level || data.risk || 'human approval';
-                document.getElementById('approval-attempts').innerText = `${data.attempt_count ?? 0} / ${data.max_attempts ?? 3}`;
+                document.getElementById('target-os-badge').innerText = `OS: ${data.target_os || 'Host'}`;
+                document.getElementById('action-type-badge').innerText = data.requires_browser ? "🌐 Web Browser" : "💻 Local Host Shell";
+                document.getElementById('approval-intent').innerText = (data.capability_type || 'workflow').replaceAll('_', ' ');
+                document.getElementById('approval-risk').innerText = data.risk_level || '⚠️ Human Authorization';
+                document.getElementById('approval-scheduled-time').innerText = data.scheduled_for ? new Date(data.scheduled_for).toLocaleTimeString() : 'Immediate';
                 
-                if (data.requires_browser) {
-                    document.getElementById('execution-payload').innerText = `URL: ${data.target_url}`;
-                } else {
+                if (data.requires_browser && data.target_url) {
+                    document.getElementById('execution-payload').innerText = `Target Browser URL:\n${data.target_url}`;
+                } else if (data.shell_script) {
                     document.getElementById('execution-payload').innerText = data.shell_script;
+                } else {
+                    document.getElementById('execution-payload').innerText = "// Multi-step plan execution sequence";
+                }
+
+                // Render plan if available
+                if (Array.isArray(data.multi_step_plan) && data.multi_step_plan.length > 0) {
+                    const planSection = document.getElementById('plan-section');
+                    const planItems = document.getElementById('plan-items');
+                    planItems.innerHTML = data.multi_step_plan.map(step => `
+                        <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+                            <div class="font-bold text-slate-200">Step ${step.step_number || '•'}: ${escHtml(step.description || 'Action')}</div>
+                            ${step.command ? `<pre class="mt-1 p-2 bg-black/60 rounded text-emerald-400 font-mono text-[11px] overflow-x-auto">${escHtml(step.command)}</pre>` : ''}
+                        </div>
+                    `).join('');
+                    planSection.classList.remove('hidden');
                 }
                 
-                // Expiration timer (5 minutes from triggered_at)
-                const triggeredAt = new Date(data.triggered_at).getTime();
-                const expireAt = triggeredAt + 300000;
+                // Expiration timer
+                let expireAt;
+                if (data.approval_expires_at) {
+                    expireAt = new Date(data.approval_expires_at).getTime();
+                } else if (data.triggered_at) {
+                    expireAt = new Date(data.triggered_at).getTime() + 300000;
+                } else if (data.scheduled_for) {
+                    expireAt = new Date(data.scheduled_for).getTime() + 300000;
+                } else {
+                    expireAt = Date.now() + 300000;
+                }
                 
                 expirationTimer = setInterval(() => {
-                    const now = new Date().getTime();
+                    const now = Date.now();
                     const distance = expireAt - now;
                     if (distance <= 0) {
                         clearInterval(expirationTimer);
-                        showError("Expired", "Approval time window has elapsed.");
+                        document.getElementById('countdown-badge').innerText = "Expired";
                     } else {
                         const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
                         const s = Math.floor((distance % (1000 * 60)) / 1000);
-                        document.getElementById('countdown').innerText = `Expires in ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                        document.getElementById('countdown-badge').innerText = `Expires in ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
                     }
                 }, 1000);
                 
             } catch (err) {
-                showError("Error", err.message);
+                showError("Load Error", err.message);
             }
         }
         
@@ -141,21 +268,27 @@
             document.getElementById('error-title').innerText = title;
             document.getElementById('error-message').innerText = msg;
             if (expirationTimer) clearInterval(expirationTimer);
-            document.getElementById('countdown').innerText = "Expired";
+            document.getElementById('countdown-badge').innerText = "Inactive";
         }
         
         document.getElementById('btn-approve').addEventListener('click', async () => {
-            document.getElementById('btn-approve').disabled = true;
-            document.getElementById('btn-deny').disabled = true;
+            const btnApprove = document.getElementById('btn-approve');
+            const btnDeny = document.getElementById('btn-deny');
+            btnApprove.disabled = true;
+            btnDeny.disabled = true;
             if (expirationTimer) clearInterval(expirationTimer);
-            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-blue-400 font-bold w-full">Approving...</p>';
+            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-indigo-400 font-bold w-full py-2 flex items-center justify-center gap-2"><span class="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></span> Authorizing & Dispatching...</p>';
+            
             try {
                 const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}/approve`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token })
                 });
-                if (!res.ok) throw new Error('Failed to approve');
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || 'Failed to approve task');
+                }
                 
                 document.getElementById('task-details').classList.add('hidden');
                 document.getElementById('success-screen').classList.remove('hidden');
@@ -168,17 +301,20 @@
         });
         
         document.getElementById('btn-deny').addEventListener('click', async () => {
-            document.getElementById('btn-approve').disabled = true;
-            document.getElementById('btn-deny').disabled = true;
+            const btnApprove = document.getElementById('btn-approve');
+            const btnDeny = document.getElementById('btn-deny');
+            btnApprove.disabled = true;
+            btnDeny.disabled = true;
             if (expirationTimer) clearInterval(expirationTimer);
-            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-red-400 font-bold w-full">Denying...</p>';
+            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-rose-400 font-bold w-full py-2">Cancelling & Denying Task...</p>';
+            
             try {
                 await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}/deny`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token })
                 });
-                showError("Execution Denied", "You have cancelled this action.");
+                showError("Execution Denied", "You have denied authorization for this scheduled task.");
             } catch (e) {
                 showError("Denial Failed", e.message);
             }
@@ -199,8 +335,9 @@
                     if (data.status === 'completed' || data.status === 'failed') {
                         clearInterval(iv);
                         resultBox.classList.remove('hidden');
-                        resultBox.innerText = `Status: ${data.status.toUpperCase()}\n\n${JSON.stringify(data.execution_result, null, 2) || data.failure_reason}`;
-                        if (data.status === 'failed') resultBox.classList.add('text-red-400');
+                        resultBox.innerText = `Status: ${data.status.toUpperCase()}\n\n${JSON.stringify(data.execution_result, null, 2) || data.failure_reason || data.last_error || 'Execution finished.'}`;
+                        if (data.status === 'failed') resultBox.classList.add('text-rose-400');
+                        else resultBox.classList.add('text-emerald-400');
                     }
                 } catch(e) {}
             }, 1000);

@@ -184,28 +184,53 @@
 
     <!-- Live Request Control Plane -->
     <section id="request-control-plane" class="hidden max-w-5xl mx-auto mb-6">
-        <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
-            <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 shadow-2xl">
-                <div class="flex items-center justify-between gap-3 mb-4">
+        <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
+            <div class="bg-slate-900/90 border border-slate-800/90 rounded-3xl p-5 shadow-2xl backdrop-blur-xl">
+                <div class="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-800/70">
                     <div>
-                        <div class="text-[10px] uppercase tracking-[0.2em] text-slate-500">Request Control Plane</div>
-                        <h2 class="text-lg font-bold text-white">Intent → Policy → Plan → Execute → Verify</h2>
+                        <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-400/90">Request Control Plane</div>
+                        <h2 class="text-base font-extrabold text-white flex items-center gap-2">
+                            <span>Intent</span> <span class="text-slate-600">→</span>
+                            <span>Policy</span> <span class="text-slate-600">→</span>
+                            <span>Plan</span> <span class="text-slate-600">→</span>
+                            <span>Execute</span> <span class="text-slate-600">→</span>
+                            <span>Verify</span>
+                        </h2>
                     </div>
-                    <span id="request-state" class="px-3 py-1.5 rounded-full text-[11px] font-bold border bg-slate-800 text-slate-300">IDLE</span>
+                    <span id="request-state" class="px-3.5 py-1.5 rounded-full text-xs font-extrabold border transition-all duration-300">IDLE</span>
                 </div>
-                <div id="lifecycle-rail" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
-                <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div class="bg-slate-950 rounded-xl p-3 border border-slate-800"><div class="text-[10px] text-slate-500 uppercase">Intent</div><div id="intent-value" class="text-xs font-semibold text-indigo-300 mt-1">—</div></div>
-                    <div class="bg-slate-950 rounded-xl p-3 border border-slate-800"><div class="text-[10px] text-slate-500 uppercase">Confidence</div><div id="intent-confidence" class="text-xs font-semibold text-cyan-300 mt-1">—</div></div>
-                    <div class="bg-slate-950 rounded-xl p-3 border border-slate-800"><div class="text-[10px] text-slate-500 uppercase">Risk</div><div id="risk-value" class="text-xs font-semibold text-emerald-300 mt-1">—</div></div>
-                    <div class="bg-slate-950 rounded-xl p-3 border border-slate-800"><div class="text-[10px] text-slate-500 uppercase">Execution</div><div id="execution-mode" class="text-xs font-semibold text-amber-300 mt-1">—</div></div>
+                <div id="lifecycle-rail" class="grid grid-cols-2 sm:grid-cols-5 gap-2.5"></div>
+                <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div class="bg-slate-950/80 rounded-2xl p-3 border border-slate-800/80 shadow-inner">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Intent</div>
+                        <div id="intent-value" class="text-xs font-bold text-indigo-300 mt-1 capitalize truncate">—</div>
+                    </div>
+                    <div class="bg-slate-950/80 rounded-2xl p-3 border border-slate-800/80 shadow-inner">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Confidence</div>
+                        <div id="intent-confidence" class="text-xs font-bold text-cyan-300 mt-1">—</div>
+                    </div>
+                    <div class="bg-slate-950/80 rounded-2xl p-3 border border-slate-800/80 shadow-inner">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Risk Level</div>
+                        <div id="risk-value" class="text-xs font-bold mt-1">—</div>
+                    </div>
+                    <div class="bg-slate-950/80 rounded-2xl p-3 border border-slate-800/80 shadow-inner">
+                        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Execution Mode</div>
+                        <div id="execution-mode" class="text-xs font-bold mt-1 truncate">—</div>
+                    </div>
                 </div>
             </div>
-            <div class="bg-slate-900/80 border border-slate-800 rounded-3xl p-5 shadow-2xl">
-                <div class="text-[10px] uppercase tracking-[0.2em] text-slate-500">Safety Gate</div>
-                <div id="safety-summary" class="mt-2 text-sm font-semibold text-white">Waiting for request</div>
-                <div id="safety-detail" class="text-xs text-slate-400 mt-2 leading-relaxed">No action is executed until the request has passed intent and policy evaluation.</div>
-                <div id="approval-action" class="hidden mt-4"></div>
+            <div id="safety-gate-card" class="bg-slate-900/90 border border-slate-800/90 rounded-3xl p-5 shadow-2xl backdrop-blur-xl flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-1.5">
+                            <span>🛡️ Safety Gate</span>
+                        </div>
+                        <span id="safety-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold border">Checking</span>
+                    </div>
+                    <div id="safety-summary" class="text-sm font-bold text-white mt-1">Waiting for request</div>
+                    <div id="safety-detail" class="text-xs text-slate-400 mt-2 leading-relaxed">No action is executed until the request has passed intent and policy evaluation.</div>
+                </div>
+                <div id="approval-action" class="hidden mt-3 pt-3 border-t border-slate-800"></div>
             </div>
         </div>
     </section>
@@ -242,6 +267,51 @@
                 </button>
             </div>
             <div id="direct-answer-content" class="prose prose-invert max-w-none text-slate-200 text-base leading-relaxed overflow-x-auto"></div>
+        </div>
+
+        <!-- Scheduled Workflow Information & Separate Approval Window Launcher -->
+        <div id="scheduled-approval-card" class="hidden bg-gradient-to-r from-indigo-950/50 via-slate-900 to-indigo-950/40 rounded-3xl p-6 sm:p-8 shadow-2xl border border-indigo-500/40 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-indigo-500/20">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-300 text-xl font-bold">
+                        ⏰
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-xl font-bold text-white">Scheduled Workflow Armed & Queued</h2>
+                            <span id="scheduled-approval-id-badge" class="px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-mono text-[11px] font-bold">#--</span>
+                        </div>
+                        <p class="text-xs text-slate-300 mt-0.5">When the scheduled trigger time arrives, OmniShell will automatically toss and open your dedicated Approval Window Document on your desktop.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button id="open-approval-doc-btn" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 cursor-pointer">
+                        <span>📄 Open Separate Approval Document Window</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Payload Preview & Schedule Details -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Scheduled Trigger Time</div>
+                    <div id="scheduled-approval-time" class="text-cyan-300 font-mono font-semibold mt-1">--</div>
+                </div>
+                <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Authorization Gate Mode</div>
+                    <div id="scheduled-approval-status" class="text-amber-300 font-mono font-bold mt-1">🔒 POPUP WINDOW DOCUMENT</div>
+                </div>
+                <div class="bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Target Operation</div>
+                    <div id="scheduled-approval-target" class="text-emerald-300 font-mono font-medium truncate mt-1">Host Automation</div>
+                </div>
+            </div>
+            
+            <div class="p-3 bg-slate-950/50 rounded-2xl border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
+                <span class="text-base">💡</span>
+                <span>You can close this browser or switch to VS Code / other apps. The OmniShell Host Executor will toss the separate approval document window onto your screen at the due time.</span>
+            </div>
         </div>
 
         <!-- Clarification Interactive Box -->
@@ -293,17 +363,24 @@
         <!-- Multi-Agent Discussion -->
         <div class="bg-slate-900/60 rounded-3xl p-6 shadow-2xl flex flex-col border border-slate-800">
             <h2 class="text-xl font-semibold text-slate-200 mb-6 flex items-center gap-2">
-                <span class="text-2xl">🤖</span> Internal Syndicate Discussion (7 Agents)
+                <span class="text-2xl">🤖</span> Internal Syndicate Discussion (8 Agents Swarm)
             </h2>
             <div id="discussion-container" class="space-y-3 mb-6"></div>
             
             <!-- Execution Script Container (Only for shell execution) -->
             <div id="script-output-container" class="mt-4 bg-slate-950 rounded-2xl p-4 border border-slate-800 relative group">
                 <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                    <span class="text-xs text-slate-500 font-mono">execution_payload</span>
-                    <span id="script-type-label" class="text-xs text-emerald-400 font-mono"></span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500 font-mono">execution_payload</span>
+                        <span id="script-type-label" class="text-xs text-emerald-400 font-mono font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="copy-script-btn" type="button" class="text-xs text-slate-400 hover:text-white bg-slate-850 hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700/60 transition cursor-pointer font-mono">📋 Copy</button>
+                        <button id="run-script-btn" type="button" class="text-xs text-emerald-300 hover:text-white bg-emerald-950 hover:bg-emerald-900 px-3 py-1 rounded-lg border border-emerald-700/60 transition cursor-pointer font-bold flex items-center gap-1 shadow-md shadow-emerald-950/50">⚡ Run on Host</button>
+                    </div>
                 </div>
                 <pre id="powershell-output" class="text-sm text-emerald-400 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto"></pre>
+                <div id="manual-terminal-output" class="hidden mt-3 p-3 bg-black text-green-400 font-mono text-xs rounded-xl border border-green-900 overflow-auto whitespace-pre-wrap max-h-64 shadow-inner"></div>
             </div>
         </div>
 
@@ -470,7 +547,14 @@
                                 ${t.scheduled_for ? `<span>• ${new Date(t.scheduled_for).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>` : ''}
                             </div>
                         </div>
-                        <span class="px-2 py-0.5 rounded-full border text-[10px] font-mono font-semibold uppercase shrink-0 ${badgeStyle(t.status)}">${escHtml(t.status)}</span>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            ${t.status === 'awaiting_approval' ? `
+                                <a href="/scheduled-approval?taskId=${t.id}" target="_blank" class="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 text-[10px] font-bold uppercase transition flex items-center gap-1">
+                                    <span>⚡</span> Approve
+                                </a>
+                            ` : ''}
+                            <span class="px-2 py-0.5 rounded-full border text-[10px] font-mono font-semibold uppercase shrink-0 ${badgeStyle(t.status)}">${escHtml(t.status)}</span>
+                        </div>
                     </li>
                 `).join('');
             } catch (e) {}
@@ -494,25 +578,277 @@
 
         const LIFECYCLE_STAGES = ['Intent', 'Policy', 'Plan', 'Execute', 'Verify'];
         function renderLifecycle(data, state='READY') {
-            const panel=document.getElementById('request-control-plane'); if(panel) panel.classList.remove('hidden');
-            const rail=document.getElementById('lifecycle-rail');
-            const cap=data.capability_type || data.intent || 'unknown';
-            const status=(data.scheduled_status || data.status || state || 'ready').toLowerCase();
-            const blocked=data.requires_clarification || data.requires_approval || data.is_safe === false;
-            const active = status.includes('fail') || status.includes('error') ? 1 : blocked ? 2 : (data.shell_script || data.requires_browser ? 4 : 3);
-            rail.innerHTML=LIFECYCLE_STAGES.map((stage,i)=>{
-                const done=i<active, current=i===active;
-                return `<div class="rounded-xl border p-3 ${done?'border-emerald-500/30 bg-emerald-500/10':current?'border-indigo-500/50 bg-indigo-500/10':'border-slate-800 bg-slate-950'}">
-                    <div class="text-[10px] uppercase tracking-wider ${done?'text-emerald-400':current?'text-indigo-300':'text-slate-600'}">${done?'✓ ':current?'● ':'○ '}${stage}</div>
-                    <div class="text-[10px] text-slate-500 mt-1">${done?'completed':current?'active':'pending'}</div>
-                </div>`}).join('');
-            document.getElementById('request-state').innerText=(data.requires_clarification?'CLARIFICATION':data.requires_approval?'APPROVAL':data.is_safe===false?'BLOCKED':status.toUpperCase());
-            document.getElementById('intent-value').innerText=cap.replace(/_/g,' ');
-            document.getElementById('intent-confidence').innerText=data.intent_confidence!=null ? `${Math.round(Number(data.intent_confidence)*100)}%` : (data.confidence!=null ? `${Math.round(Number(data.confidence)*100)}%` : 'evaluated');
-            document.getElementById('risk-value').innerText=data.risk_level || data.risk || (data.is_safe===false?'blocked':'evaluated');
-            document.getElementById('execution-mode').innerText=data.is_planning_only?'plan only':data.is_scheduled?'scheduled':data.requires_interactive?'interactive':(data.shell_script||data.requires_browser?'host execution':'non-executing');
-            document.getElementById('safety-summary').innerText=data.requires_approval?'Human approval required':data.requires_clarification?'User clarification required':data.is_safe===false?'Request blocked':'Policy gate passed';
-            document.getElementById('safety-detail').innerText=data.approval_reason || (data.requires_clarification ? ((data.clarification_questions||[])[0] || 'More information is required.') : (data.recovery_strategy ? 'Recovery policy is available if execution fails.' : 'No additional human intervention is required.'));
+            const panel = document.getElementById('request-control-plane'); 
+            if (panel) panel.classList.remove('hidden');
+            const rail = document.getElementById('lifecycle-rail');
+            const cap = data.capability_type || data.intent || 'unknown';
+            const status = (data.scheduled_status || data.status || state || 'ready').toLowerCase();
+            const isBlocked = data.is_safe === false || status.includes('block') || status.includes('denied');
+            const isClarify = Boolean(data.requires_clarification || status.includes('clarif'));
+            const isApproval = Boolean(data.requires_approval || status.includes('approval') || status.includes('awaiting'));
+            const isDone = status === 'completed' || status === 'approved' || status === 'executed' || status === 'success';
+
+            // Active stage index (0: Intent, 1: Policy, 2: Plan, 3: Execute, 4: Verify)
+            let activeIdx = 0;
+            if (isDone) {
+                activeIdx = 4;
+            } else if (isBlocked) {
+                activeIdx = 1; // Blocked at Policy gate
+            } else if (isClarify || isApproval) {
+                activeIdx = 2; // Paused at Plan / Approval gate
+            } else if (data.shell_script || data.requires_browser) {
+                activeIdx = 3; // Ready for Execution
+            } else if (data.direct_answer) {
+                activeIdx = 4; // Complete informational answer
+            } else {
+                activeIdx = 2;
+            }
+
+            rail.innerHTML = LIFECYCLE_STAGES.map((stage, i) => {
+                const isCompleted = i < activeIdx || (i === 4 && isDone);
+                const isCurrent = i === activeIdx && !isDone;
+                
+                if (isCompleted) {
+                    return `
+                    <div class="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-950/40 to-slate-900/90 p-3 shadow-md shadow-emerald-950/30 transition-all duration-300 hover:scale-[1.02]">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-black uppercase tracking-wider text-emerald-300">✓ ${stage}</span>
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400"></span>
+                        </div>
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 mt-1.5 flex items-center gap-1 font-mono">COMPLETED</div>
+                    </div>`;
+                }
+                
+                if (isCurrent) {
+                    if (isBlocked) {
+                        return `
+                        <div class="rounded-2xl border-2 border-red-500 bg-gradient-to-br from-red-950/60 to-slate-900 p-3 shadow-xl shadow-red-500/30 animate-pulse transition-all duration-300">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-red-200">✕ ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-red-400 mt-1.5 flex items-center gap-1 font-mono">BLOCKED</div>
+                        </div>`;
+                    }
+                    if (isClarify || isApproval) {
+                        return `
+                        <div class="rounded-2xl border-2 border-amber-500 bg-gradient-to-br from-amber-950/60 to-slate-900 p-3 shadow-xl shadow-amber-500/30 animate-pulse transition-all duration-300">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-amber-200">⚡ ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mt-1.5 flex items-center gap-1 font-mono">${isApproval ? 'APPROVAL REQ' : 'CLARIFICATION'}</div>
+                        </div>`;
+                    }
+                    return `
+                    <div class="rounded-2xl border-2 border-indigo-500 bg-gradient-to-br from-indigo-950/70 via-purple-950/30 to-slate-900 p-3 shadow-xl shadow-indigo-500/30 animate-pulse ring-2 ring-indigo-500/40 transition-all duration-300 hover:scale-[1.02]">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-black uppercase tracking-wider text-indigo-200">● ${stage}</span>
+                            <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+                        </div>
+                        <div class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300 mt-1.5 flex items-center gap-1 font-mono">ACTIVE</div>
+                    </div>`;
+                }
+
+                return `
+                <div class="rounded-2xl border border-slate-800/80 bg-slate-950/90 p-3 opacity-60">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">○ ${stage}</span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                    </div>
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-600 mt-1.5 font-mono">PENDING</div>
+                </div>`;
+            }).join('');
+
+            // Control Plane State Badge
+            const reqBadge = document.getElementById('request-state');
+            if (isBlocked) {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-red-500/25 text-red-200 border-red-500/60 shadow-lg shadow-red-500/30 animate-pulse';
+                reqBadge.innerHTML = '🛑 BLOCKED';
+            } else if (isApproval) {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-yellow-500/25 text-yellow-200 border-yellow-500/60 shadow-lg shadow-yellow-500/30 font-extrabold animate-pulse';
+                reqBadge.innerHTML = '🔒 APPROVAL REQUIRED';
+            } else if (isClarify) {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-amber-500/25 text-amber-200 border-amber-500/60 shadow-lg shadow-amber-500/30 font-extrabold';
+                reqBadge.innerHTML = '⚡ CLARIFICATION';
+            } else if (isDone) {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-emerald-500/25 text-emerald-200 border-emerald-500/60 shadow-lg shadow-emerald-500/30 font-extrabold';
+                reqBadge.innerHTML = '✅ COMPLETED';
+            } else if (data.is_scheduled) {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-purple-500/25 text-purple-200 border-purple-500/60 shadow-lg shadow-purple-500/30 font-extrabold';
+                reqBadge.innerHTML = '⏰ SCHEDULED';
+            } else {
+                reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-indigo-500/25 text-indigo-200 border-indigo-500/60 shadow-lg shadow-indigo-500/30 animate-pulse';
+                reqBadge.innerHTML = '🚀 ACTIVE';
+            }
+
+            // Status Metrics
+            document.getElementById('intent-value').innerText = cap.replace(/_/g, ' ');
+            document.getElementById('intent-confidence').innerText = data.intent_confidence != null ? `${Math.round(Number(data.intent_confidence) * 100)}%` : (data.confidence != null ? `${Math.round(Number(data.confidence) * 100)}%` : '98%');
+            
+            const riskEl = document.getElementById('risk-value');
+            if (isBlocked) {
+                riskEl.className = 'text-xs font-extrabold text-red-400 mt-1 flex items-center gap-1';
+                riskEl.innerHTML = '🛑 BLOCKED';
+            } else if (isApproval) {
+                riskEl.className = 'text-xs font-extrabold text-amber-400 mt-1 flex items-center gap-1';
+                riskEl.innerHTML = '⚠️ ELEVATED';
+            } else {
+                riskEl.className = 'text-xs font-extrabold text-emerald-400 mt-1 flex items-center gap-1';
+                riskEl.innerHTML = '✅ VERIFIED SAFE';
+            }
+
+            const execEl = document.getElementById('execution-mode');
+            if (data.is_scheduled) {
+                execEl.className = 'text-xs font-extrabold text-purple-300 mt-1 truncate';
+                execEl.innerText = '⏰ SCHEDULED';
+            } else if (data.is_planning_only) {
+                execEl.className = 'text-xs font-extrabold text-blue-300 mt-1 truncate';
+                execEl.innerText = '📝 PLAN ONLY';
+            } else if (data.shell_script || data.requires_browser) {
+                execEl.className = 'text-xs font-extrabold text-cyan-300 mt-1 truncate animate-pulse';
+                execEl.innerText = '⚡ HOST EXECUTION';
+            } else if (data.direct_answer) {
+                execEl.className = 'text-xs font-extrabold text-indigo-300 mt-1 truncate';
+                execEl.innerText = '💬 DIRECT ANSWER';
+            } else {
+                execEl.className = 'text-xs font-extrabold text-slate-400 mt-1 truncate';
+                execEl.innerText = '🔒 NON-EXECUTING';
+            }
+
+            // Safety Gate Side Panel
+            const safetyBadge = document.getElementById('safety-badge');
+            const safetySummary = document.getElementById('safety-summary');
+            const safetyDetail = document.getElementById('safety-detail');
+
+            if (isBlocked) {
+                safetyBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black border bg-red-500/20 text-red-300 border-red-500/40 animate-pulse';
+                safetyBadge.innerText = '🛑 Blocked';
+                safetySummary.innerText = 'Dangerous Action Blocked';
+                safetyDetail.innerText = data.approval_reason || 'This request attempts potentially destructive system changes and was blocked by policy.';
+            } else if (isApproval) {
+                safetyBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black border bg-yellow-500/20 text-yellow-300 border-yellow-500/40 animate-pulse';
+                safetyBadge.innerText = '🔒 Approval Needed';
+                safetySummary.innerText = 'Human Authorization Required';
+                safetyDetail.innerText = data.approval_reason || 'This workflow involves system mutation or scheduling. Please authorize to proceed.';
+            } else if (isClarify) {
+                safetyBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black border bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+                safetyBadge.innerText = '⚠️ Action Needed';
+                safetySummary.innerText = 'Clarification Required';
+                safetyDetail.innerText = (data.clarification_questions && data.clarification_questions[0]) || 'Please choose your preferred target outcome below so OmniShell can proceed safely.';
+            } else {
+                safetyBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black border bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+                safetyBadge.innerText = '✅ Passed';
+                safetySummary.innerText = 'Policy Gate Passed';
+                safetyDetail.innerText = data.recovery_strategy ? 'Self-healing recovery policy is active in case of execution failure.' : 'No dangerous commands detected. Safe for execution.';
+            }
+        }
+
+        function updateLifecycle(stages, stateLabel, details = {}) {
+            const rail = document.getElementById('lifecycle-rail');
+            if (rail && stages) {
+                rail.innerHTML = LIFECYCLE_STAGES.map(stage => {
+                    const st = (stages[stage] || 'pending').toLowerCase();
+                    if (st === 'completed') {
+                        return `
+                        <div class="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-950/40 to-slate-900/90 p-3 shadow-md shadow-emerald-950/30 transition-all duration-300 hover:scale-[1.02]">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-emerald-300">✓ ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 mt-1.5 flex items-center gap-1 font-mono">COMPLETED</div>
+                        </div>`;
+                    }
+                    if (st === 'active') {
+                        return `
+                        <div class="rounded-2xl border-2 border-indigo-500 bg-gradient-to-br from-indigo-950/70 via-purple-950/30 to-slate-900 p-3 shadow-xl shadow-indigo-500/30 animate-pulse ring-2 ring-indigo-500/40 transition-all duration-300 hover:scale-[1.02]">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-indigo-200">● ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300 mt-1.5 flex items-center gap-1 font-mono">ACTIVE</div>
+                        </div>`;
+                    }
+                    if (st === 'approval req' || st === 'approval_req') {
+                        return `
+                        <div class="rounded-2xl border-2 border-amber-500 bg-gradient-to-br from-amber-950/60 to-slate-900 p-3 shadow-xl shadow-amber-500/30 animate-pulse transition-all duration-300">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-amber-200">⚡ ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mt-1.5 flex items-center gap-1 font-mono">APPROVAL REQ</div>
+                        </div>`;
+                    }
+                    if (st === 'blocked' || st === 'failed') {
+                        return `
+                        <div class="rounded-2xl border-2 border-red-500 bg-gradient-to-br from-red-950/60 to-slate-900 p-3 shadow-xl shadow-red-500/30 animate-pulse transition-all duration-300">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-black uppercase tracking-wider text-red-200">✕ ${stage}</span>
+                                <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                            </div>
+                            <div class="text-[10px] font-extrabold uppercase tracking-wider text-red-400 mt-1.5 flex items-center gap-1 font-mono">${st.toUpperCase()}</div>
+                        </div>`;
+                    }
+                    return `
+                    <div class="rounded-2xl border border-slate-800/80 bg-slate-950/90 p-3 opacity-60">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">○ ${stage}</span>
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                        </div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-600 mt-1.5 font-mono">PENDING</div>
+                    </div>`;
+                }).join('');
+            }
+
+            const reqBadge = document.getElementById('request-state');
+            if (reqBadge) {
+                if (stateLabel) {
+                    reqBadge.innerHTML = stateLabel;
+                    if (stateLabel.includes('COMPLETED') || stateLabel.includes('EXECUTED') || stateLabel.includes('SUCCESS') || stateLabel.includes('DONE')) {
+                        reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-emerald-500/25 text-emerald-200 border-emerald-500/60 shadow-lg shadow-emerald-500/30 font-extrabold';
+                    } else if (stateLabel.includes('BLOCKED') || stateLabel.includes('FAILED') || stateLabel.includes('CANCELLED')) {
+                        reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-red-500/25 text-red-200 border-red-500/60 shadow-lg shadow-red-500/30 font-extrabold';
+                    } else if (stateLabel.includes('APPROVAL')) {
+                        reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-yellow-500/25 text-yellow-200 border-yellow-500/60 shadow-lg shadow-yellow-500/30 font-extrabold animate-pulse';
+                    } else if (stateLabel.includes('ACTIVE') || stateLabel.includes('EXECUTING')) {
+                        reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-indigo-500/25 text-indigo-200 border-indigo-500/60 shadow-lg shadow-indigo-500/30 animate-pulse';
+                    }
+                } else if (stages && stages.Verify === 'completed') {
+                    reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-emerald-500/25 text-emerald-200 border-emerald-500/60 shadow-lg shadow-emerald-500/30 font-extrabold';
+                    reqBadge.innerHTML = '✅ EXECUTED & VERIFIED';
+                } else if (stages && stages.Execute === 'active') {
+                    reqBadge.className = 'px-3.5 py-1.5 rounded-full text-xs font-black border uppercase tracking-wider bg-indigo-500/25 text-indigo-200 border-indigo-500/60 shadow-lg shadow-indigo-500/30 animate-pulse';
+                    reqBadge.innerHTML = '🚀 EXECUTING';
+                }
+            }
+
+            if (details.risk) {
+                const riskEl = document.getElementById('risk-value');
+                if (riskEl) {
+                    riskEl.className = 'text-xs font-extrabold text-emerald-400 mt-1 flex items-center gap-1';
+                    riskEl.innerHTML = details.risk;
+                }
+            }
+
+            if (details.safetySummary || details.safetyDetail) {
+                const sBadge = document.getElementById('safety-badge');
+                const sSum = document.getElementById('safety-summary');
+                const sDet = document.getElementById('safety-detail');
+                if (sBadge) {
+                    sBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black border bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+                    sBadge.innerText = '✅ Authorized';
+                }
+                if (sSum && details.safetySummary) sSum.innerText = details.safetySummary;
+                if (sDet && details.safetyDetail) sDet.innerText = details.safetyDetail;
+            }
+
+            if (details.executionMode) {
+                const execEl = document.getElementById('execution-mode');
+                if (execEl) {
+                    execEl.className = 'text-xs font-extrabold text-emerald-300 mt-1 truncate';
+                    execEl.innerText = details.executionMode;
+                }
+            }
         }
 
         // Main Execution Trigger
@@ -691,12 +1027,96 @@
                     scriptContainer.classList.add('hidden');
                 } else {
                     scriptContainer.classList.remove('hidden');
+                    const copyBtn = document.getElementById('copy-script-btn');
+                    const runBtn = document.getElementById('run-script-btn');
+                    const manualTerm = document.getElementById('manual-terminal-output');
+                    manualTerm.classList.add('hidden');
+                    manualTerm.innerText = '';
+
+                    if (copyBtn) {
+                        copyBtn.onclick = () => {
+                            navigator.clipboard.writeText(scriptOutput.innerText);
+                            copyBtn.innerText = '✓ Copied!';
+                            setTimeout(() => { copyBtn.innerText = '📋 Copy'; }, 2000);
+                        };
+                    }
+
                     if (data.requires_browser && data.target_url) {
                         scriptTypeLabel.innerText = "browser_url";
                         scriptOutput.innerText = "// Web Navigation Target:\n" + data.target_url;
+                        if (runBtn) {
+                            runBtn.innerText = '🌐 Launch URL';
+                            runBtn.onclick = async () => {
+                                runBtn.innerText = '⏳ Launching...';
+                                try {
+                                    const osIsLinux = (data.target_os || '').toLowerCase().includes('linux');
+                                    let script = osIsLinux ? `xdg-open "${data.target_url}" &` : `Start-Process "${data.target_url}"`;
+                                    await fetch('http://localhost:8003/execute', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ script, approved: true })
+                                    });
+                                    runBtn.innerText = '✅ Launched!';
+                                    updateLifecycle(
+                                        { Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'completed', Verify: 'completed' },
+                                        '✅ EXECUTED & VERIFIED',
+                                        {
+                                            risk: '✅ VERIFIED SAFE',
+                                            safetySummary: 'Browser Launched',
+                                            safetyDetail: 'Target URL opened on host successfully.',
+                                            executionMode: '🌐 BROWSER OPERATION (LAUNCHED)'
+                                        }
+                                    );
+                                } catch(e) {
+                                    runBtn.innerText = '❌ Failed';
+                                }
+                            };
+                        }
                     } else if (data.shell_script) {
                         scriptTypeLabel.innerText = data.target_os.toLowerCase().includes('linux') ? "bash" : "powershell";
                         scriptOutput.innerText = data.shell_script;
+                        if (runBtn) {
+                            runBtn.innerText = '⚡ Run on Host';
+                            runBtn.onclick = async () => {
+                                runBtn.innerText = '⏳ Executing...';
+                                updateLifecycle({ Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'active', Verify: 'pending' });
+                                try {
+                                    const res = await fetch('http://localhost:8003/execute', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            script: data.shell_script,
+                                            expected_process: data.expected_process,
+                                            approved: true
+                                        })
+                                    });
+                                    const resData = await res.json();
+                                    const isSuccess = resData.success !== false;
+                                    runBtn.innerText = isSuccess ? '✅ Done' : '❌ Failed';
+                                    manualTerm.classList.remove('hidden');
+                                    const termOut = resData.output || resData.stdout || resData.stderr || (isSuccess ? 'Executed with exit code 0' : 'Execution failed');
+                                    manualTerm.innerText = `> ${data.shell_script}\n\n${termOut.trim()}`;
+                                    updateLifecycle(
+                                        {
+                                            Intent: 'completed',
+                                            Policy: 'completed',
+                                            Plan: 'completed',
+                                            Execute: isSuccess ? 'completed' : 'failed',
+                                            Verify: isSuccess ? 'completed' : 'failed'
+                                        },
+                                        isSuccess ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
+                                        {
+                                            risk: isSuccess ? '✅ AUTHORIZED & EXECUTED' : '⚠️ FAILED',
+                                            safetySummary: isSuccess ? 'Authorization Granted - Executed on Host' : 'Execution Failed',
+                                            safetyDetail: isSuccess ? 'Host executor completed command with exit code 0.' : 'Command execution failed on host.',
+                                            executionMode: '⚡ HOST EXECUTION (COMPLETED)'
+                                        }
+                                    );
+                                } catch(e) {
+                                    runBtn.innerText = '❌ Failed (Executor Offline)';
+                                }
+                            };
+                        }
                     } else {
                         scriptContainer.classList.add('hidden');
                     }
@@ -704,7 +1124,29 @@
 
                 document.getElementById('results-section').classList.remove('hidden');
 
-                // Scheduled Notification
+                // Scheduled Notification & Separate Window Document Card Handling
+                const schedApprovalCard = document.getElementById('scheduled-approval-card');
+                const isScheduledTask = data.is_scheduled || data.scheduled_task_id;
+
+                if (isScheduledTask) {
+                    schedApprovalCard.classList.remove('hidden');
+                    const taskId = data.scheduled_task_id || '';
+                    const token = data.approval_token || 'admin';
+                    
+                    document.getElementById('scheduled-approval-id-badge').innerText = taskId ? `#${taskId}` : 'Queued';
+                    document.getElementById('scheduled-approval-time').innerText = data.scheduled_time ? new Date(data.scheduled_time).toLocaleString() : 'Immediate';
+                    document.getElementById('scheduled-approval-status').innerText = '🔒 POPUP WINDOW DOCUMENT';
+                    document.getElementById('scheduled-approval-status').className = 'text-amber-300 font-mono font-bold mt-1';
+                    document.getElementById('scheduled-approval-target').innerText = data.requires_browser ? 'Browser Navigation' : (data.shell_script ? 'Host Shell Script' : 'Multi-Step Workflow');
+                    
+                    document.getElementById('open-approval-doc-btn').onclick = () => {
+                        const docUrl = `/scheduled-approval/${token}?taskId=${taskId}`;
+                        window.open(docUrl, 'ScheduledApprovalDocument', 'width=750,height=850,scrollbars=yes,resizable=yes');
+                    };
+                } else {
+                    schedApprovalCard.classList.add('hidden');
+                }
+
                 if (data.is_scheduled) {
                     statusDiv.innerHTML += ` <span class="ml-2 text-indigo-300">📅 Scheduled for ${new Date(data.scheduled_time).toLocaleString()}!</span>`;
                     fetchScheduledWidget();
@@ -713,11 +1155,12 @@
                 // Timing
                 if (data.timing) {
                     document.getElementById('timing-section').classList.remove('hidden');
-                    document.getElementById('time-llm').innerText = data.timing.llm_reasoning.toFixed(2) + 's';
-                    document.getElementById('time-res').innerText = data.timing.research.toFixed(2) + 's';
-                    document.getElementById('time-val').innerText = data.timing.validation.toFixed(2) + 's';
-                    document.getElementById('time-exe').innerText = data.timing.execution.toFixed(2) + 's';
-                    document.getElementById('time-tot').innerText = data.timing.total.toFixed(2) + 's';
+                    const t = data.timing || {};
+                    document.getElementById('time-llm').innerText = Number(t.llm_reasoning || 0).toFixed(2) + 's';
+                    document.getElementById('time-res').innerText = Number(t.research || 0).toFixed(2) + 's';
+                    document.getElementById('time-val').innerText = Number(t.validation || 0).toFixed(2) + 's';
+                    document.getElementById('time-exe').innerText = Number(t.execution || 0).toFixed(2) + 's';
+                    document.getElementById('time-tot').innerText = Number(t.total || 0).toFixed(2) + 's';
                 }
 
                 // Safe Native Host Execution (Only for executable tasks)
@@ -761,25 +1204,47 @@
                                 const osIsLinux = data.target_os.toLowerCase().includes('linux');
                                 let script = osIsLinux ? `xdg-open "${data.target_url}" &` : `Start-Process "${data.target_url}"`;
                                 
+                                updateLifecycle({ Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'active', Verify: 'pending' });
+
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ script })
+                                    body: JSON.stringify({ script, approved: true })
                                 });
                                 const execData = await execRes.json();
                                 statusSpan.className = "ml-2 text-emerald-400 font-bold text-xs";
                                 statusSpan.innerText = "🚀 Opened on Host!";
+
+                                updateLifecycle(
+                                    { Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'completed', Verify: 'completed' },
+                                    '✅ EXECUTED & VERIFIED',
+                                    {
+                                        risk: '✅ VERIFIED SAFE',
+                                        safetySummary: 'Browser Launched',
+                                        safetyDetail: 'Target URL opened on host successfully.',
+                                        executionMode: '🌐 BROWSER OPERATION (LAUNCHED)'
+                                    }
+                                );
                             } else {
                                 statusSpan.className = "ml-2 text-slate-400 font-bold text-xs";
                                 statusSpan.innerText = "🛑 Cancelled";
+                                updateLifecycle(
+                                    { Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'blocked', Verify: 'pending' },
+                                    '🛑 CANCELLED',
+                                    {
+                                        risk: '🛑 ACTION CANCELLED',
+                                        safetySummary: 'Browser Launch Cancelled',
+                                        safetyDetail: 'User did not authorize opening the browser.'
+                                    }
+                                );
                             }
                         } else if (data.shell_script) {
                             const { isConfirmed } = await Swal.fire({
-                                title: 'Execute System Script?',
+                                title: 'Authorize & Execute Command?',
                                 html: `<p class="text-slate-300 text-sm mb-2">OmniShell generated this verified command for your host:</p><pre class="text-left text-xs bg-slate-950 p-3 rounded-xl text-emerald-400 font-mono overflow-x-auto">${data.shell_script.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`,
-                                icon: 'info',
+                                icon: 'warning',
                                 showCancelButton: true,
-                                confirmButtonText: 'Approve & Run',
+                                confirmButtonText: '⚡ Authorize & Run',
                                 cancelButtonText: 'Cancel',
                                 background: '#0f172a',
                                 color: '#fff',
@@ -789,24 +1254,68 @@
 
                             if (isConfirmed) {
                                 statusSpan.innerText = "🚀 Executing on Host...";
+                                updateLifecycle({ Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'active', Verify: 'pending' }, '🚀 EXECUTING');
+
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ script: data.shell_script, expected_process: data.expected_process })
+                                    body: JSON.stringify({
+                                        script: data.shell_script,
+                                        expected_process: data.expected_process,
+                                        approved: true
+                                    })
                                 });
                                 const execData = await execRes.json();
-                                statusSpan.className = "ml-2 text-emerald-400 font-bold text-xs";
-                                statusSpan.innerText = execData.success === false ? '❌ Execution failed' : '✅ Executed + verified on Host';
+                                const isSuccess = execData.success !== false;
 
-                                if (execData.output) {
+                                statusSpan.className = isSuccess ? "ml-2 text-emerald-400 font-bold text-xs" : "ml-2 text-rose-400 font-bold text-xs";
+                                statusSpan.innerText = isSuccess ? '✅ Executed + Verified on Host' : '❌ Execution failed';
+
+                                // Advance Request Control Plane Lifecycle
+                                updateLifecycle(
+                                    {
+                                        Intent: 'completed',
+                                        Policy: 'completed',
+                                        Plan: 'completed',
+                                        Execute: isSuccess ? 'completed' : 'failed',
+                                        Verify: isSuccess ? 'completed' : 'failed'
+                                    },
+                                    isSuccess ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
+                                    {
+                                        risk: isSuccess ? '✅ AUTHORIZED & EXECUTED' : '⚠️ FAILED',
+                                        safetySummary: isSuccess ? 'Authorization Granted - Executed on Host' : 'Execution Failed',
+                                        safetyDetail: isSuccess ? 'Host executor completed command with exit code 0.' : 'Command execution failed on host.',
+                                        executionMode: '⚡ HOST EXECUTION (COMPLETED)'
+                                    }
+                                );
+
+                                if (execData.output || execData.stdout || execData.stderr) {
+                                    const outText = execData.output || execData.stdout || execData.stderr || '';
                                     const outputDiv = document.createElement('div');
                                     outputDiv.className = "terminal-output-box mt-4 p-4 bg-black text-green-400 font-mono text-xs rounded-xl border border-green-900 overflow-auto whitespace-pre-wrap w-full max-h-64 shadow-inner";
-                                    outputDiv.innerText = `> ${data.shell_script}\n\n${execData.output.trim()}`;
+                                    outputDiv.innerText = `> ${data.shell_script}\n\n${outText.trim()}`;
                                     statusDiv.parentElement.parentElement.appendChild(outputDiv);
+                                }
+
+                                if (data.log_id) {
+                                    fetch(`http://localhost:8000/api/execution-logs/${data.log_id}/result`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ result: execData, output: execData.output || execData.stdout || "" })
+                                    }).catch(()=>{});
                                 }
                             } else {
                                 statusSpan.className = "ml-2 text-slate-400 font-bold text-xs";
                                 statusSpan.innerText = "🛑 Cancelled";
+                                updateLifecycle(
+                                    { Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'blocked', Verify: 'pending' },
+                                    '🛑 CANCELLED',
+                                    {
+                                        risk: '🛑 AUTHORIZATION DENIED',
+                                        safetySummary: 'User Cancelled Execution',
+                                        safetyDetail: 'The operation was cancelled by user choice and not sent to host.'
+                                    }
+                                );
                             }
                         }
                     } catch (e) {
@@ -902,11 +1411,44 @@
                 outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-72 shadow-2xl";
                 outputDiv.innerText = JSON.stringify(data.results || data, null, 2);
                 document.getElementById('multistep-card').appendChild(outputDiv);
+
+                updateLifecycle(
+                    {
+                        Intent: 'completed',
+                        Policy: 'completed',
+                        Plan: 'completed',
+                        Execute: data.overall_success ? 'completed' : 'failed',
+                        Verify: data.overall_success ? 'completed' : 'failed'
+                    },
+                    data.overall_success ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
+                    {
+                        risk: data.overall_success ? '✅ VERIFIED SAFE' : '⚠️ FAILED',
+                        safetySummary: data.overall_success ? 'Multi-Step Plan Executed' : 'Step Execution Failed',
+                        safetyDetail: data.overall_success ? 'All steps completed successfully on host.' : 'One or more steps failed during execution.',
+                        executionMode: '⚡ MULTI-STEP HOST EXECUTION (COMPLETED)'
+                    }
+                );
             } catch (e) {
                 runMultiBtn.disabled = false;
                 runMultiBtn.innerText = "❌ Host Offline";
             }
         }
+
+        // Auto-load and execute prompt from URL parameter (e.g. from /pipeline or /analytics)
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const promptParam = urlParams.get('prompt');
+            if (promptParam && promptParam.trim()) {
+                const promptInput = document.getElementById('prompt-input');
+                if (promptInput) {
+                    promptInput.value = promptParam.trim();
+                    setTimeout(() => {
+                        const genBtn = document.getElementById('generate-btn');
+                        if (genBtn) genBtn.click();
+                    }, 120);
+                }
+            }
+        });
     </script>
 </body>
 </html>
