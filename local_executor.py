@@ -2153,7 +2153,17 @@ def _browser_candidates():
         return [("msedge",["--new-window"]),("chrome",["--new-window"]),("brave",["--new-window"]),("firefox",["--new-window"])]
     if system=="darwin":
         return [("open",["-na","Google Chrome","--args","--new-window"]),("open",["-na","Brave Browser","--args","--new-window"]),("open",["-na","Firefox","--args","--new-window"])]
-    return [("google-chrome",["--new-window"]),("google-chrome-stable",["--new-window"]),("brave-browser",["--new-window"]),("chromium",["--new-window"]),("chromium-browser",["--new-window"]),("firefox",["--new-window"])]
+    return [
+        ("brave-browser", ["--new-window"]),
+        ("firefox", ["--new-window"]),
+        ("google-chrome", ["--new-window"]),
+        ("google-chrome-stable", ["--new-window"]),
+        ("chromium", ["--new-window"]),
+        ("chromium-browser", ["--new-window"]),
+        ("xdg-open", []),
+        ("x-www-browser", []),
+        ("gnome-open", []),
+    ]
 
 
 def open_new_browser_window(url):
@@ -2162,6 +2172,7 @@ def open_new_browser_window(url):
         raise ValueError("Browser URL must use http/https.")
     errors=[]
     system=platform.system().lower()
+    env = os.environ.copy()
     for executable,args in _browser_candidates():
         resolved=shutil.which(executable)
         if not resolved: continue
@@ -2171,6 +2182,7 @@ def open_new_browser_window(url):
                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,stdin=subprocess.DEVNULL,
                 start_new_session=system!="windows",
                 creationflags=(subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP if system=="windows" else 0),
+                env=env,
             )
             return {"opened":True,"browser":executable,"method":"native-new-window","url":url}
         except Exception as exc:

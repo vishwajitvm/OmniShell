@@ -1265,7 +1265,7 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
 
     # Hard stop / human approval takes precedence over all other classifications.
     destructive = re.search(
-        r"\b(rm\s+-rf|delete(?:\s+and)?(?:\s+clean)?\s+all|clean\s+all|wipe|format|mkfs|fdisk|drop\s+database|killall|pkill\s+-9|destroy|nuke)\b",
+        r"\b(rm\s+-rf|rm\s+-[^\s]*r|rm\s+-[^\s]*f|delete\b.*(?:folder|file|trash|directory|data)|empty\s+trash|clean\s+trash|trash|wipe|format|mkfs|fdisk|drop\s+database|killall|pkill\s+-9|destroy|nuke|rmdir)\b",
         p,
     )
     if destructive:
@@ -1274,9 +1274,9 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             signals=["destructive_operation"], execution_mode="approval_gate",
             safety_level="high", intent_entities=entities,
             requires_approval=True,
-            approval_reason="The requested operation can cause irreversible or high-impact changes.",
+            approval_reason="The requested operation performs file deletions, trash purges, or system mutations requiring authorization.",
             shell_script=("find /tmp -type f -atime +7 -delete" if is_linux else "Remove-Item -Path $env:TEMP\\* -Recurse -Force"),
-            direct_answer="This operation is high-impact and must pass a human approval gate before execution.",
+            direct_answer="This operation performs file deletions or system mutations and must pass a human approval gate before execution.",
         )
 
     # Recovery is an explicit workflow modifier and therefore wins over generic execution.
@@ -2037,6 +2037,20 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                 if not (isinstance(s, dict) and re.match(r"^\s*sleep\s+\d+\s*$", str(s.get("command") or s.get("script") or "").strip()))
             ]
 
+    # Evaluate operations requiring human authorization (file deletions, trash purges, system mutations)
+    p_check = (request.natural_language_prompt or "").lower()
+    script_check = str(structured_data.get("shell_script") or "").lower()
+    multi_check = " ".join([str(s.get("command") or s.get("script") or "") for s in (structured_data.get("multi_step_plan") or []) if isinstance(s, dict)]).lower()
+    all_cmds = f"{p_check} {script_check} {multi_check}"
+
+    if re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|fdisk|chmod|chown|kill|pkill|killall|systemctl|service|apt|yum|dnf|pacman|pip|npm|delete|trash|clean|wipe|format|destroy|reboot|shutdown)\b", all_cmds):
+        structured_data["requires_approval"] = True
+        structured_data["safety_level"] = "high"
+        if not structured_data.get("approval_reason"):
+            structured_data["approval_reason"] = "This operation performs file deletions or system mutations requiring explicit human authorization."
+
+    # Persist scheduled / recurring tasks into DB
+    if structured_data.get("is_scheduled"):
         try:
             schedule_tz = _safe_timezone(request.timezone or structured_data.get("schedule_timezone"))
             scheduled_dt = _parse_schedule_datetime(structured_data["scheduled_time"], schedule_tz)
@@ -2252,12 +2266,22 @@ async def poll_due_tasks():
             if isinstance(raw_workflow, str):
                 try: raw_workflow=json.loads(raw_workflow)
                 except Exception: raw_workflow={}
-            # Scheduled work is not automatically an approval task. Only high-impact
-            # or explicitly approval-gated workflows enter the human checkpoint.
+            # Scheduled work with mutations, deletions, or high risk enters the human approval checkpoint
+            cmd = str(task.get("shell_script") or raw_workflow.get("shell_script") or "")
+            multi_steps = task.get("multi_step_plan") or raw_workflow.get("multi_step_plan") or []
+            prompt_text = str(task.get("original_prompt") or "").lower()
+            
+            has_mutation_or_risk = bool(
+                re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|systemctl|service|apt|yum|dnf|pacman|pip|npm|delete|trash|clean)\b", cmd, re.I)
+                or re.search(r"\b(rm|delete|trash|remove|clean|kill|stop|destroy|wipe|format|reboot|shutdown)\b", prompt_text, re.I)
+                or any(re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|systemctl|service|apt|yum|dnf|pacman|pip|npm)\b", str(s.get("command") or s.get("script") or ""), re.I) for s in multi_steps if isinstance(s, dict))
+            )
+
             needs_approval = bool(
                 task.get("capability_type") == "human_approval"
                 or raw_workflow.get("requires_approval")
-                or str(raw_workflow.get("safety_level", "")).lower() in {"high", "critical"}
+                or str(raw_workflow.get("safety_level", "")).lower() in {"high", "critical", "medium"}
+                or has_mutation_or_risk
             )
             if needs_approval:
                 raw_token=_new_approval_token()
