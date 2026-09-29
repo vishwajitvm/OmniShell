@@ -15,7 +15,7 @@
             <h1 class="text-xl font-bold text-white flex items-center gap-2">
                 ⏳ Scheduled Action Ready
             </h1>
-            <span id="countdown" class="text-blue-200 font-mono text-sm font-medium">Expires in 05:00</span>
+            <span id="legacy-countdown" class="text-blue-200 font-mono text-sm font-medium">Expires in 05:00</span>
         </div>
         
         <div class="p-8">
@@ -31,6 +31,7 @@
             </div>
 
             <div id="task-details" class="hidden">
+<div class="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3"><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Intent</div><div id="approval-intent" class="text-xs text-indigo-300 mt-1">Workflow</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Risk</div><div id="approval-risk" class="text-xs text-amber-300 mt-1">Human review</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Attempts</div><div id="approval-attempts" class="text-xs text-cyan-300 mt-1">0 / 3</div></div><div class="bg-slate-900 rounded-xl p-3 border border-slate-700"><div class="text-[10px] text-slate-500 uppercase">Expiry</div><div id="countdown" class="text-xs text-red-300 mt-1">Calculating…</div></div></div>
                 <div class="mb-6">
                     <p class="text-sm text-slate-400 uppercase tracking-wider font-semibold mb-1">Original Request</p>
                     <p id="original-prompt" class="text-lg text-white font-medium bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 italic"></p>
@@ -101,6 +102,9 @@
                 document.getElementById('original-prompt').innerText = `"${data.original_prompt}"`;
                 document.getElementById('target-os').innerText = data.target_os;
                 document.getElementById('action-type').innerText = data.requires_browser ? "🌐 Web Browser Launch" : "💻 Local Shell Script";
+                document.getElementById('approval-intent').innerText = (data.capability_type || 'workflow').replaceAll('_',' ');
+                document.getElementById('approval-risk').innerText = data.risk_level || data.risk || 'human approval';
+                document.getElementById('approval-attempts').innerText = `${data.attempt_count ?? 0} / ${data.max_attempts ?? 3}`;
                 
                 if (data.requires_browser) {
                     document.getElementById('execution-payload').innerText = `URL: ${data.target_url}`;

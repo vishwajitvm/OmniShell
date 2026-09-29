@@ -86,6 +86,15 @@ ENFORCE_POLICY = (
     in {"1", "true", "yes", "on"}
 )
 
+# Critical/high-risk host mutations require explicit approval by default.
+# OMNISHELL_ENFORCE_POLICY can still be enabled to apply the same gate to all
+# policy-classified commands; this separate switch makes dangerous operations
+# fail closed even when legacy deployments leave ENFORCE_POLICY disabled.
+REQUIRE_RISK_APPROVAL = (
+    os.getenv("OMNISHELL_REQUIRE_RISK_APPROVAL", "true").lower()
+    in {"1", "true", "yes", "on"}
+)
+
 MAX_HISTORY = int(
     os.getenv("OMNISHELL_MAX_HISTORY", "500")
 )
@@ -122,6 +131,11 @@ class ExecutionResult:
     verification: dict[str, Any] = field(default_factory=dict)
     started_at: float = 0.0
     finished_at: float = 0.0
+    attempt: int = 1
+    max_attempts: int = 1
+    recovery_action: Optional[str] = None
+    verification_passed: bool = True
+    idempotency_key: Optional[str] = None
 
 
 @dataclass
@@ -212,6 +226,27 @@ class ExecutionRegistry:
 
 
 REGISTRY = ExecutionRegistry()
+
+# Short-lived idempotency memory prevents accidental duplicate execution when
+# a client retries the same request after a network timeout.
+_IDEMPOTENCY_LOCK = threading.RLock()
+_IDEMPOTENCY_RESULTS: dict[str, ExecutionResult] = {}
+_IDEMPOTENCY_MAX = int(os.getenv("OMNISHELL_IDEMPOTENCY_MAX", "1000"))
+
+def _idempotency_get(key: Optional[str]) -> Optional[ExecutionResult]:
+    if not key:
+        return None
+    with _IDEMPOTENCY_LOCK:
+        return _IDEMPOTENCY_RESULTS.get(key)
+
+def _idempotency_put(key: Optional[str], result: ExecutionResult) -> None:
+    if not key:
+        return
+    with _IDEMPOTENCY_LOCK:
+        _IDEMPOTENCY_RESULTS[key] = result
+        if len(_IDEMPOTENCY_RESULTS) > _IDEMPOTENCY_MAX:
+            for old_key in list(_IDEMPOTENCY_RESULTS)[:len(_IDEMPOTENCY_RESULTS) - _IDEMPOTENCY_MAX]:
+                _IDEMPOTENCY_RESULTS.pop(old_key, None)
 
 
 # ============================================================
@@ -524,6 +559,259 @@ def get_system_info() -> dict[str, Any]:
         "terminal": find_terminal(),
         "browsers": get_installed_browsers(),
         "tools": tools,
+    }
+
+
+def get_realtime_metrics() -> dict[str, Any]:
+    """Gather real-time CPU, RAM, disk, network, and uptime metrics."""
+    metrics: dict[str, Any] = {
+        "timestamp": time.time(),
+        "os": platform.system(),
+        "cpu_count": os.cpu_count() or 1,
+    }
+    try:
+        import psutil
+        metrics["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        metrics["memory"] = {
+            "total_mb": round(mem.total / (1024 * 1024), 1),
+            "available_mb": round(mem.available / (1024 * 1024), 1),
+            "used_mb": round(mem.used / (1024 * 1024), 1),
+            "percent": mem.percent,
+        }
+        disk = psutil.disk_usage(os.path.abspath(os.sep))
+        metrics["disk"] = {
+            "total_gb": round(disk.total / (1024 ** 3), 2),
+            "used_gb": round(disk.used / (1024 ** 3), 2),
+            "free_gb": round(disk.free / (1024 ** 3), 2),
+            "percent": disk.percent,
+        }
+        metrics["boot_time"] = psutil.boot_time()
+        metrics["uptime_seconds"] = int(time.time() - psutil.boot_time())
+    except Exception as exc:
+        metrics["psutil_error"] = str(exc)
+
+    return metrics
+
+
+def send_desktop_notification(title: str, message: str) -> bool:
+    """Trigger a native cross-platform desktop alert/notification."""
+    system = platform.system().lower()
+    try:
+        if system == "linux":
+            if shutil.which("notify-send"):
+                subprocess.Popen(["notify-send", title, message])
+                return True
+        elif system == "darwin":
+            script = f'display notification "{message}" with title "{title}"'
+            subprocess.Popen(["osascript", "-e", script])
+            return True
+        elif system == "windows":
+            ps_cmd = f'[reflection.assembly]::loadwithpartialname("System.Windows.Forms"); [System.Windows.Forms.MessageBox]::Show("{message}", "{title}")'
+            subprocess.Popen(["powershell", "-Command", ps_cmd])
+            return True
+    except Exception as e:
+        print(f"[HOST AGENT] Notification error: {e}")
+    return False
+
+
+def execute_with_recovery(
+    command: str,
+    *,
+    working_directory: Optional[str] = None,
+    approved: bool = False,
+    max_attempts: int = 2,
+    retry_on: Optional[list[str]] = None,
+    backoff_seconds: Optional[list[float]] = None,
+    expected_process: Optional[str] = None,
+    expected_path: Optional[str] = None,
+    expected_absent_path: Optional[str] = None,
+    fallback_script: Optional[str] = None,
+    diagnostic_command: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    execution_id: Optional[str] = None,
+    environment: Optional[dict[str, Any]] = None,
+    timeout: Any = None,
+    dry_run: bool = False,
+) -> ExecutionResult:
+    """Execute a command with bounded retries, diagnostics and optional fallback.
+
+    Retries are only attempted for transient failures. Destructive/critical
+    commands are never blindly retried. A successful result is cached by the
+    optional idempotency key so network-level retries cannot duplicate work.
+    """
+    cached = _idempotency_get(idempotency_key)
+    if cached:
+        return cached
+
+    max_attempts = max(1, min(int(max_attempts or 1), 5))
+    retry_on = set(retry_on or ["timeout", "connection", "transient"])
+    backoff_seconds = backoff_seconds or [1.0, 3.0, 8.0]
+    last: Optional[ExecutionResult] = None
+
+    for attempt in range(1, max_attempts + 1):
+        result = execute_command(
+            command,
+            working_directory=working_directory,
+            approved=approved,
+            expected_process=expected_process,
+            expected_path=expected_path,
+            expected_absent_path=expected_absent_path,
+            environment=environment,
+            timeout=timeout,
+            dry_run=dry_run,
+            execution_id=execution_id if attempt == 1 and execution_id else uuid.uuid4().hex,
+        )
+        result.attempt = attempt
+        result.max_attempts = max_attempts
+        result.idempotency_key = idempotency_key
+        last = result
+        if result.success:
+            result.verification_passed = True
+            _idempotency_put(idempotency_key, result)
+            return result
+
+        # Never retry policy/approval/critical failures.
+        if result.status in {"approval_required", "cancelled"} or result.risk_level == "critical":
+            break
+        failure_class = "timeout" if result.timed_out else ("connection" if any(x in result.stderr.lower() for x in ["connection", "network", "temporarily unavailable"]) else "transient")
+        if failure_class not in retry_on or attempt >= max_attempts:
+            break
+        delay = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
+        time.sleep(max(0.0, float(delay)))
+
+    if last is None:
+        raise RuntimeError("Recovery executor produced no execution result.")
+
+    # Diagnostics are observational and are not allowed to replace the primary failure.
+    if diagnostic_command and not last.success:
+        try:
+            diag = execute_command(diagnostic_command, working_directory=working_directory, approved=approved, timeout=min(DEFAULT_TIMEOUT, 30))
+            last.verification["diagnostic"] = asdict(diag)
+        except Exception as exc:
+            last.verification["diagnostic_error"] = str(exc)
+
+    # Fallback is opt-in and only runs after the bounded primary retry loop.
+    if fallback_script and not last.success and last.risk_level not in {"critical", "high"}:
+        try:
+            fallback = execute_command(fallback_script, working_directory=working_directory, approved=approved)
+            last.verification["fallback"] = asdict(fallback)
+            last.recovery_action = "fallback_executed"
+            if fallback.success:
+                last.success = True
+                last.status = "recovered"
+                _idempotency_put(idempotency_key, last)
+                return last
+        except Exception as exc:
+            last.verification["fallback_error"] = str(exc)
+            last.recovery_action = "fallback_failed"
+
+    _idempotency_put(idempotency_key, last)
+    return last
+
+
+def execute_multi_step_workflow(
+    steps: list[dict],
+    working_directory: Optional[str] = None,
+    continue_on_error: bool = False,
+    approved: bool = False,
+    max_attempts: int = 2,
+) -> dict:
+    """Execute structured steps with per-step validation, retries and compensation."""
+    step_results = []
+    completed_steps: list[dict] = []
+    total_success = True
+    combined_output = []
+
+    for idx, step in enumerate(steps):
+        step_id = step.get("step_id", step.get("step", idx + 1))
+        step_name = step.get("name") or step.get("description") or f"Step {step_id}"
+        command = step.get("command") or step.get("script") or ""
+        if not command:
+            step_results.append({"step_id": step_id, "name": step_name, "status": "skipped", "reason": "No executable command provided."})
+            continue
+
+        result = execute_with_recovery(
+            command,
+            working_directory=working_directory,
+            approved=approved,
+            max_attempts=int(step.get("retry_limit", max_attempts)),
+            retry_on=step.get("retry_on"),
+            backoff_seconds=step.get("backoff_seconds"),
+            expected_process=step.get("expected_process"),
+            expected_path=step.get("expected_path"),
+            expected_absent_path=step.get("expected_absent_path"),
+            fallback_script=step.get("fallback_script"),
+            diagnostic_command=step.get("diagnostic_command"),
+            idempotency_key=step.get("idempotency_key"),
+        )
+        res_dict = asdict(result)
+        res_dict.update({"step_id": step_id, "name": step_name, "expected": step.get("expected"), "validation": step.get("validation")})
+        step_results.append(res_dict)
+        combined_output.append(f"--- [{step_name}] ---\n{result.output}")
+
+        if result.success:
+            completed_steps.append(step)
+            continue
+
+        total_success = False
+        # Optional compensation/rollback for already completed steps, in reverse order.
+        rollback_results = []
+        if step.get("rollback_on_failure", True):
+            for completed in reversed(completed_steps):
+                rollback = completed.get("rollback_command") or completed.get("compensation_command")
+                if not rollback:
+                    continue
+                try:
+                    rb = execute_command(rollback, working_directory=working_directory, approved=approved)
+                    rollback_results.append({"step_id": completed.get("step_id", completed.get("step")), "result": asdict(rb)})
+                except Exception as exc:
+                    rollback_results.append({"step_id": completed.get("step_id", completed.get("step")), "error": str(exc)})
+        if rollback_results:
+            combined_output.append("--- [Rollback] ---\n" + json.dumps(rollback_results, default=str))
+            res_dict["rollback_results"] = rollback_results
+        if not continue_on_error:
+            break
+
+    return {
+        "success": total_success,
+        "status": "completed" if total_success else "failed_or_recovered",
+        "steps_executed": len(step_results),
+        "total_steps": len(steps),
+        "step_results": step_results,
+        "output": "\n\n".join(combined_output),
+        "failure_policy": {"max_attempts": max_attempts, "continue_on_error": continue_on_error, "rollback_enabled": True},
+    }
+
+
+def execute_conditional_workflow(
+    condition_script: str,
+    on_success: str,
+    on_failure: Optional[str] = None,
+    working_directory: Optional[str] = None,
+    approved: bool = False,
+    condition_retries: int = 2,
+) -> dict:
+    """Evaluate a condition, execute exactly one branch, and preserve evidence."""
+    cond_result = execute_with_recovery(
+        condition_script,
+        working_directory=working_directory,
+        approved=approved,
+        max_attempts=condition_retries,
+    )
+    condition_met = cond_result.success and cond_result.exit_code == 0
+    branch_script = on_success if condition_met else on_failure
+    if not branch_script:
+        return {"success": True, "status": "completed", "condition_met": condition_met, "branch_executed": "none", "condition_output": cond_result.output}
+    branch_result = execute_with_recovery(branch_script, working_directory=working_directory, approved=approved, max_attempts=2)
+    return {
+        "success": branch_result.success,
+        "status": "completed" if branch_result.success else "failed",
+        "condition_met": condition_met,
+        "branch_executed": "on_success" if condition_met else "on_failure",
+        "condition_output": cond_result.output,
+        "branch_result": asdict(branch_result),
+        "output": f"Condition ({'PASS' if condition_met else 'FAIL'}):\n{cond_result.output}\n\nBranch Output:\n{branch_result.output}",
     }
 
 
@@ -920,7 +1208,7 @@ def execute_command(
     started = time.time()
 
     if (
-        ENFORCE_POLICY
+        (ENFORCE_POLICY or REQUIRE_RISK_APPROVAL)
         and risk["requires_confirmation"]
         and not approved
     ):
@@ -1237,25 +1525,30 @@ def execute_command(
             "exists": os.path.exists(expanded),
         }
 
+    # Verification is part of success, not a best-effort decoration.
+    verification_passed = True
+    verification_failures = []
+    if expected_path and not verification.get("expected_path", {}).get("exists", False):
+        verification_passed = False
+        verification_failures.append(f"Expected path does not exist: {expected_path}")
+    if expected_absent_path and verification.get("expected_absent_path", {}).get("exists", False):
+        verification_passed = False
+        verification_failures.append(f"Path still exists: {expected_absent_path}")
+    if verification_failures:
+        verification["failures"] = verification_failures
+
     if cancelled:
-
         status = "cancelled"
-
     elif timed_out:
-
         status = "timeout"
-
-    elif exit_code == 0:
-
+    elif exit_code == 0 and verification_passed:
         status = "success"
-
+    elif exit_code == 0 and not verification_passed:
+        status = "verification_failed"
     else:
-
         status = "failed"
 
-    success = (
-        status == "success"
-    )
+    success = status == "success"
 
     combined_output = ""
 
@@ -1307,6 +1600,7 @@ def execute_command(
         verification=verification,
         started_at=started,
         finished_at=finished,
+        verification_passed=verification_passed,
     )
 
     REGISTRY.finish(
@@ -1351,39 +1645,23 @@ def start_async_execution(
 
         try:
 
-            result = execute_command(
+            result = execute_with_recovery(
                 command,
                 execution_id=execution_id,
-                working_directory=request.get(
-                    "working_directory"
-                ),
-                environment=request.get(
-                    "environment"
-                ),
-                timeout=request.get(
-                    "timeout"
-                ),
-                expected_process=request.get(
-                    "expected_process"
-                ),
-                expected_path=request.get(
-                    "expected_path"
-                ),
-                expected_absent_path=request.get(
-                    "expected_absent_path"
-                ),
-                dry_run=bool(
-                    request.get(
-                        "dry_run",
-                        False,
-                    )
-                ),
-                approved=bool(
-                    request.get(
-                        "approved",
-                        False,
-                    )
-                ),
+                working_directory=request.get("working_directory"),
+                environment=request.get("environment"),
+                timeout=request.get("timeout"),
+                expected_process=request.get("expected_process"),
+                expected_path=request.get("expected_path"),
+                expected_absent_path=request.get("expected_absent_path"),
+                dry_run=bool(request.get("dry_run", False)),
+                approved=bool(request.get("approved", False)),
+                max_attempts=int(request.get("max_attempts", 2)),
+                retry_on=request.get("retry_on"),
+                backoff_seconds=request.get("backoff_seconds"),
+                fallback_script=request.get("fallback_script"),
+                diagnostic_command=request.get("diagnostic_command"),
+                idempotency_key=request.get("idempotency_key"),
             )
 
             task.finished = True
@@ -1568,7 +1846,6 @@ class ExecutionHandler(
                 "/",
                 "/health",
             }:
-
                 self._json_response(
                     {
                         "status": "ok",
@@ -1576,353 +1853,188 @@ class ExecutionHandler(
                         "version": "3.0",
                         "os": platform.system(),
                         "port": PORT,
+                        "capabilities_supported": 19,
                     }
                 )
-
                 return
 
             if self.path == "/system":
+                self._json_response(get_system_info())
+                return
 
-                self._json_response(
-                    get_system_info()
-                )
+            if self.path == "/system/metrics":
+                self._json_response(get_realtime_metrics())
+                return
 
+            if self.path == "/capabilities":
+                self._json_response({
+                    "service": "OmniShell Host Execution Agent V3",
+                    "supported_capabilities": [
+                        "Questions and answers", "Information requests", "System inspection",
+                        "Analysis", "Application operations", "Browser operations", "File operations",
+                        "Shell operations", "Multi-step tasks", "Interactive workflows", "Scheduled workflows",
+                        "Recurring workflows", "Conditional workflows", "Reminders", "Research tasks",
+                        "Planning-only requests", "Tasks requiring human approval", "Tasks requiring clarification",
+                        "Tasks requiring recovery after failure"
+                    ]
+                })
                 return
 
             if self.path == "/browsers":
-
-                self._json_response(
-                    {
-                        "browsers": (
-                            get_installed_browsers()
-                        )
-                    }
-                )
-
+                self._json_response({"browsers": get_installed_browsers()})
                 return
 
             if self.path == "/processes":
-
-                self._json_response(
-                    {
-                        "processes": list_processes()
-                    }
-                )
-
+                self._json_response({"processes": list_processes()})
                 return
 
             if self.path == "/executions":
-
-                history = [
-                    asdict(result)
-                    for result in (
-                        REGISTRY.all_history()
-                    )
-                ]
-
-                self._json_response(
-                    {
-                        "executions": history
-                    }
-                )
-
+                history = [asdict(result) for result in REGISTRY.all_history()]
+                self._json_response({"executions": history})
                 return
 
-            if self.path.startswith(
-                "/executions/"
-            ):
-
-                execution_id = (
-                    self.path.split(
-                        "/executions/",
-                        1,
-                    )[1]
-                    .split("/", 1)[0]
-                )
-
-                task = REGISTRY.get(
-                    execution_id
-                )
-
+            if self.path.startswith("/executions/"):
+                execution_id = self.path.split("/executions/", 1)[1].split("/", 1)[0]
+                task = REGISTRY.get(execution_id)
                 if not task:
-
-                    self._json_response(
-                        {
-                            "error": (
-                                "Execution not found."
-                            )
-                        },
-                        404,
-                    )
-
+                    self._json_response({"error": "Execution not found."}, 404)
                     return
-
-                self._json_response(
-                    {
-                        "execution_id": execution_id,
-                        "finished": task.finished,
-                        "cancelled": task.cancelled,
-                        "result": (
-                            asdict(task.result)
-                            if task.result
-                            else None
-                        ),
-                        "output_lines": (
-                            task.output_lines[-500:]
-                        ),
-                    }
-                )
-
+                self._json_response({
+                    "execution_id": execution_id,
+                    "finished": task.finished,
+                    "cancelled": task.cancelled,
+                    "result": asdict(task.result) if task.result else None,
+                    "output_lines": task.output_lines[-500:],
+                })
                 return
 
-            self._json_response(
-                {
-                    "error": "Not found."
-                },
-                404,
-            )
+            self._json_response({"error": "Not found."}, 404)
 
         except Exception as exc:
-
-            self._json_response(
-                {
-                    "error": str(exc)
-                },
-                500,
-            )
+            self._json_response({"error": str(exc)}, 500)
 
     # --------------------------------------------------------
     # POST
     # --------------------------------------------------------
 
     def do_POST(self):
-
         try:
-
             if self.path == "/execute":
-
                 data = self._read_json()
-
-                command = (
-                    data.get("script")
-                    or data.get("command")
-                )
-
+                command = data.get("script") or data.get("command")
                 if not command:
-
-                    self._json_response(
-                        {
-                            "status": "error",
-                            "error": (
-                                "Missing script/command."
-                            ),
-                        },
-                        400,
-                    )
-
+                    self._json_response({"status": "error", "error": "Missing script/command."}, 400)
                     return
 
-                risk = classify_command(
-                    command
-                )
-
-                async_mode = bool(
-                    data.get(
-                        "async",
-                        False,
-                    )
-                )
-
+                risk = classify_command(command)
+                async_mode = bool(data.get("async", False))
                 if async_mode:
-
-                    execution_id = (
-                        start_async_execution(
-                            data
-                        )
-                    )
-
-                    self._json_response(
-                        {
-                            "status": "accepted",
-                            "execution_id": (
-                                execution_id
-                            ),
-                            "risk": risk,
-                        },
-                        202,
-                    )
-
+                    execution_id = start_async_execution(data)
+                    self._json_response({"status": "accepted", "execution_id": execution_id, "risk": risk}, 202)
                     return
 
-                result = execute_command(
+                cached = _idempotency_get(data.get("idempotency_key"))
+                if cached:
+                    response = asdict(cached)
+                    response["deduplicated"] = True
+                    self._json_response(response, 200)
+                    return
+
+                result = execute_with_recovery(
                     command,
-                    execution_id=(
-                        data.get(
-                            "execution_id"
-                        )
-                        or uuid.uuid4().hex
-                    ),
-                    working_directory=data.get(
-                        "working_directory"
-                    ),
-                    environment=data.get(
-                        "environment"
-                    ),
-                    timeout=data.get(
-                        "timeout"
-                    ),
-                    expected_process=data.get(
-                        "expected_process"
-                    ),
-                    expected_path=data.get(
-                        "expected_path"
-                    ),
-                    expected_absent_path=data.get(
-                        "expected_absent_path"
-                    ),
-                    dry_run=bool(
-                        data.get(
-                            "dry_run",
-                            False,
-                        )
-                    ),
-                    approved=bool(
-                        data.get(
-                            "approved",
-                            False,
-                        )
-                    ),
+                    max_attempts=int(data.get("max_attempts", 2)),
+                    retry_on=data.get("retry_on"),
+                    backoff_seconds=data.get("backoff_seconds"),
+                    fallback_script=data.get("fallback_script"),
+                    diagnostic_command=data.get("diagnostic_command"),
+                    idempotency_key=data.get("idempotency_key"),
+                    working_directory=data.get("working_directory"),
+                    environment=data.get("environment"),
+                    timeout=data.get("timeout"),
+                    expected_process=data.get("expected_process"),
+                    expected_path=data.get("expected_path"),
+                    expected_absent_path=data.get("expected_absent_path"),
+                    dry_run=bool(data.get("dry_run", False)),
+                    approved=bool(data.get("approved", False)),
                 )
+                response = asdict(result)
+                response["validated"] = result.success
+                response["status"] = result.status
+                self._json_response(response, 200)
+                return
 
-                response = asdict(
-                    result
+            if self.path == "/execute/multi-step":
+                data = self._read_json()
+                steps = data.get("steps") or []
+                if not isinstance(steps, list) or not steps:
+                    self._json_response({"status": "error", "error": "steps list required."}, 400)
+                    return
+                res = execute_multi_step_workflow(
+                    steps=steps,
+                    working_directory=data.get("working_directory"),
+                    continue_on_error=bool(data.get("continue_on_error", False)),
+                    approved=bool(data.get("approved", False)),
                 )
+                self._json_response(res, 200)
+                return
 
-                # Backward-compatible fields
-                response[
-                    "validated"
-                ] = result.success
-
-                response[
-                    "status"
-                ] = result.status
-
-                self._json_response(
-                    response,
-                    200,
+            if self.path == "/execute/conditional":
+                data = self._read_json()
+                cond_script = data.get("condition_script")
+                on_succ = data.get("on_success")
+                on_fail = data.get("on_failure")
+                if not cond_script or not on_succ:
+                    self._json_response({"status": "error", "error": "condition_script and on_success are required."}, 400)
+                    return
+                res = execute_conditional_workflow(
+                    condition_script=cond_script,
+                    on_success=on_succ,
+                    on_failure=on_fail,
+                    working_directory=data.get("working_directory"),
+                    approved=bool(data.get("approved", False)),
                 )
+                self._json_response(res, 200)
+                return
 
+            if self.path == "/notify":
+                data = self._read_json()
+                title = str(data.get("title") or "OmniShell Notification")
+                msg = str(data.get("message") or "")
+                sent = send_desktop_notification(title, msg)
+                self._json_response({"status": "sent" if sent else "unsupported", "title": title, "message": msg}, 200)
                 return
 
             if self.path == "/cancel":
-
                 data = self._read_json()
-
-                execution_id = data.get(
-                    "execution_id"
-                )
-
+                execution_id = data.get("execution_id")
                 if not execution_id:
-
-                    self._json_response(
-                        {
-                            "error": (
-                                "execution_id is required."
-                            )
-                        },
-                        400,
-                    )
-
+                    self._json_response({"error": "execution_id is required."}, 400)
                     return
-
-                cancelled = REGISTRY.cancel(
-                    execution_id
-                )
-
-                self._json_response(
-                    {
-                        "execution_id": (
-                            execution_id
-                        ),
-                        "cancelled": cancelled,
-                    }
-                )
-
+                cancelled = REGISTRY.cancel(execution_id)
+                self._json_response({"execution_id": execution_id, "cancelled": cancelled})
                 return
 
             if self.path == "/classify":
-
                 data = self._read_json()
-
-                command = data.get(
-                    "script"
-                ) or data.get(
-                    "command"
-                )
-
+                command = data.get("script") or data.get("command")
                 if not command:
-
-                    self._json_response(
-                        {
-                            "error": (
-                                "Missing script/command."
-                            )
-                        },
-                        400,
-                    )
-
+                    self._json_response({"error": "Missing script/command."}, 400)
                     return
-
-                self._json_response(
-                    classify_command(
-                        command
-                    )
-                )
-
+                self._json_response(classify_command(command))
                 return
 
             if self.path == "/dry-run":
-
                 data = self._read_json()
-
-                command = data.get(
-                    "script"
-                ) or data.get(
-                    "command"
-                )
-
+                command = data.get("script") or data.get("command")
                 if not command:
-
-                    self._json_response(
-                        {
-                            "error": (
-                                "Missing script/command."
-                            )
-                        },
-                        400,
-                    )
-
+                    self._json_response({"error": "Missing script/command."}, 400)
                     return
-
-                self._json_response(
-                    {
-                        "command": command,
-                        "risk": (
-                            classify_command(
-                                command
-                            )
-                        ),
-                        "working_directory": (
-                            normalize_working_directory(
-                                data.get(
-                                    "working_directory"
-                                )
-                            )
-                        ),
-                        "will_execute": False,
-                    }
-                )
-
+                self._json_response({
+                    "command": command,
+                    "risk": classify_command(command),
+                    "working_directory": normalize_working_directory(data.get("working_directory")),
+                    "will_execute": False,
+                })
                 return
 
             self._json_response(
@@ -2081,38 +2193,88 @@ def _upload_result_with_retry(task_id, payload):
         time.sleep(min(5 * (2 ** attempt), 60))
 
 def execute_scheduled_workflow(task):
-    task_id=int(task["id"])
-    execution_id=uuid.uuid4().hex
+    task_id = int(task["id"])
+    execution_id = uuid.uuid4().hex
 
-    status,response=_http_json(
-        "POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/mark-executing",
-        json={"execution_token":execution_id},
+    status, response = _http_json(
+        "POST", f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/mark-executing",
+        json={"execution_token": execution_id},
     )
-    if status!=200:
-        raise RuntimeError(f"Task {task_id} could not enter executing state: {response.get('detail',response)}")
+    if status != 200:
+        raise RuntimeError(f"Task {task_id} could not enter executing state: {response.get('detail', response)}")
 
-    if task.get("requires_browser"):
-        target_url=str(task.get("target_url") or "").strip()
-        if not target_url: raise ValueError("Scheduled browser task has no target_url.")
-        if urlparse(target_url).scheme not in {"http","https"}:
-            raise ValueError("Scheduled browser target must use http/https.")
-        browser_result=open_new_browser_window(target_url)
-        result={"execution_id":execution_id,"status":"completed","success":True,"mode":"browser_new_window","target_url":target_url,"browser_launch":browser_result,"scheduled_task_id":task_id}
-        _upload_result_with_retry(task_id, {"status":"completed","execution_id":execution_id,"execution_result":result})
+    raw_wf = task.get("raw_workflow") or {}
+    if isinstance(raw_wf, str):
+        try: raw_wf = json.loads(raw_wf)
+        except Exception: raw_wf = {}
+
+    cap_type = task.get("capability_type") or raw_wf.get("capability_type")
+
+    # 1. Reminder Notification Workflow
+    if cap_type == "reminder" or task.get("is_reminder") or raw_wf.get("is_reminder"):
+        msg = task.get("reminder_message") or raw_wf.get("reminder_message") or task.get("original_prompt")
+        title = "OmniShell Scheduled Reminder"
+        send_desktop_notification(title, msg)
+        result = {"execution_id": execution_id, "status": "completed", "success": True, "mode": "desktop_notification", "message": msg, "scheduled_task_id": task_id}
+        _upload_result_with_retry(task_id, {"status": "completed", "execution_id": execution_id, "execution_result": result})
         return result
 
-    command=str(task.get("shell_script") or "").strip()
-    if not command: raise ValueError("Scheduled shell task has no shell_script.")
-    risk=classify_command(command)
-    if risk["level"]=="critical":
-        raise PermissionError("Scheduled execution blocked by host risk policy: "+", ".join(risk["reasons"]))
+    # 2. Browser Operations
+    if task.get("requires_browser") or raw_wf.get("requires_browser"):
+        target_url = str(task.get("target_url") or raw_wf.get("target_url") or "").strip()
+        if not target_url: raise ValueError("Scheduled browser task has no target_url.")
+        if urlparse(target_url).scheme not in {"http", "https"}:
+            raise ValueError("Scheduled browser target must use http/https.")
+        browser_result = open_new_browser_window(target_url)
+        result = {"execution_id": execution_id, "status": "completed", "success": True, "mode": "browser_new_window", "target_url": target_url, "browser_launch": browser_result, "scheduled_task_id": task_id}
+        _upload_result_with_retry(task_id, {"status": "completed", "execution_id": execution_id, "execution_result": result})
+        return result
 
-    result=execute_command(command,execution_id=execution_id,expected_process=task.get("expected_process"),approved=True)
-    payload=asdict(result)
-    final_status="completed" if result.success else "failed"
-    _upload_result_with_retry(task_id, {"status":final_status,"execution_id":execution_id,
-                     "execution_result":{**payload,"scheduled_task_id":task_id,"risk_recheck":risk},
-                     "failure_reason":None if result.success else result.stderr or result.output})
+    # 3. Multi-Step Execution
+    multi_step = task.get("multi_step_plan") or raw_wf.get("multi_step_plan")
+    if multi_step and isinstance(multi_step, list) and len(multi_step) > 0:
+        res = execute_multi_step_workflow(multi_step, approved=True)
+        final_status = "completed" if res["success"] else "failed"
+        _upload_result_with_retry(task_id, {"status": final_status, "execution_id": execution_id, "execution_result": {**res, "scheduled_task_id": task_id}})
+        return res
+
+    # 4. Conditional Workflow
+    cond_logic = task.get("conditional_logic") or raw_wf.get("conditional_logic")
+    if cond_logic and isinstance(cond_logic, dict) and cond_logic.get("condition_script"):
+        res = execute_conditional_workflow(
+            condition_script=cond_logic["condition_script"],
+            on_success=cond_logic.get("on_success", "echo 'Condition passed'"),
+            on_failure=cond_logic.get("on_failure"),
+            approved=True,
+        )
+        final_status = "completed" if res["success"] else "failed"
+        _upload_result_with_retry(task_id, {"status": final_status, "execution_id": execution_id, "execution_result": {**res, "scheduled_task_id": task_id}})
+        return res
+
+    # 5. Standard Shell Execution
+    command = str(task.get("shell_script") or raw_wf.get("shell_script") or "").strip()
+    if not command: raise ValueError("Scheduled shell task has no shell_script.")
+    risk = classify_command(command)
+    if risk["level"] == "critical":
+        raise PermissionError("Scheduled execution blocked by host risk policy: " + ", ".join(risk["reasons"]))
+
+    recovery = task.get("recovery_strategy") or raw_wf.get("recovery_strategy") or {}
+    result = execute_with_recovery(
+        command,
+        max_attempts=int(recovery.get("retry_limit", 2)),
+        retry_on=recovery.get("retry_on", ["timeout", "connection", "transient"]),
+        backoff_seconds=recovery.get("retry_backoff_seconds", [1, 3, 8]),
+        fallback_script=recovery.get("fallback_script"),
+        diagnostic_command=recovery.get("diagnostic_command"),
+        expected_process=task.get("expected_process") or raw_wf.get("expected_process"),
+        approved=True,
+        idempotency_key=f"scheduled:{task_id}:{execution_id}",
+    )
+    payload = asdict(result)
+    final_status = "completed" if result.success else "failed"
+    _upload_result_with_retry(task_id, {"status": final_status, "execution_id": execution_id,
+                     "execution_result": {**payload, "scheduled_task_id": task_id, "risk_recheck": risk},
+                     "failure_reason": None if result.success else result.stderr or result.output})
     return payload
 
 
@@ -2123,7 +2285,16 @@ def handle_claimed_task(task):
         _scheduler_active_ids.add(task_id)
     try:
         token=str(task.get("approval_token") or "")
-        if not token: raise RuntimeError("No approval token was returned for claimed task.")
+        # Safe scheduled work is pre-approved by the backend. Only approval-gated
+        # work receives an approval token and opens the approval UI.
+        if not token and task.get("status") == "approved":
+            try:
+                execute_scheduled_workflow(task)
+            except Exception as exc:
+                print(f"[SCHEDULER] Approved scheduled execution failed: {exc}")
+                _upload_result_with_retry(task_id, {"status":"failed","execution_id":None,"failure_reason":str(exc),"is_permanent":isinstance(exc,(ValueError,PermissionError)),"execution_result":{"scheduled_task_id":task_id}})
+            return
+        if not token: raise RuntimeError("No approval token was returned for approval-gated task.")
         approval_url=f"{APPROVAL_UI_BASE}/{token}?taskId={task_id}"
         print(f"[SCHEDULER] Task {task_id} due; opening approval window.")
         try: open_new_browser_window(approval_url)

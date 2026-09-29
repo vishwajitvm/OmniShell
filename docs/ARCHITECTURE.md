@@ -1,37 +1,74 @@
 # 🏗️ Architecture Deep Dive
 
-OmniShell relies on a strict separation of concerns to maintain security while executing AI-generated commands.
+OmniShell is a universal, autonomous multi-agent operating system copilot and knowledge syndicate designed with a strict separation of concerns, multi-layered security guardrails, background scheduling, and self-healing automation.
 
-## The 7-Agent Syndicate
-Within the FastAPI backend, requests are processed by a multi-agent system before any code is generated:
-1. **Intent & Planning Agent:** Parses natural language into a logical sequence of actions.
-2. **System Reconnaissance Agent:** Dynamically writes scripts to discover available applications locally (e.g. searching for text editors) to prevent hallucinating hardcoded paths on different OS builds.
-3. **Content Generation Agent:** Expands rough instructions for emails/messages into fully professional text.
-4. **Security Guard Agent:** A rigid, active AI firewall that hunts for destructive intents (password theft, wiping data) and forces compliance.
-5. **Command Research Agent:** Searches for the exact CLI command for the specific target OS.
-6. **Command Validator Agent (CRITIC):** A ruthless reviewer that scrutinizes the Command Research Agent's output. Enforces strict case-sensitivity for Linux, checks for robust fallbacks (e.g., using `find`), and forces a complete rewrite if the initial draft is flawed.
-7. **Execution Planner:** Maps the finalized, validated intent to either a `requires_browser=True` Deep Link URL, a robust `shell_script` for local OS execution, or a scheduled reminder.
+---
 
-## 3-Tier Command Resolution
+## 🏛️ The 19 Core Capabilities
 
-Before executing any command, OmniShell runs a **3-tier resolution pipeline** to ensure the correct command is used:
+OmniShell natively supports 19 core interaction paradigms within a single unified pipeline:
+
+1. **Questions and Answers (`question_answering`):** Direct contextual factual and conceptual answers formatted in rich Markdown with syntax highlighting.
+2. **Information Requests (`information_request`):** System documentation, technical overviews, and structured summaries.
+3. **System Inspection (`system_inspection`):** Real-time diagnostic inspection of CPU, memory, disk, network, processes, and host stats.
+4. **Analysis (`analysis`):** In-depth diagnostic log analysis, performance bottleneck detection, and security audit reports.
+5. **Application Operations (`application_operation`):** Cross-platform application launching and process tracking.
+6. **Browser Operations (`browser_operation`):** Browser-specific URL navigation with interactive browser selection.
+7. **File Operations (`file_operation`):** Safe creation, reading, archiving, and management of local files and directories.
+8. **Shell Operations (`shell_operation`):** Secure command execution on Linux, macOS, and Windows with real-time streaming output.
+9. **Multi-Step Tasks (`multi_step`):** Structured sequential pipelines with visual step checklists and validation tracking.
+10. **Interactive Workflows (`interactive_workflow`):** Guided multi-stage workflows with interactive user inputs and confirmation checkpoints.
+11. **Scheduled Workflows (`scheduled_workflow`):** Autonomous future execution at exact timestamps or relative offsets with human-in-the-loop gates.
+12. **Recurring Workflows (`recurring_workflow`):** Continuous periodic tasks scheduled with interval or daily recurrence rules.
+13. **Conditional Workflows (`conditional_workflow`):** Branching execution paths evaluated dynamically based on system state or script exit codes.
+14. **Reminders (`reminder`):** Contextual scheduled alerts and notifications with native OS alerts.
+15. **Research Tasks (`research`):** Deep multi-tier research synthesizing web data and dynamically discovering unknown commands.
+16. **Planning-Only Requests (`planning_only`):** Architectural blueprints, phased migration plans, and sequence diagrams without execution.
+17. **Tasks Requiring Human Approval (`human_approval`):** Elevated and potentially destructive operations protected by strict multi-step human confirmation.
+18. **Tasks Requiring Clarification (`clarification`):** Ambiguous or underspecified requests automatically prompting user for clarifying choices.
+19. **Recovery After Failure (`recovery_failure`):** Self-healing resilient workflows equipped with automated retries and fallback execution chains.
+
+---
+
+## 🤖 The 7-Agent Syndicate
+
+Within the FastAPI backend, requests are processed by a multi-agent system before any code or answer is generated:
+1. **OS Intent & Capability Analyzer:** Classifies natural language prompts into one of the 19 core capabilities and detects the target OS.
+2. **Security & Guardrail Agent:** A rigid, active AI firewall that hunts for destructive intents (password theft, wiping data) and forces compliance.
+3. **Research & Knowledge Synthesis Agent:** Synthesizes direct answers for non-executable queries and queries DuckDuckGo for missing application commands.
+4. **Execution & Workflow Planner:** Maps validated intents to either Markdown answers, deep-link URLs, multi-step execution plans, or shell scripts.
+5. **Scheduler & Recurrence Agent:** Parses ISO timestamps, relative deltas (`tomorrow at 5pm`), and interval rules (`interval:10s`, `daily:09:00`).
+6. **Human Gatekeeper Agent:** Formulates clear confirmation explanations and interactive options when human intervention is needed.
+7. **Host Verification Agent (CRITIC):** Analyzes expected process names, exit codes, and resource metrics post-execution.
+
+---
+
+## 🔄 Dual-Track Execution Architecture
 
 ```mermaid
-graph LR;
-    Prompt["User Prompt"] --> T1{"Tier 1: Redis Cache"};
-    T1 -->|"HIT"| Exec["Execute Correct Command"];
-    T1 -->|"MISS"| T2{"Tier 2: Knowledge Base"};
-    T2 -->|"MATCH"| Exec;
-    T2 -->|"MISS"| T3["Tier 3: Research Agent"];
-    T3 -->|"Web Search + LLM"| Exec;
-    T3 -->|"Learn"| Redis[("Redis")];
+graph TD
+    UserPrompt["👤 User Prompt"] --> Syndicate["🤖 7-Agent Syndicate"]
+    Syndicate --> CapabilityRouter{"Capability Type?"}
+    
+    CapabilityRouter -->|"Q&A / Info / Plan / Research"| DirectAnswer["💡 Markdown Answer Card\n(Zero Shell Execution)"]
+    CapabilityRouter -->|"Browser Navigation"| BrowserPicker["🌐 Browser Selector Modal"]
+    CapabilityRouter -->|"Host Automation"| ApprovalModal{"🛡️ Human Confirmation"}
+    CapabilityRouter -->|"Scheduled / Recurring"| PostgresPipeline[("📅 PostgreSQL Scheduled DB")]
+    
+    ApprovalModal -->|"Approved"| HostAgent["💻 Native Host Agent (Port 8003)"]
+    ApprovalModal -->|"Denied"| Terminate["🛑 Safe Termination"]
+    
+    BrowserPicker --> HostAgent
+    HostAgent --> ProcessValidation["✅ Process & Output Verification"]
+    
+    PostgresPipeline --> CronWorker["⏰ Background Scheduler Worker"]
+    CronWorker -->|"Time Elapsed"| TokenValidation{"🔑 SHA-256 Token Check"}
+    TokenValidation -->|"Valid"| HostAgent
+    HostAgent -->|"Recurring Task Done"| Rescheduler["🔁 Compute Next Recurrence"]
+    Rescheduler --> PostgresPipeline
 ```
 
-| Tier | Source | Speed | Description |
-|------|--------|-------|-------------|
-| **1** | Redis Cache | ⚡ < 1ms | Previously learned commands. Checked first for instant lookups. |
-| **2** | `KNOWN_APP_COMMANDS` | ⚡ < 1ms | Hardcoded knowledge base of 20+ common apps and their correct commands. |
-| **3** | Research Agent | 🔍 3-10s | DuckDuckGo web search → LLM extraction → stores result in Redis for future. |
+---
 
 ## 🛡️ 4-Layer Defense Architecture
 
@@ -42,72 +79,18 @@ To ensure zero catastrophic failures, OmniShell implements a rigid 4-Layer Defen
 3. **Layer 2 (Frontend Double-Confirmation):** Destructive commands (`rm`, `delete`) require a secondary Human-in-the-Loop (HITL) popup. The AI never runs silently.
 4. **Layer 3 (Frontend System Override):** Even if the human approves it, a final client-side safeguard blocks known malicious script patterns (like `rm -rf /` or accessing `/etc/shadow`) and permanently terminates the execution.
 
-## Docker-to-Host Bridging (V2 Executor)
-Because the FastAPI backend lives inside an isolated Docker network, it cannot natively launch applications on the host Windows/Linux machine. 
+---
 
-To solve this, OmniShell uses an asynchronous bridge:
-1. The AI generates the script/URL.
-2. The UI intercepts it and triggers a **SweetAlert2** popup for human approval.
-3. Upon approval, the UI sends an HTTP POST request to `http://localhost:8003`.
-4. `local_executor.py` (V2) intercepts this on the host machine.
-5. The V2 Executor securely uses Python's `subprocess.Popen` pipeline to execute the script in the background, capturing stdout/stderr, applying exact timeouts, and managing the process tree safely without relying on fragile terminal popups.
+## 🔌 Host Agent API (`local_executor.py`)
 
-## 🧠 Self-Learning Pipeline
+The native host execution agent runs on port 8003 and provides:
 
-OmniShell includes a self-correcting learning system that ensures the AI gets smarter with every interaction. Instead of blindly trusting LLM-generated commands, the system validates outputs and learns from mistakes.
+- `GET /health` — Health check and uptime.
+- `GET /capabilities` — List of 19 supported execution modes.
+- `GET /system/metrics` — Real-time CPU, RAM, disk, network, and uptime metrics.
+- `GET /browsers` — Auto-detected installed browsers on Windows, Linux, and macOS.
+- `POST /execute` — Guarded command execution with expected process verification.
+- `POST /execute/multi-step` — Sequential execution of structured sub-steps.
+- `POST /execute/conditional` — Dynamic condition evaluation with branch dispatch.
+- `POST /notify` — Cross-platform desktop notification dispatcher.
 
-### How It Works
-
-```mermaid
-graph TD;
-    A((User)) -->|"open vs code"| B["LLM Agent Pipeline"];
-    B -->|"Generates WRONG command"| C{"3-Tier Resolution"};
-    C -->|"Tier 1: Redis MISS"| D{"Tier 2: Knowledge Base"};
-    D -->|"FOUND: vs code = code"| E["Override LLM with correct command"];
-    D -->|"NOT FOUND"| F["Tier 3: Research Agent searches web"];
-    F -->|"DuckDuckGo + LLM extract"| G["Found correct command"];
-    G -->|"Store in Redis"| H[("Redis Cache")];
-    E --> I["Host Execution"];
-    G --> I;
-    I --> J{"psutil Validator"};
-    J -->|"SUCCESS"| K["Return to User"];
-    J -->|"FAILURE"| L["Log and Learn"];
-    L --> H;
-```
-
-### The Three Execution Paths
-
-| Path | Trigger | Behavior |
-|------|---------|----------|
-| **Known App (Cached)** | App exists in Redis or `KNOWN_APP_COMMANDS` | LLM output is **overridden** with the known-correct command. Near-instant response. |
-| **Unknown App (Research)** | App is NOT in knowledge base or cache | **Research Agent** searches the web, extracts the correct command, stores it in Redis, and executes. Next time it's instant. |
-| **Failed Execution** | psutil validation fails | The failure is logged with full context (command, expected process, error output, timestamp). Flagged for manual review. |
-
-### Knowledge Base: `KNOWN_APP_COMMANDS`
-
-A curated dictionary of common application mappings that acts as a **middleware override layer** between the LLM and execution:
-
-```python
-KNOWN_APP_COMMANDS = {
-    "Windows": {
-        "vs code":   {"script": "code",     "process": "Code.exe"},
-        "calculator": {"script": "calc",    "process": "Calculator.exe"},
-        # ...
-    },
-    "Linux": {
-        "vs code":   {"script": "code",     "process": "code"},
-        "calculator": {"script": "gnome-calculator", "process": "gnome-calculator"},
-        # ...
-    }
-}
-```
-
-### Dual-Store Caching Strategy
-
-- **Redis** — Fast in-memory cache for corrected command mappings. Enables sub-millisecond lookups for repeat requests, allowing the system to bypass the LLM entirely for known apps.
-- **PostgreSQL** — Persistent store for the complete correction history including timestamps, original LLM output, corrected command, validation results, and error logs. Used for analytics, debugging, and model fine-tuning.
-
-> See the full diagrams at:
-> - [`architecture.mmd`](./diagrams/architecture.mmd) — 5-Agent architecture with 3-Tier resolution
-> - [`self_learning_pipeline.mmd`](./diagrams/self_learning_pipeline.mmd) — Detailed pipeline with known/unknown/cached paths
-> - [`learning_fix_flow.mmd`](./diagrams/learning_fix_flow.mmd) — Complete learning & self-correction flow
