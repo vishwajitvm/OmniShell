@@ -2,6 +2,10 @@ import os
 import json
 import datetime
 import asyncio
+import hashlib
+import secrets
+import re
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -26,15 +30,18 @@ app.include_router(tracenest_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[item.strip() for item in os.getenv("OMNISHELL_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if item.strip()],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 class AutomationRequest(BaseModel):
     natural_language_prompt: str
     user_agent_os: str = "Unknown OS"
     local_time: str | None = None
+    timezone: str | None = None
+    client_id: str | None = None
+    request_id: str | None = None
 
 class AgentThought(BaseModel):
     agent_name: str = Field(description="Name of the agent (e.g., 'OS Analyzer', 'Security Guard', 'Execution Planner')")
@@ -53,6 +60,15 @@ class MultiAgentResult(BaseModel):
     is_reminder: bool = Field(default=False, description="Set to True if this is a scheduling or reminder task.")
     reminder_time: str | None = Field(default=None, description="ISO 8601 future time for the reminder.")
     reminder_message: str | None = Field(default=None, description="The message for the reminder.")
+    is_scheduled: bool = Field(default=False)
+    scheduled_time: str | None = Field(default=None)
+    schedule_timezone: str | None = Field(default=None)
+    schedule_type: str = Field(default="one_time")
+    priority: int = Field(default=5, ge=1, le=10)
+    approval_timeout_seconds: int | None = Field(default=None, ge=30, le=3600)
+    scheduled_task_id: int | None = Field(default=None)
+    scheduled_status: str | None = Field(default=None)
+    scheduled_for_utc: str | None = Field(default=None)
 
 # ============================================================
 # LLM / MODEL REGISTRY
@@ -504,19 +520,30 @@ async def init_db():
                 shell_script TEXT,
                 expected_process VARCHAR(100),
                 scheduled_for TIMESTAMP WITH TIME ZONE NOT NULL,
-                timezone VARCHAR(50),
-                status VARCHAR(20) DEFAULT 'scheduled',
-                approval_token VARCHAR(64),
+                timezone VARCHAR(100),
+                schedule_type VARCHAR(30) DEFAULT 'one_time',
+                priority INTEGER DEFAULT 5,
+                status VARCHAR(30) DEFAULT 'scheduled',
+                approval_token_hash VARCHAR(128),
+                approval_expires_at TIMESTAMP WITH TIME ZONE,
                 execution_id VARCHAR(100),
+                client_id VARCHAR(200),
+                request_id VARCHAR(200),
+                attempt_count INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 3,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 triggered_at TIMESTAMP WITH TIME ZONE,
                 approved_at TIMESTAMP WITH TIME ZONE,
                 denied_at TIMESTAMP WITH TIME ZONE,
                 completed_at TIMESTAMP WITH TIME ZONE,
                 failed_at TIMESTAMP WITH TIME ZONE,
+                cancelled_at TIMESTAMP WITH TIME ZONE,
+                expired_at TIMESTAMP WITH TIME ZONE,
+                last_error TEXT,
                 failure_reason TEXT,
                 execution_result JSONB,
-                raw_workflow JSONB
+                raw_workflow JSONB,
+                metadata JSONB
             )
         ''')
         await conn.execute('''
@@ -545,6 +572,36 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+
+        # Upgrade databases created by OmniShell V2 without requiring manual SQL.
+        for migration in [
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(30) DEFAULT 'one_time'",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 5",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS approval_token_hash VARCHAR(128)",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS approval_expires_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS client_id VARCHAR(200)",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS request_id VARCHAR(200)",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 3",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS expired_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS last_error TEXT",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS metadata JSONB",
+        ]:
+            try:
+                await conn.execute(migration)
+            except Exception as migration_error:
+                logger.warning(f"Scheduled task migration skipped: {migration_error}")
+
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due "
+            "ON scheduled_tasks (status, scheduled_for, priority, id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_request "
+            "ON scheduled_tasks (request_id)"
+        )
 
 
 @app.on_event("startup")
@@ -742,6 +799,130 @@ def hardcoded_guardrail_check(prompt: str) -> tuple:
             return True, reason
     return False, ""
 
+
+# ============================================================
+# SCHEDULING HELPERS
+# ============================================================
+
+SCHEDULE_DEFAULT_TZ = os.getenv("OMNISHELL_DEFAULT_TIMEZONE", "Asia/Kolkata")
+SCHEDULE_APPROVAL_TIMEOUT = int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300"))
+SCHEDULE_MAX_DELAY_DAYS = int(os.getenv("OMNISHELL_MAX_SCHEDULE_DAYS", "365"))
+
+
+def _utc_now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _safe_timezone(name):
+    candidate = (name or SCHEDULE_DEFAULT_TZ).strip()
+    try:
+        ZoneInfo(candidate)
+        return candidate
+    except Exception:
+        return "UTC"
+
+
+def _parse_schedule_datetime(value, timezone_name=None):
+    dt = datetime.datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo(_safe_timezone(timezone_name)))
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def _deterministic_relative_schedule(prompt, timezone_name):
+    """Resolve common 'after/in N minutes/hours' phrases without LLM arithmetic."""
+    p = prompt.lower().strip()
+    tz_name = _safe_timezone(timezone_name)
+    now_local = _utc_now().astimezone(ZoneInfo(tz_name))
+
+    m = re.search(r"\\b(?:after|in)\\s+(\\d+(?:\\.\\d+)?)\\s*(minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\\b", p)
+    if m:
+        amount = float(m.group(1))
+        unit = m.group(2)
+        if unit.startswith(("minute", "min")):
+            delta = datetime.timedelta(minutes=amount)
+        elif unit.startswith(("hour", "hr")):
+            delta = datetime.timedelta(hours=amount)
+        else:
+            delta = datetime.timedelta(days=amount)
+        return (now_local + delta).astimezone(datetime.timezone.utc), tz_name
+
+    m = re.search(r"\\btomorrow(?:\\s+at)?\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b", p)
+    if m:
+        hour = int(m.group(1)); minute = int(m.group(2) or 0); meridiem = m.group(3)
+        if meridiem:
+            if hour == 12: hour = 0
+            if meridiem == "pm": hour += 12
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            candidate = (now_local + datetime.timedelta(days=1)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+            return candidate.astimezone(datetime.timezone.utc), tz_name
+
+    return None, tz_name
+
+
+def _schedule_is_valid(dt):
+    now = _utc_now()
+    if dt <= now:
+        raise ValueError("Scheduled time must be in the future.")
+    if dt > now + datetime.timedelta(days=SCHEDULE_MAX_DELAY_DAYS):
+        raise ValueError(f"Scheduled time cannot be more than {SCHEDULE_MAX_DELAY_DAYS} days in the future.")
+
+
+def _hash_approval_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _new_approval_token():
+    return secrets.token_urlsafe(32)
+
+
+def _json_safe_record(record):
+    result = dict(record)
+    for key, value in result.items():
+        if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+            result[key] = value.isoformat()
+    return result
+
+
+async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_name, client_id=None, request_id=None):
+    _schedule_is_valid(scheduled_for)
+    schedule_type = workflow.get("schedule_type", "one_time")
+    priority = max(1, min(int(workflow.get("priority", 5) or 5), 10))
+    approval_timeout = max(30, min(int(workflow.get("approval_timeout_seconds") or SCHEDULE_APPROVAL_TIMEOUT), 3600))
+
+    async with DB_POOL.acquire() as conn:
+        if request_id:
+            existing = await conn.fetchrow(
+                "SELECT * FROM scheduled_tasks WHERE request_id=$1 ORDER BY id DESC LIMIT 1",
+                request_id,
+            )
+            if existing:
+                return _json_safe_record(existing)
+
+        row = await conn.fetchrow(
+            """INSERT INTO scheduled_tasks (
+                original_prompt,target_os,requires_browser,target_url,shell_script,
+                expected_process,scheduled_for,timezone,schedule_type,priority,status,
+                client_id,request_id,max_attempts,raw_workflow,metadata
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'scheduled',$11,$12,$13,$14,$15)
+            RETURNING *""",
+            prompt, workflow.get("target_os"), bool(workflow.get("requires_browser")),
+            workflow.get("target_url"), workflow.get("shell_script"),
+            workflow.get("expected_process"), scheduled_for, timezone_name,
+            schedule_type, priority, client_id, request_id,
+            int(os.getenv("OMNISHELL_SCHEDULE_MAX_ATTEMPTS", "3")),
+            json.dumps(workflow),
+            json.dumps({
+                "created_by": "omnishell-ai",
+                "approval_timeout_seconds": approval_timeout,
+                "created_at_utc": _utc_now().isoformat(),
+            }),
+        )
+        return _json_safe_record(row)
+
+
 @app.post("/api/generate-workflow"
 
 , response_model=MultiAgentResult)
@@ -880,40 +1061,6 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         structured_data = json.loads(raw_content)
         logger.info(f'PARSED DATA: {structured_data}')
         
-        if structured_data.get("is_scheduled") and structured_data.get("scheduled_time"):
-            try:
-                import uuid
-                time_str = structured_data["scheduled_time"].replace("Z", "+00:00")
-                dt_obj = datetime.datetime.fromisoformat(time_str)
-                # Keep it aware, or assume UTC. The db column is TIMESTAMP WITH TIME ZONE
-                if not dt_obj.tzinfo:
-                    dt_obj = dt_obj.replace(tzinfo=datetime.timezone.utc)
-                
-                async with DB_POOL.acquire() as conn:
-                    await conn.execute(
-                        """INSERT INTO scheduled_tasks 
-                        (original_prompt, target_os, requires_browser, target_url, shell_script, expected_process, scheduled_for, timezone, status, raw_workflow)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9)""",
-                        request.natural_language_prompt,
-                        structured_data.get("target_os", request.user_agent_os),
-                        bool(structured_data.get("requires_browser")),
-                        structured_data.get("target_url"),
-                        structured_data.get("shell_script"),
-                        structured_data.get("expected_process"),
-                        dt_obj,
-                        structured_data.get("schedule_timezone"),
-                        json.dumps(structured_data)
-                    )
-                logger.info(f"Scheduled task saved to DB: {request.natural_language_prompt} at {dt_obj.isoformat()}")
-            except ValueError as ve:
-                logger.error(f"Invalid date format from LLM: {ve}")
-                raise HTTPException(status_code=400, detail=f"The AI generated an invalid time format: {structured_data.get('scheduled_time')}. Please try your request again.")
-            except Exception as e:
-                logger.error(f"Failed to insert scheduled task into DB: {e}")
-                raise HTTPException(status_code=500, detail="Database error while scheduling task.")
-
-
-        
         logger.debug("Extracted JSON data from model response")
         
         # --- Analytics Recording ---
@@ -1039,6 +1186,46 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                     logger.info(f"Command resolved via {resolution_source}: script='{resolved_command['script']}'")
         # --------------------------------------
         
+
+        # Persist only after all middleware has resolved the final executable workflow.
+        deterministic_dt, deterministic_tz = _deterministic_relative_schedule(
+            request.natural_language_prompt,
+            request.timezone or structured_data.get("schedule_timezone"),
+        )
+        if deterministic_dt is not None:
+            structured_data["is_scheduled"] = True
+            structured_data["scheduled_time"] = deterministic_dt.isoformat()
+            structured_data["schedule_timezone"] = deterministic_tz
+
+        if structured_data.get("is_scheduled"):
+            if not structured_data.get("scheduled_time"):
+                raise HTTPException(status_code=400, detail="Scheduled task detected but no scheduled_time was produced.")
+            try:
+                schedule_tz = _safe_timezone(request.timezone or structured_data.get("schedule_timezone"))
+                scheduled_dt = _parse_schedule_datetime(structured_data["scheduled_time"], schedule_tz)
+                _schedule_is_valid(scheduled_dt)
+                structured_data["schedule_timezone"] = schedule_tz
+                structured_data.setdefault("schedule_type", "one_time")
+                structured_data.setdefault("priority", 5)
+                structured_data.setdefault("approval_timeout_seconds", SCHEDULE_APPROVAL_TIMEOUT)
+
+                scheduled_record = await create_scheduled_task(
+                    prompt=request.natural_language_prompt,
+                    workflow=structured_data,
+                    scheduled_for=scheduled_dt,
+                    timezone_name=schedule_tz,
+                    client_id=request.client_id,
+                    request_id=request.request_id,
+                )
+                structured_data["scheduled_task_id"] = scheduled_record["id"]
+                structured_data["scheduled_status"] = scheduled_record["status"]
+                structured_data["scheduled_for_utc"] = scheduled_record["scheduled_for"]
+            except HTTPException:
+                raise
+            except Exception as schedule_error:
+                logger.error(f"Failed to persist scheduled workflow: {schedule_error}")
+                raise HTTPException(status_code=400, detail=f"Unable to schedule task: {schedule_error}")
+
         structured_data['model_used'] = model_name
         
         # Create a shallow copy or dump to prevent Pydantic errors if mutated
@@ -1086,137 +1273,190 @@ async def complete_reminder(reminder_id: int):
 # SCHEDULED TASKS API
 # ============================================================
 
-import uuid
+def _approval_expiry_for_task(record):
+    metadata = record.get("metadata") or {}
+    if isinstance(metadata, str):
+        try: metadata = json.loads(metadata)
+        except Exception: metadata = {}
+    timeout = int(metadata.get("approval_timeout_seconds", SCHEDULE_APPROVAL_TIMEOUT)) if isinstance(metadata, dict) else SCHEDULE_APPROVAL_TIMEOUT
+    return _utc_now() + datetime.timedelta(seconds=max(30, min(timeout, 3600)))
+
 
 @app.get("/api/scheduled-tasks")
-async def get_scheduled_tasks():
+async def get_scheduled_tasks(status: str | None = None, limit: int = 100):
+    limit = max(1, min(limit, 500))
     async with DB_POOL.acquire() as conn:
-        records = await conn.fetch("SELECT id, original_prompt, target_os, requires_browser, target_url, shell_script, expected_process, scheduled_for, status, created_at FROM scheduled_tasks ORDER BY scheduled_for DESC LIMIT 100")
-        return [dict(r) for r in records]
+        if status:
+            rows = await conn.fetch("""SELECT id,original_prompt,target_os,requires_browser,target_url,
+                shell_script,expected_process,scheduled_for,timezone,schedule_type,priority,status,
+                execution_id,attempt_count,max_attempts,created_at,triggered_at,approved_at,denied_at,
+                completed_at,failed_at,cancelled_at,expired_at,failure_reason,last_error
+                FROM scheduled_tasks WHERE status=$1 ORDER BY scheduled_for ASC LIMIT $2""", status, limit)
+        else:
+            rows = await conn.fetch("""SELECT id,original_prompt,target_os,requires_browser,target_url,
+                shell_script,expected_process,scheduled_for,timezone,schedule_type,priority,status,
+                execution_id,attempt_count,max_attempts,created_at,triggered_at,approved_at,denied_at,
+                completed_at,failed_at,cancelled_at,expired_at,failure_reason,last_error
+                FROM scheduled_tasks ORDER BY scheduled_for DESC LIMIT $1""", limit)
+        return [_json_safe_record(r) for r in rows]
+
 
 @app.get("/api/scheduled-tasks/{task_id}")
 async def get_scheduled_task(task_id: int):
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
-        if not record:
-            raise HTTPException(status_code=404, detail="Task not found")
-        return dict(record)
+        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id=$1", task_id)
+        if not record: raise HTTPException(status_code=404, detail="Task not found")
+        result = _json_safe_record(record)
+        result.pop("approval_token_hash", None)
+        return result
+
 
 @app.post("/api/scheduled-tasks/{task_id}/cancel")
 async def cancel_scheduled_task(task_id: int):
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id = $1", task_id)
-        if not record:
-            raise HTTPException(status_code=404, detail="Task not found")
-        if record['status'] in ('completed', 'failed', 'cancelled', 'denied'):
-            raise HTTPException(status_code=400, detail="Cannot cancel task in this state")
-        
-        await conn.execute("UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = $1", task_id)
-        return {"status": "cancelled"}
+        async with conn.transaction():
+            record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"] in {"completed","failed","cancelled","denied","expired"}:
+                raise HTTPException(status_code=400, detail=f"Cannot cancel task in {record['status']} state")
+            await conn.execute("""UPDATE scheduled_tasks SET status='cancelled',
+                cancelled_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,
+                approval_expires_at=NULL,last_error='Cancelled by user' WHERE id=$1""", task_id)
+            return {"status":"cancelled","task_id":task_id}
+
+
+@app.post("/api/scheduled-tasks/{task_id}/retry")
+async def retry_scheduled_task(task_id: int):
+    async with DB_POOL.acquire() as conn:
+        async with conn.transaction():
+            record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"] not in {"failed","expired","denied"}:
+                raise HTTPException(status_code=400, detail="Only failed, expired, or denied tasks can be retried.")
+            await conn.execute("""UPDATE scheduled_tasks SET status='scheduled',
+                scheduled_for=CURRENT_TIMESTAMP,approval_token_hash=NULL,
+                approval_expires_at=NULL,last_error=NULL,failure_reason=NULL,
+                denied_at=NULL,expired_at=NULL WHERE id=$1""", task_id)
+            return {"status":"scheduled","task_id":task_id}
+
 
 @app.get("/api/scheduled-tasks/internal/poll")
 async def poll_due_tasks():
-    # Atomic claim logic for host executor
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            # Find a scheduled task that is due
-            record = await conn.fetchrow(
-                '''
-                SELECT id FROM scheduled_tasks 
-                WHERE status = 'scheduled' AND scheduled_for <= CURRENT_TIMESTAMP
-                ORDER BY scheduled_for ASC
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-                '''
-            )
-            if not record:
-                return {"task": None}
-                
-            task_id = record['id']
-            approval_token = str(uuid.uuid4())
-            await conn.execute(
-                '''
-                UPDATE scheduled_tasks 
-                SET status = 'awaiting_approval', approval_token = $1, triggered_at = CURRENT_TIMESTAMP
-                WHERE id = $2
-                ''',
-                approval_token, task_id
-            )
-            
-            task = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
-            # return Dict, stringifying datetimes
-            res = dict(task)
-            for k, v in res.items():
-                if isinstance(v, datetime.datetime):
-                    res[k] = v.isoformat()
-            return {"task": res}
+            record = await conn.fetchrow("""SELECT * FROM scheduled_tasks
+                WHERE status='scheduled' AND scheduled_for<=CURRENT_TIMESTAMP
+                AND attempt_count<max_attempts
+                ORDER BY priority ASC,scheduled_for ASC,id ASC
+                FOR UPDATE SKIP LOCKED LIMIT 1""")
+            if not record: return {"task":None}
+
+            task_id=record["id"]
+            raw_token=_new_approval_token()
+            token_hash=_hash_approval_token(raw_token)
+            expiry=_approval_expiry_for_task(dict(record))
+            await conn.execute("""UPDATE scheduled_tasks SET status='awaiting_approval',
+                approval_token_hash=$1,approval_expires_at=$2,triggered_at=CURRENT_TIMESTAMP,
+                attempt_count=attempt_count+1,last_error=NULL WHERE id=$3""",
+                token_hash,expiry,task_id)
+            task=dict(record)
+            task["status"]="awaiting_approval"
+            task["approval_token"]=raw_token
+            task["approval_expires_at"]=expiry
+            return {"task":_json_safe_record(task)}
+
 
 @app.post("/api/scheduled-tasks/{task_id}/approve")
 async def approve_scheduled_task(task_id: int, request: Request):
-    body = await request.json()
-    token = body.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Missing token")
-        
+    body=await request.json()
+    token=str(body.get("token") or "").strip()
+    if not token: raise HTTPException(status_code=400, detail="Missing approval token")
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
-        if not record:
-            raise HTTPException(status_code=404, detail="Task not found")
-            
-        if record['status'] != 'awaiting_approval':
-            raise HTTPException(status_code=400, detail=f"Task is in {record['status']} state, not awaiting_approval")
-            
-        if record['approval_token'] != token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-            
-        await conn.execute("UPDATE scheduled_tasks SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approval_token = NULL WHERE id = $1", task_id)
-        
-        # We also need to return the full payload so the UI can execute it if needed, or the host executor can pick it up.
-        # Actually, the host executor will be waiting or polling for status.
-        return {"status": "approved"}
+        async with conn.transaction():
+            record=await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"]!="awaiting_approval": raise HTTPException(status_code=409, detail=f"Task is already {record['status']}.")
+            if record["approval_token_hash"]!=_hash_approval_token(token): raise HTTPException(status_code=403, detail="Invalid approval token")
+            if record["approval_expires_at"] and record["approval_expires_at"]<=_utc_now():
+                await conn.execute("""UPDATE scheduled_tasks SET status='expired',
+                    expired_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""",task_id)
+                raise HTTPException(status_code=410, detail="Approval window expired")
+            await conn.execute("""UPDATE scheduled_tasks SET status='approved',
+                approved_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""",task_id)
+            return {"status":"approved","task_id":task_id}
+
 
 @app.post("/api/scheduled-tasks/{task_id}/deny")
 async def deny_scheduled_task(task_id: int, request: Request):
-    body = await request.json()
-    token = body.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Missing token")
-        
+    body=await request.json()
+    token=str(body.get("token") or "").strip()
+    if not token: raise HTTPException(status_code=400, detail="Missing approval token")
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
-        if not record:
-            raise HTTPException(status_code=404, detail="Task not found")
-            
-        if record['approval_token'] != token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-            
-        await conn.execute("UPDATE scheduled_tasks SET status = 'denied', denied_at = CURRENT_TIMESTAMP, approval_token = NULL WHERE id = $1", task_id)
-        return {"status": "denied"}
+        async with conn.transaction():
+            record=await conn.fetchrow("SELECT status,approval_token_hash FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"]!="awaiting_approval": raise HTTPException(status_code=409, detail=f"Task is already {record['status']}.")
+            if record["approval_token_hash"]!=_hash_approval_token(token): raise HTTPException(status_code=403, detail="Invalid approval token")
+            await conn.execute("""UPDATE scheduled_tasks SET status='denied',
+                denied_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""",task_id)
+            return {"status":"denied","task_id":task_id}
+
+
+@app.post("/api/scheduled-tasks/{task_id}/mark-executing")
+async def mark_scheduled_task_executing(task_id: int, request: Request):
+    body=await request.json()
+    execution_id=str(body.get("execution_token") or "").strip()
+    if not execution_id: raise HTTPException(status_code=400, detail="Missing execution token")
+    async with DB_POOL.acquire() as conn:
+        updated=await conn.fetchrow("""UPDATE scheduled_tasks SET status='executing',execution_id=$1
+            WHERE id=$2 AND status='approved' RETURNING id,status,execution_id""",execution_id,task_id)
+        if not updated: raise HTTPException(status_code=409, detail="Task is no longer approved for execution.")
+        return dict(updated)
+
 
 @app.post("/api/scheduled-tasks/{task_id}/result")
 async def store_scheduled_task_result(task_id: int, request: Request):
-    body = await request.json()
-    status = body.get("status") # completed, failed
-    execution_result = body.get("execution_result", {})
-    execution_id = body.get("execution_id")
-    failure_reason = body.get("failure_reason")
-    
+    body=await request.json()
+    status=str(body.get("status") or "")
+    execution_result=body.get("execution_result") or {}
+    execution_id=body.get("execution_id")
+    failure_reason=body.get("failure_reason")
+    if status not in {"completed","failed"}:
+        raise HTTPException(status_code=400, detail="status must be completed or failed")
+
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
-        if not record or record['status'] != 'approved':
-            return {"status": "ignored"}
-            
-        if status == 'completed':
-            await conn.execute("UPDATE scheduled_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP, execution_result = $1, execution_id = $2 WHERE id = $3", json.dumps(execution_result), execution_id, task_id)
-        else:
-            await conn.execute("UPDATE scheduled_tasks SET status = 'failed', failed_at = CURRENT_TIMESTAMP, failure_reason = $1, execution_result = $2, execution_id = $3 WHERE id = $4", failure_reason, json.dumps(execution_result), execution_id, task_id)
-            
-        return {"status": "ok"}
+        async with conn.transaction():
+            record=await conn.fetchrow("SELECT status,attempt_count,max_attempts FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"] not in {"approved","executing"}:
+                return {"status":"ignored","reason":f"Task is {record['status']}"}
+
+            if status=="completed":
+                await conn.execute("""UPDATE scheduled_tasks SET status='completed',
+                    completed_at=CURRENT_TIMESTAMP,execution_result=$1,execution_id=$2,last_error=NULL WHERE id=$3""",
+                    json.dumps(execution_result),execution_id,task_id)
+            else:
+                terminal=record["attempt_count"]>=record["max_attempts"]
+                next_status="failed" if terminal else "scheduled"
+                await conn.execute("""UPDATE scheduled_tasks SET status=$1,
+                    failed_at=CASE WHEN $1='failed' THEN CURRENT_TIMESTAMP ELSE failed_at END,
+                    failure_reason=$2,last_error=$2,execution_result=$3,execution_id=$4,
+                    scheduled_for=CASE WHEN $1='scheduled'
+                    THEN CURRENT_TIMESTAMP + INTERVAL '15 seconds' ELSE scheduled_for END WHERE id=$5""",
+                    next_status,failure_reason or "Scheduled execution failed",
+                    json.dumps(execution_result),execution_id,task_id)
+            return {"status":"ok","task_id":task_id}
+
 
 @app.post("/api/scheduled-tasks/{task_id}/expire")
 async def expire_scheduled_task(task_id: int):
     async with DB_POOL.acquire() as conn:
-        record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id = $1", task_id)
-        if record and record['status'] == 'awaiting_approval':
-            await conn.execute("UPDATE scheduled_tasks SET status = 'expired', approval_token = NULL WHERE id = $1", task_id)
-        return {"status": "expired"}
+        async with conn.transaction():
+            record=await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            if not record: raise HTTPException(status_code=404, detail="Task not found")
+            if record["status"]=="awaiting_approval":
+                await conn.execute("""UPDATE scheduled_tasks SET status='expired',
+                    approval_token_hash=NULL,approval_expires_at=NULL,
+                    expired_at=CURRENT_TIMESTAMP,last_error='Approval window expired' WHERE id=$1""",task_id)
+                return {"status":"expired"}
+            return {"status":record["status"]}

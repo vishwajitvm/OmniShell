@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OmniShell Host Execution Agent V2
+OmniShell Host Execution Agent V3
 
 A local host bridge for OmniShell.
 
@@ -1444,7 +1444,7 @@ class ExecutionHandler(
     http.server.BaseHTTPRequestHandler
 ):
 
-    server_version = "OmniShellHost/2.0"
+    server_version = "OmniShellHost/3.0"
 
     # --------------------------------------------------------
     # Common headers
@@ -1573,7 +1573,7 @@ class ExecutionHandler(
                     {
                         "status": "ok",
                         "service": "OmniShell Host Executor",
-                        "version": "2.0",
+                        "version": "3.0",
                         "os": platform.system(),
                         "port": PORT,
                     }
@@ -2004,210 +2004,227 @@ class ThreadedHTTPServer(
 # ============================================================
 
 
+
 # ============================================================
-# SCHEDULER LOOP (BACKGROUND)
+# SCHEDULED EXECUTION ENGINE
 # ============================================================
 
 import threading
-import time
 import requests
-import json
 import webbrowser
+from urllib.parse import urlparse
 
-SCHEDULER_ENABLED = os.getenv("OMNISHELL_SCHEDULER_ENABLED", "true").lower() == "true"
-SCHEDULER_INTERVAL = int(os.getenv("OMNISHELL_SCHEDULER_INTERVAL_SECONDS", "2"))
-APPROVAL_TIMEOUT = int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300"))
-BACKEND_URL = "http://127.0.0.1:8000"
+SCHEDULER_ENABLED = os.getenv("OMNISHELL_SCHEDULER_ENABLED", "true").lower() in {"1","true","yes","on"}
+SCHEDULER_INTERVAL = max(1, int(os.getenv("OMNISHELL_SCHEDULER_INTERVAL_SECONDS", "2")))
+APPROVAL_TIMEOUT = max(30, int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300")))
+BACKEND_URL = os.getenv("OMNISHELL_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+APPROVAL_UI_BASE = os.getenv("OMNISHELL_APPROVAL_UI_BASE", "http://127.0.0.1:3000/scheduled-approval").rstrip("/")
+SCHEDULER_HTTP_TIMEOUT = float(os.getenv("OMNISHELL_SCHEDULER_HTTP_TIMEOUT", "5"))
+SCHEDULER_MAX_WORKERS = max(1, int(os.getenv("OMNISHELL_SCHEDULER_MAX_WORKERS", "4")))
+
+_scheduler_stop=threading.Event()
+_scheduler_workers=threading.BoundedSemaphore(SCHEDULER_MAX_WORKERS)
+_scheduler_active_ids:set[int]=set()
+_scheduler_active_lock=threading.RLock()
+
+
+def _http_json(method,url,**kwargs):
+    response=requests.request(method,url,timeout=SCHEDULER_HTTP_TIMEOUT,**kwargs)
+    try: payload=response.json()
+    except Exception: payload={}
+    return response.status_code,payload
+
+
+def _browser_candidates():
+    system=platform.system().lower()
+    if system=="windows":
+        return [("msedge",["--new-window"]),("chrome",["--new-window"]),("brave",["--new-window"]),("firefox",["--new-window"])]
+    if system=="darwin":
+        return [("open",["-na","Google Chrome","--args","--new-window"]),("open",["-na","Brave Browser","--args","--new-window"]),("open",["-na","Firefox","--args","--new-window"])]
+    return [("google-chrome",["--new-window"]),("google-chrome-stable",["--new-window"]),("brave-browser",["--new-window"]),("chromium",["--new-window"]),("chromium-browser",["--new-window"]),("firefox",["--new-window"])]
+
+
+def open_new_browser_window(url):
+    parsed=urlparse(url)
+    if parsed.scheme not in {"http","https"}:
+        raise ValueError("Browser URL must use http/https.")
+    errors=[]
+    system=platform.system().lower()
+    for executable,args in _browser_candidates():
+        resolved=shutil.which(executable)
+        if not resolved: continue
+        try:
+            subprocess.Popen(
+                [resolved,*args,url],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,stdin=subprocess.DEVNULL,
+                start_new_session=system!="windows",
+                creationflags=(subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP if system=="windows" else 0),
+            )
+            return {"opened":True,"browser":executable,"method":"native-new-window","url":url}
+        except Exception as exc:
+            errors.append(f"{executable}: {exc}")
+    try:
+        if webbrowser.open_new(url):
+            return {"opened":True,"browser":"system-default","method":"webbrowser.open_new","url":url}
+    except Exception as exc:
+        errors.append(f"webbrowser: {exc}")
+    raise RuntimeError("Could not launch a browser approval window." + (f" {' | '.join(errors)}" if errors else ""))
+
+
+def execute_scheduled_workflow(task):
+    task_id=int(task["id"])
+    execution_id=uuid.uuid4().hex
+
+    status,response=_http_json(
+        "POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/mark-executing",
+        json={"execution_token":execution_id},
+    )
+    if status!=200:
+        raise RuntimeError(f"Task {task_id} could not enter executing state: {response.get('detail',response)}")
+
+    if task.get("requires_browser"):
+        target_url=str(task.get("target_url") or "").strip()
+        if not target_url: raise ValueError("Scheduled browser task has no target_url.")
+        if urlparse(target_url).scheme not in {"http","https"}:
+            raise ValueError("Scheduled browser target must use http/https.")
+        browser_result=open_new_browser_window(target_url)
+        result={"execution_id":execution_id,"status":"completed","success":True,"mode":"browser_new_window","target_url":target_url,"browser_launch":browser_result,"scheduled_task_id":task_id}
+        _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
+                   json={"status":"completed","execution_id":execution_id,"execution_result":result})
+        return result
+
+    command=str(task.get("shell_script") or "").strip()
+    if not command: raise ValueError("Scheduled shell task has no shell_script.")
+    risk=classify_command(command)
+    if risk["level"]=="critical":
+        raise PermissionError("Scheduled execution blocked by host risk policy: "+", ".join(risk["reasons"]))
+
+    result=execute_command(command,execution_id=execution_id,expected_process=task.get("expected_process"),approved=True)
+    payload=asdict(result)
+    final_status="completed" if result.success else "failed"
+    _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
+               json={"status":final_status,"execution_id":execution_id,
+                     "execution_result":{**payload,"scheduled_task_id":task_id,"risk_recheck":risk},
+                     "failure_reason":None if result.success else result.stderr or result.output})
+    return payload
+
 
 def handle_claimed_task(task):
-    task_id = task["id"]
-    token = task["approval_token"]
-    print(f"[SCHEDULER] Claimed due task {task_id}. Requesting approval...")
-    
-    # Launch new browser window
-    approval_url = f"http://localhost:3000/scheduled-approval/{token}?taskId={task_id}"
-    
+    task_id=int(task["id"])
+    with _scheduler_active_lock:
+        if task_id in _scheduler_active_ids: return
+        _scheduler_active_ids.add(task_id)
     try:
-        webbrowser.open_new(approval_url)
-    except Exception as e:
-        print(f"[SCHEDULER] Failed to open browser natively: {e}")
-    
-    # Polling for approval status
-    start_wait = time.time()
-    resolved = False
-    while time.time() - start_wait < APPROVAL_TIMEOUT:
-        try:
-            status_resp = requests.get(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}", timeout=5)
-            if status_resp.status_code == 200:
-                t_status = status_resp.json().get("status")
-                if t_status == "approved":
-                    print(f"[SCHEDULER] Task {task_id} approved. Executing...")
-                    resolved = True
-                    raw = task.get("raw_workflow")
-                    if isinstance(raw, str):
-                        raw = json.loads(raw)
-                    
-                    try:
-                        res = execute_command(
-                            requires_browser=task.get("requires_browser", False),
-                            target_url=task.get("target_url"),
-                            shell_script=task.get("shell_script"),
-                            expected_process=task.get("expected_process")
-                        )
-                        exec_res = res.get("execution", {})
-                        status = "completed" if res.get("status") == "success" else "failed"
-                        requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json={
-                            "status": status,
-                            "execution_result": exec_res,
-                            "execution_id": exec_res.get("execution_id"),
-                            "failure_reason": res.get("error") if status == "failed" else None
-                        }, timeout=5)
-                        print(f"[SCHEDULER] Task {task_id} execution finished: {status}")
-                    except Exception as e:
-                        requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json={
-                            "status": "failed",
-                            "failure_reason": str(e)
-                        }, timeout=5)
-                        print(f"[SCHEDULER] Task {task_id} execution failed: {e}")
+        token=str(task.get("approval_token") or "")
+        if not token: raise RuntimeError("No approval token was returned for claimed task.")
+        approval_url=f"{APPROVAL_UI_BASE}/{token}?taskId={task_id}"
+        print(f"[SCHEDULER] Task {task_id} due; opening approval window.")
+        try: open_new_browser_window(approval_url)
+        except Exception as exc: print(f"[SCHEDULER] Approval browser launch failed: {exc}")
+
+        started=time.monotonic()
+        resolved=False
+        while not _scheduler_stop.is_set():
+            if time.monotonic()-started>=APPROVAL_TIMEOUT: break
+            try:
+                status,data=_http_json("GET",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}")
+                if status==200:
+                    current=data.get("status")
+                    if current=="approved":
+                        resolved=True
+                        try: execute_scheduled_workflow(task)
+                        except Exception as exc:
+                            print(f"[SCHEDULER] Execution failed: {exc}")
+                            _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
+                                       json={"status":"failed","execution_id":None,"failure_reason":str(exc),
+                                             "execution_result":{"scheduled_task_id":task_id}})
+                        break
+                    if current in {"denied","cancelled","expired","completed","failed"}:
+                        resolved=True
+                        break
+                elif status==404:
+                    resolved=True
                     break
-                elif t_status in ("denied", "cancelled"):
-                    print(f"[SCHEDULER] Task {task_id} {t_status} by user.")
-                    resolved = True
-                    break
-        except Exception as e:
-            pass # ignore temporary connection issues during polling
-            
-        time.sleep(1)
-        
-    if not resolved:
-        print(f"[SCHEDULER] Task {task_id} approval timed out.")
-        try:
-            requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/expire", timeout=5)
-        except:
-            pass
+            except Exception as exc:
+                print(f"[SCHEDULER] Temporary status error for {task_id}: {exc}")
+            _scheduler_stop.wait(1.0)
+
+        if not resolved and not _scheduler_stop.is_set():
+            try: _http_json("POST",f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/expire")
+            except Exception as exc: print(f"[SCHEDULER] Expiry update failed: {exc}")
+    finally:
+        with _scheduler_active_lock: _scheduler_active_ids.discard(task_id)
+
+
+def _task_worker(task):
+    try: handle_claimed_task(task)
+    finally: _scheduler_workers.release()
+
 
 def scheduler_loop():
-    print("[SCHEDULER] Started background polling loop.")
-    while True:
+    print(f"[SCHEDULER] Started | interval={SCHEDULER_INTERVAL}s workers={SCHEDULER_MAX_WORKERS} backend={BACKEND_URL}")
+    consecutive_errors=0
+    while not _scheduler_stop.is_set():
         try:
-            resp = requests.get(f"{BACKEND_URL}/api/scheduled-tasks/internal/poll", timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                task = data.get("task")
-                if task:
-                    # Spawn a thread so the main scheduler doesn't block if multiple tasks are due
-                    threading.Thread(target=handle_claimed_task, args=(task,), daemon=True).start()
-        except Exception as e:
-            pass # Backend unavailable, just ignore and sleep
-            
-        time.sleep(SCHEDULER_INTERVAL)
+            status,data=_http_json("GET",f"{BACKEND_URL}/api/scheduled-tasks/internal/poll")
+            if status==200:
+                consecutive_errors=0
+                task=data.get("task")
+                if task and _scheduler_workers.acquire(blocking=False):
+                    threading.Thread(target=_task_worker,args=(task,),daemon=True,name=f"scheduled-task-{task.get('id')}").start()
+            else:
+                consecutive_errors+=1
+        except Exception as exc:
+            consecutive_errors+=1
+            if consecutive_errors in {1,5,20} or consecutive_errors%50==0:
+                print(f"[SCHEDULER] Backend unavailable ({consecutive_errors}): {exc}")
+        _scheduler_stop.wait(min(max(SCHEDULER_INTERVAL,1)*(2 if consecutive_errors>=5 else 1),15))
+
+
+def stop_scheduler():
+    _scheduler_stop.set()
+
 
 def main():
-
     print()
-    print("=" * 60)
-    print(
-        "        OMNISHELL HOST EXECUTION AGENT V2"
-    )
-    print("=" * 60)
-
-    print(
-        f"OS:           {platform.system()}"
-    )
-
-    print(
-        f"Architecture: {platform.machine()}"
-    )
-
-    shell_name, shell_path = detect_shell()
-
-    print(
-        f"Shell:        {shell_name}"
-    )
-
-    print(
-        f"Shell path:   {shell_path}"
-    )
-
-    print(
-        f"Host:         {HOST}"
-    )
-
-    print(
-        f"Port:         {PORT}"
-    )
-
-    print(
-        f"Policy:       "
-        f"{'ENFORCED' if ENFORCE_POLICY else 'PERMISSIVE'}"
-    )
-
-    if platform.system().lower() != "windows":
-
-        terminal = find_terminal()
-
-        print(
-            f"Terminal:     "
-            f"{terminal or 'none'}"
-        )
-
-    print("=" * 60)
-    print(
-        f"Health:       http://{HOST}:{PORT}/health"
-    )
-
-    print(
-        f"System:       http://{HOST}:{PORT}/system"
-    )
-
-    print(
-        f"Executions:   http://{HOST}:{PORT}/executions"
-    )
-
-    print("=" * 60)
+    print("="*60)
+    print("        OMNISHELL HOST EXECUTION AGENT V3")
+    print("="*60)
+    print(f"OS:           {platform.system()}")
+    print(f"Architecture: {platform.machine()}")
+    shell_name,shell_path=detect_shell()
+    print(f"Shell:        {shell_name}")
+    print(f"Shell path:   {shell_path}")
+    print(f"Host:         {HOST}")
+    print(f"Port:         {PORT}")
+    print(f"Policy:       {'ENFORCED' if ENFORCE_POLICY else 'PERMISSIVE'}")
+    print(f"Scheduler:    {'ENABLED' if SCHEDULER_ENABLED else 'DISABLED'}")
+    if platform.system().lower()!="windows":
+        print(f"Terminal:     {find_terminal() or 'none'}")
+    print("="*60)
+    print(f"Health:       http://{HOST}:{PORT}/health")
+    print(f"System:       http://{HOST}:{PORT}/system")
+    print(f"Executions:   http://{HOST}:{PORT}/executions")
+    print(f"Backend:      {BACKEND_URL}")
+    print("="*60)
     print()
 
     if SCHEDULER_ENABLED:
-        threading.Thread(target=scheduler_loop, daemon=True).start()
-
-    server = ThreadedHTTPServer(
-        (
-            HOST,
-            PORT,
-        ),
-        ExecutionHandler,
-    )
-
+        threading.Thread(target=scheduler_loop,daemon=True,name="omnishell-scheduler").start()
+    server=ThreadedHTTPServer((HOST,PORT),ExecutionHandler)
     try:
-
         server.serve_forever()
-
     except KeyboardInterrupt:
-
-        print(
-            "\n[HOST AGENT] Shutdown requested."
-        )
-
+        print("\\n[HOST AGENT] Shutdown requested.")
     finally:
-
+        stop_scheduler()
         for task in REGISTRY.active():
-
             if task.process:
-
-                try:
-                    terminate_process_tree(
-                        task.process,
-                        force=True,
-                    )
-                except Exception:
-                    pass
-
+                try: terminate_process_tree(task.process,force=True)
+                except Exception: pass
         server.server_close()
-
-        print(
-            "[HOST AGENT] Server stopped."
-        )
+        print("[HOST AGENT] Server stopped.")
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
