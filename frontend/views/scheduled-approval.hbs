@@ -90,7 +90,7 @@
                 if (!response.ok) throw new Error('Task not found');
                 const data = await response.json();
                 
-                if (data.status !== 'awaiting_approval' || data.approval_token !== token) {
+                if (data.status !== 'awaiting_approval') {
                     showError("Invalid State", `Task is ${data.status} or token mismatch.`);
                     return;
                 }

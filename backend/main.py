@@ -945,7 +945,8 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     You are a Multi-Agent OS Automation Syndicate. 
     You are receiving a request from a user on the following OS environment: '{request.user_agent_os}'.
     
-    CURRENT SYSTEM TIME: {request.local_time or datetime.datetime.now().isoformat()}
+    CURRENT SYSTEM TIME (UTC): {request.local_time or datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    USER TIMEZONE: {request.timezone}
     
     You must simulate a highly advanced, MULTI-TURN, ITERATIVE discussion between SEVEN distinct agents.
     CRITICAL INTELLIGENCE REQUIREMENT: For EVERY proposed action or shell script, the Critic agents (Security Guard or Command Validator) MUST review it. 
@@ -979,7 +980,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
               - SCHEDULING / FUTURE EXECUTION: If the user asks to do something in the future (e.g., "in 10 minutes", "tomorrow at 5", "after 30 minutes"):
          * You MUST set `is_scheduled=true`.
-         * Set `scheduled_time` to the EXACT future time in ISO 8601 format (UTC preferred). CALCULATE this based on the CURRENT SYSTEM TIME provided above.
+         * Set `scheduled_time` to the EXACT future time in ISO 8601 format with the 'Z' UTC indicator. CALCULATE this by adding the duration to the CURRENT SYSTEM TIME (UTC) provided above. DO NOT USE THE USER'S LOCAL TIMEZONE OFFSET FOR THE MATH.
          * The REST of the JSON must contain the COMPLETE executable workflow as if it were happening now (e.g. requires_browser=true and target_url="...", or shell_script="...", and expected_process="...").
          * DO NOT write a `sleep` command in the shell script. The system's native scheduler handles the delay.
          * Set `is_reminder=false` (simple reminders are deprecated in favor of scheduled executable tasks).

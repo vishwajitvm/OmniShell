@@ -194,7 +194,8 @@
                     body: JSON.stringify({ 
                         natural_language_prompt: prompt,
                         user_agent_os: osContext,
-                        local_time: new Date().toString() // e.g. 'Sun Sep 27 2026 20:53:00 GMT+0530 (India Standard Time)'
+                        local_time: new Date().toISOString(),
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
                     })
                 });
                 
