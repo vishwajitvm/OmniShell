@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OmniShell Host Execution Agent V3
+OmniShell Host Execution Agent V4
 
 A local host bridge for OmniShell.
 
@@ -136,6 +136,8 @@ class ExecutionResult:
     recovery_action: Optional[str] = None
     verification_passed: bool = True
     idempotency_key: Optional[str] = None
+    budget_exhausted: bool = False
+    safety_decision: Optional[str] = None
 
 
 @dataclass
@@ -633,6 +635,7 @@ def execute_with_recovery(
     environment: Optional[dict[str, Any]] = None,
     timeout: Any = None,
     dry_run: bool = False,
+    deadline: Optional[float] = None,
 ) -> ExecutionResult:
     """Execute a command with bounded retries, diagnostics and optional fallback.
 
@@ -644,21 +647,26 @@ def execute_with_recovery(
     if cached:
         return cached
 
-    max_attempts = max(1, min(int(max_attempts or 1), 5))
+    max_attempts = max(1, min(int(max_attempts or 1), MAX_RECOVERY_ATTEMPTS))
     retry_on = set(retry_on or ["timeout", "connection", "transient"])
-    backoff_seconds = backoff_seconds or [1.0, 3.0, 8.0]
+    backoff_seconds = backoff_seconds or [1.0, 3.0]
+    effective_deadline = deadline if deadline is not None else (time.monotonic() + EXECUTION_BUDGET_SECONDS)
     last: Optional[ExecutionResult] = None
 
     for attempt in range(1, max_attempts + 1):
+        if time.monotonic() >= effective_deadline:
+            break
+        remaining = max(0.25, effective_deadline - time.monotonic())
+        attempt_timeout = min(clamp_timeout(timeout), remaining)
         result = execute_command(
             command,
             working_directory=working_directory,
             approved=approved,
+            timeout=attempt_timeout,
             expected_process=expected_process,
             expected_path=expected_path,
             expected_absent_path=expected_absent_path,
             environment=environment,
-            timeout=timeout,
             dry_run=dry_run,
             execution_id=execution_id if attempt == 1 and execution_id else uuid.uuid4().hex,
         )
@@ -677,8 +685,13 @@ def execute_with_recovery(
         failure_class = "timeout" if result.timed_out else ("connection" if any(x in result.stderr.lower() for x in ["connection", "network", "temporarily unavailable"]) else "transient")
         if failure_class not in retry_on or attempt >= max_attempts:
             break
-        delay = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
-        time.sleep(max(0.0, float(delay)))
+        delay = min(
+            max(0.0, float(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])),
+            max(0.0, effective_deadline - time.monotonic()),
+        )
+        if delay <= 0:
+            break
+        time.sleep(delay)
 
     if last is None:
         raise RuntimeError("Recovery executor produced no execution result.")
@@ -686,15 +699,30 @@ def execute_with_recovery(
     # Diagnostics are observational and are not allowed to replace the primary failure.
     if diagnostic_command and not last.success:
         try:
-            diag = execute_command(diagnostic_command, working_directory=working_directory, approved=approved, timeout=min(DEFAULT_TIMEOUT, 30))
+            diag = execute_command(
+                diagnostic_command,
+                working_directory=working_directory,
+                approved=approved,
+                timeout=max(0.25, min(DEFAULT_TIMEOUT, 10, effective_deadline - time.monotonic())),
+            )
             last.verification["diagnostic"] = asdict(diag)
         except Exception as exc:
             last.verification["diagnostic_error"] = str(exc)
 
     # Fallback is opt-in and only runs after the bounded primary retry loop.
-    if fallback_script and not last.success and last.risk_level not in {"critical", "high"}:
+    if (
+        fallback_script
+        and not last.success
+        and last.risk_level not in {"critical", "high"}
+        and time.monotonic() < effective_deadline
+    ):
         try:
-            fallback = execute_command(fallback_script, working_directory=working_directory, approved=approved)
+            fallback = execute_command(
+                fallback_script,
+                working_directory=working_directory,
+                approved=approved,
+                timeout=max(0.25, min(DEFAULT_TIMEOUT, effective_deadline - time.monotonic())),
+            )
             last.verification["fallback"] = asdict(fallback)
             last.recovery_action = "fallback_executed"
             if fallback.success:
@@ -931,6 +959,27 @@ def verify_process(
 # ============================================================
 
 RISK_PATTERNS: list[tuple[str, str, str]] = [
+    (
+        "critical",
+        "weapon/explosive construction or deployment",
+        r"\b(atom(?:ic)?\s+bomb|nuclear\s+(?:weapon|device)|thermonuclear|explosive|detonator|warhead|bioweapon|chemical\s+weapon|nerve\s+agent)\b",
+    ),
+    (
+        "critical",
+        "malware/credential theft tooling",
+        r"\b(ransomware|keylogger|credential\s+stealer|cookie\s+stealer|reverse\s+shell|meterpreter|rootkit|remote\s+access\s+trojan)\b",
+    ),
+    (
+        "critical",
+        "browser credential database access",
+        r"(login\s+data|cookies\.sqlite|logins\.json|web\s+data|key4\.db|credentials\.db).{0,80}(chrome|chromium|brave|firefox|edge)|(?:chrome|chromium|brave|firefox|edge).{0,80}(login\s+data|cookies\.sqlite|logins\.json|web\s+data|key4\.db|credentials\.db)",
+    ),
+    (
+        "critical",
+        "security bypass or unauthorized exploitation",
+        r"\b(disable\s+(?:defender|firewall|antivirus)|privilege\s+escalation|persistence|bypass\s+(?:security|guardrail|approval)|ddos|arp\s+spoof|dns\s+poison)\b",
+    ),
+
     (
         "critical",
         "disk destruction",
@@ -1197,8 +1246,9 @@ def execute_command(
         environment
     )
 
-    timeout_seconds = clamp_timeout(
-        timeout
+    timeout_seconds = min(
+        clamp_timeout(timeout),
+        EXECUTION_BUDGET_SECONDS,
     )
 
     risk = classify_command(
@@ -1206,6 +1256,47 @@ def execute_command(
     )
 
     started = time.time()
+
+    # V4 hard deny: explicit critical safety categories can never be approved
+    # through the generic execution flag. Human approval is for authorized
+    # high-impact host mutations, not for prohibited harmful capabilities.
+    if risk["level"] == "critical" and any(
+        reason in {
+            "weapon/explosive construction or deployment",
+            "malware/credential theft tooling",
+            "security bypass or unauthorized exploitation",
+        }
+        for reason in risk["reasons"]
+    ):
+        finished = time.time()
+        result = ExecutionResult(
+            execution_id=execution_id,
+            status="policy_blocked",
+            success=False,
+            exit_code=None,
+            signal=None,
+            command=command,
+            shell=shell_name,
+            shell_path=shell_path,
+            os=platform.system(),
+            architecture=platform.machine(),
+            working_directory=cwd,
+            stdout="",
+            stderr="",
+            output="Execution blocked by OmniShell V4 safety policy.",
+            duration_ms=int((finished - started) * 1000),
+            timed_out=False,
+            cancelled=False,
+            risk_level=risk["level"],
+            risk_reasons=risk["reasons"],
+            expected_process=expected_process,
+            started_at=started,
+            finished_at=finished,
+            verification_passed=False,
+            safety_decision="block",
+        )
+        REGISTRY.finish(execution_id, result)
+        return result
 
     if (
         (ENFORCE_POLICY or REQUIRE_RISK_APPROVAL)
@@ -1357,11 +1448,11 @@ def execute_command(
                     "",
                 ):
 
-                    chunks.append(line)
-
-                    task.output_lines.append(
-                        line.rstrip("\n")
-                    )
+                    current_size = sum(len(x.encode("utf-8", errors="ignore")) for x in chunks)
+                    if current_size < MAX_OUTPUT_BYTES:
+                        chunks.append(line)
+                    if len("".join(chunks).encode("utf-8", errors="ignore")) <= MAX_OUTPUT_BYTES:
+                        task.output_lines.append(line.rstrip("\n"))
 
                     if output_callback:
                         try:
@@ -1437,13 +1528,17 @@ def execute_command(
             time.sleep(0.05)
 
         try:
-            process.wait(timeout=3)
+            process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             terminate_process_tree(
                 process,
                 force=True,
             )
-            process.wait(timeout=3)
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                # Never remain attached to an uncooperative child process.
+                timed_out = True
 
         stdout_thread.join(timeout=2)
         stderr_thread.join(timeout=2)
@@ -1722,7 +1817,7 @@ class ExecutionHandler(
     http.server.BaseHTTPRequestHandler
 ):
 
-    server_version = "OmniShellHost/3.0"
+    server_version = "OmniShellHost/4.0"
 
     # --------------------------------------------------------
     # Common headers
@@ -1850,7 +1945,7 @@ class ExecutionHandler(
                     {
                         "status": "ok",
                         "service": "OmniShell Host Executor",
-                        "version": "3.0",
+                        "version": "4.0",
                         "os": platform.system(),
                         "port": PORT,
                         "capabilities_supported": 19,
@@ -1868,7 +1963,7 @@ class ExecutionHandler(
 
             if self.path == "/capabilities":
                 self._json_response({
-                    "service": "OmniShell Host Execution Agent V3",
+                    "service": "OmniShell Host Execution Agent V4",
                     "supported_capabilities": [
                         "Questions and answers", "Information requests", "System inspection",
                         "Analysis", "Application operations", "Browser operations", "File operations",
@@ -2196,13 +2291,27 @@ def open_new_browser_window(url):
 
 
 def _upload_result_with_retry(task_id, payload):
-    for attempt in range(100):
+    """Best-effort bounded telemetry upload; never holds execution hostage."""
+    started = time.monotonic()
+    for attempt in range(SCHEDULER_UPLOAD_MAX_ATTEMPTS):
+        if time.monotonic() - started >= SCHEDULER_UPLOAD_BUDGET_SECONDS:
+            print(f"[SCHEDULER] Result upload budget exhausted for task {task_id}")
+            return False
         try:
-            status, _ = _http_json("POST", f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json=payload)
-            if status in {200, 400, 404, 409}: return
+            status, _ = _http_json(
+                "POST",
+                f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result",
+                json=payload,
+            )
+            if status in {200, 400, 404, 409}:
+                return True
         except Exception as e:
             print(f"[SCHEDULER] Result upload failed (attempt {attempt+1}): {e}")
-        time.sleep(min(5 * (2 ** attempt), 60))
+        remaining = SCHEDULER_UPLOAD_BUDGET_SECONDS - (time.monotonic() - started)
+        if remaining <= 0:
+            break
+        time.sleep(min(2.0 * (attempt + 1), remaining))
+    return False
 
 def execute_scheduled_workflow(task):
     task_id = int(task["id"])

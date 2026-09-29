@@ -55,8 +55,9 @@ class AutomationRequest(BaseModel):
     request_id: str | None = None
 
 class AgentThought(BaseModel):
-    agent_name: str = Field(description="Name of the agent (e.g., 'OS Analyzer', 'Security Guard', 'Execution Planner')")
-    thought: str = Field(description="The internal reasoning and decision making of this agent")
+    agent_name: str = Field(description="Agent or supervisor name.")
+    thought: str = Field(description="Short decision evidence/status only; never expose private chain-of-thought.")
+
 
 class MultiAgentResult(BaseModel):
     multi_agent_discussion: list[AgentThought] = Field(default_factory=list, description="The step-by-step discussion between the agents.")
@@ -456,7 +457,7 @@ def classify_llm_error(exc: Exception) -> tuple[str, bool]:
     return "unknown", False
 
 
-async def call_llm_with_fallback(messages: list[dict], *, purpose: str = "automation", timeout: float = 30.0):
+async def call_llm_with_fallback(messages: list[dict], *, purpose: str = "automation", timeout: float = 30.0, deadline: float | None = None, max_models: int | None = None):
     """Single production LLM gateway used by every agent."""
     if not FALLBACK_MODELS:
         raise RuntimeError(
@@ -466,18 +467,29 @@ async def call_llm_with_fallback(messages: list[dict], *, purpose: str = "automa
         )
 
     errors = []
+    model_limit = max(1, int(max_models or LLM_MAX_MODELS_PER_REQUEST))
+    attempted = 0
     for model_name in FALLBACK_MODELS:
+        if attempted >= model_limit:
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         if model_is_cooled_down(model_name):
             logger.warning(f"[LLM Router] Skipping cooled-down model: {model_name}")
             continue
 
         try:
-            logger.info(f"[LLM Router] {purpose}: trying {model_name}")
+            attempted += 1
+            remaining = (deadline - time.monotonic()) if deadline is not None else timeout
+            effective_timeout = max(0.25, min(float(timeout), remaining))
+            if effective_timeout <= 0.25:
+                break
+            logger.info(f"[LLM Router] {purpose}: trying {model_name} | timeout={effective_timeout:.2f}s")
             response = await litellm.acompletion(
                 model=model_name,
                 messages=messages,
                 response_format={"type": "json_object"},
-                timeout=timeout,
+                timeout=effective_timeout,
                 num_retries=0,
                 drop_params=True,
             )
@@ -864,35 +876,219 @@ import re as _re
 # HARDCODED PRE-LLM GUARDRAIL (Cannot be jailbroken)
 # ============================================================
 BLOCKED_PATTERNS = [
-    # Password/credential theft
-    (r"password[s]?.*(extract|steal|get|retrieve|dump|export|show|find|list|read)", "Password/credential extraction attempt"),
-    (r"(shadow|passwd).*(read|cat|dump|access|get|view)", "System credential file access"),
-    (r"(browser|chrome|brave|firefox|edge).*(password|cookie|session|token|profile|autofill)", "Browser data theft attempt"),
-    (r"keylog", "Keylogger deployment"),
-    # System file attacks
-    (r"(delete|remove|rm|wipe|destroy|nuke).*(/etc|/root|/boot|/sys|/proc|system32|C:\\Windows|\.config\b|/snap\b)", "System directory attack"),
-    (r"rm\s+-rf\s+(/|~|\$HOME)\s*$", "Root/home directory wipe"),
-    (r"(mkfs|fdisk|wipefs|dd\s+if=).*(/dev/sd|/dev/nvme|/dev/hd)", "Disk destruction"),
-    # Mass destruction
-    (r"(delete|remove|rm|wipe).*(all|everything|every).*(file|folder|directory)", "Mass file destruction"),
-    # Illegal/harmful content
-    (r"(porn|xxx|adult\s+content|nsfw|hentai)", "Adult/illegal content request"),
-    (r"(dark\s*web|\.onion|tor\s+hidden|silk\s*road)", "Dark web access attempt"),
-    (r"(hack|exploit|crack|brute\s*force|reverse\s*shell|rat\s+trojan|ddos|dos\s+attack)", "Hacking/exploitation attempt"),
-    (r"(arp\s*spoof|dns\s*poison|mitm|man.in.the.middle)", "Network attack"),
-    # Social engineering bypass
-    (r"(bypass|ignore|skip|override|disable).*(safe|secur|guard|confirm|check|protect)", "Security bypass attempt"),
-    # Crypto mining
-    (r"(crypto\s*min|xmrig|minergate|nicehash|coinhive)", "Crypto mining attempt"),
+    # High-confidence harmful / weapon construction requests.
+    (r"\b(atom(?:ic)?\s+bomb|nuclear\s+(?:bomb|weapon|device)|thermonuclear\s+weapon)\b", "Nuclear weapon request"),
+    (r"\b(how\s+to|how\s+can\s+i|instructions?\s+to|steps?\s+to|build|make|construct|assemble|manufacture)\b.{0,100}\b(bomb|explosive|explosives|detonator|warhead|weapon)\b", "Weapon/explosive construction request"),
+    (r"\b(make|build|create|manufacture|synthesize|produce|weaponize)\b.{0,120}\b(nerve\s+agent|chemical\s+weapon|biological\s+weapon|bioweapon|toxin|ricin|anthrax)\b", "Chemical/biological weapon request"),
+
+    # Credential / session theft.
+    (r"\b(passwords?|credentials?|cookies?|session\s+tokens?|auth\s+tokens?|private\s+keys?)\b.{0,100}\b(extract|steal|dump|export|retrieve|harvest|exfiltrate|read)\b", "Credential or session theft request"),
+    (r"\b(extract|steal|dump|export|retrieve|harvest|exfiltrate|read)\b.{0,100}\b(passwords?|credentials?|cookies?|session\s+tokens?|auth\s+tokens?|private\s+keys?)\b", "Credential or session theft request"),
+    (r"\b(keylogger|key\s*logger|credential\s+stealer|cookie\s+stealer|token\s+stealer)\b", "Credential theft tooling"),
+    (r"\b(browser|chrome|brave|firefox|edge)\b.{0,100}\b(password|cookie|session|token|autofill|profile)\b", "Browser credential/data theft"),
+
+    # Malware / unauthorized exploitation.
+    (r"\b(ransomware|trojan|remote\s+access\s+trojan|rat\b|rootkit|botnet|payload)\b.{0,100}\b(deploy|install|create|build|execute|persist)\b", "Malware deployment request"),
+    (r"\b(reverse\s+shell|bind\s+shell|meterpreter|credential\s+dump|privilege\s+escalation|persistence)\b", "Unauthorized exploitation request"),
+    (r"\b(ddos|dos\s+attack|arp\s+spoof|dns\s+poison|mitm|man[\s.-]*in[\s.-]*the[\s.-]*middle)\b", "Network attack request"),
+
+    # System destruction.
+    (r"\b(delete|remove|wipe|destroy|nuke)\b.{0,120}\b(/etc|/root|/boot|/sys|/proc|system32|C:\\Windows)\b", "System directory attack"),
+    (r"\brm\s+-[^\n]*r[^\n]*f[^\n]*\s+(?:/|~|\$HOME)\b", "Root/home filesystem wipe"),
+    (r"\b(mkfs|fdisk|wipefs)\b.{0,100}\b(/dev/|disk|drive|nvme|sd[a-z])\b", "Disk destruction"),
+    (r"\b(dd\s+if=|shred\s+|format\s+disk|diskpart)\b", "Low-level disk destruction"),
+    (r"\b(delete|remove|wipe|destroy)\b.{0,80}\b(all|everything|every)\b.{0,80}\b(file|folder|directory|data)\b", "Mass data destruction"),
+
+    # Security bypass / persistence.
+    (r"\b(bypass|ignore|skip|override|disable)\b.{0,80}\b(safety|security|guardrail|approval|confirmation|policy|check)\b", "Security bypass request"),
+    (r"\b(disable|turn\s+off)\b.{0,80}\b(defender|firewall|selinux|apparmor|antivirus|security)\b", "Security-control disablement"),
 ]
 
-def hardcoded_guardrail_check(prompt: str) -> tuple:
-    """Pre-LLM guardrail. Returns (is_blocked, reason). Cannot be jailbroken."""
-    prompt_lower = prompt.lower()
+# Requests that require a policy decision even when they do not match an exact
+# destructive command. These are intentionally broad because the Safety
+# Supervisor may use a specialized safety model for semantic/obfuscated intent.
+HIGH_RISK_INTENT_TERMS = (
+    "weapon", "bomb", "explosive", "nuclear", "bioweapon", "chemical weapon",
+    "nerve agent", "toxin", "malware", "ransomware", "keylogger", "credential theft",
+    "password dump", "cookie theft", "reverse shell", "ddos", "exploit", "payload",
+    "rootkit", "persistence", "privilege escalation",
+)
+
+SAFETY_SUPERVISOR_TIMEOUT = float(os.getenv("OMNISHELL_SAFETY_TIMEOUT", "2.5"))
+WORKFLOW_BUDGET_SECONDS = float(os.getenv("OMNISHELL_WORKFLOW_BUDGET_SECONDS", "12"))
+LLM_MAX_MODELS_PER_REQUEST = max(1, int(os.getenv("OMNISHELL_LLM_MAX_MODELS", "2")))
+
+def _deterministic_safety_gate(prompt: str) -> tuple[bool, str, str]:
+    """Fast, fail-closed gate for high-confidence unsafe intent.
+
+    Returns (allowed, category, reason). This executes before any general LLM.
+    """
+    text = (prompt or "").strip()
+    lowered = text.lower()
     for pattern, reason in BLOCKED_PATTERNS:
-        if _re.search(pattern, prompt_lower):
-            return True, reason
-    return False, ""
+        if _re.search(pattern, lowered, flags=_re.IGNORECASE):
+            return False, "blocked", reason
+
+    # High-risk terms combined with an action verb indicate operational intent.
+    action = r"\b(build|make|create|construct|assemble|manufacture|deploy|install|execute|steal|dump|extract|bypass|disable|destroy|wipe|attack|exploit)\b"
+    if _re.search(action, lowered) and any(term in lowered for term in HIGH_RISK_INTENT_TERMS):
+        return False, "blocked", "High-risk operational intent detected"
+
+    return True, "unknown", ""
+
+async def safety_supervisor(prompt: str) -> dict[str, Any]:
+    """V4 Policy/Safety Supervisor.
+
+    It is deliberately outside the seven-agent planning discussion. It can
+    terminate the request before the main LLM is called. Deterministic rules
+    are authoritative for high-confidence cases; an optional specialized
+    safety model is used only for unresolved/high-risk semantic cases.
+    """
+    allowed, category, reason = _deterministic_safety_gate(prompt)
+    if not allowed:
+        return {
+            "allowed": False,
+            "decision": "block",
+            "category": category,
+            "reason": reason,
+            "source": "deterministic_policy",
+            "confidence": 1.0,
+        }
+
+    lowered = (prompt or "").lower()
+    needs_semantic_check = any(term in lowered for term in HIGH_RISK_INTENT_TERMS)
+    safety_model = next(
+        (name for name, meta in MODEL_REGISTRY.items() if meta.get("role") == "safety"),
+        None,
+    )
+    if not needs_semantic_check or not safety_model:
+        return {
+            "allowed": True,
+            "decision": "allow",
+            "category": "unclassified",
+            "reason": "",
+            "source": "deterministic_policy",
+            "confidence": 0.80,
+        }
+
+    # Use a short independent safety call. Failure is fail-closed for unresolved
+    # high-risk semantic intent, but does not affect ordinary low-risk prompts.
+    try:
+        response = await litellm.acompletion(
+            model=safety_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are OmniShell's safety policy classifier. "
+                        "Classify the user request only. Return JSON with keys: "
+                        "decision (allow|block|clarify), category, confidence, reason. "
+                        "Block requests seeking actionable instructions for weapons, "
+                        "explosives, malware, credential theft, unauthorized exploitation, "
+                        "violent wrongdoing, or security bypass. Educational high-level "
+                        "discussion without actionable construction/attack instructions "
+                        "may be allowed."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            timeout=SAFETY_SUPERVISOR_TIMEOUT,
+            num_retries=0,
+            drop_params=True,
+        )
+        raw = response.choices[0].message.content.strip()
+        decision = json.loads(raw)
+        d = str(decision.get("decision", "block")).lower()
+        if d not in {"allow", "block", "clarify"}:
+            d = "block"
+        confidence = float(decision.get("confidence", 0.0) or 0.0)
+        if d == "block" or (d == "clarify" and confidence >= 0.75):
+            return {
+                "allowed": False,
+                "decision": d,
+                "category": str(decision.get("category", "high_risk")),
+                "reason": str(decision.get("reason", "Safety Supervisor rejected the request")),
+                "source": "specialized_safety_model",
+                "confidence": confidence,
+            }
+        return {
+            "allowed": True,
+            "decision": d,
+            "category": str(decision.get("category", "unclassified")),
+            "reason": str(decision.get("reason", "")),
+            "source": "specialized_safety_model",
+            "confidence": confidence,
+        }
+    except Exception as exc:
+        logger.warning("[Safety Supervisor] semantic check failed: %s", exc)
+        # Unknown high-risk semantic intent must not proceed to an execution-capable
+        # planner. This is the key fail-closed behavior for V4.
+        return {
+            "allowed": False,
+            "decision": "clarify",
+            "category": "safety_check_unavailable",
+            "reason": "Safety verification could not be completed for a high-risk request.",
+            "source": "safety_fail_closed",
+            "confidence": 0.0,
+        }
+
+
+async def runtime_supervisor(prompt: str, deterministic_cap: dict[str, Any]) -> dict[str, Any]:
+    """V4 runtime supervisor for ambiguity, recursion, and execution scope.
+
+    This supervisor is intentionally lightweight. It does not generate commands.
+    It can stop an execution-capable plan when the request is underspecified or
+    appears to contain unbounded/recursive workflow instructions.
+    """
+    text = (prompt or "").strip().lower()
+    ambiguity = []
+    recursion_signals = []
+
+    if any(term in text for term in (
+        "keep trying forever", "until it works", "retry forever", "never stop",
+        "repeat indefinitely", "infinite loop", "recursive", "self replicate",
+    )):
+        recursion_signals.append("unbounded_or_recursive_instruction")
+
+    if len(text) > 12000:
+        ambiguity.append("request_too_large_for_single_execution_plan")
+
+    if deterministic_cap.get("capability_type") in {"shell_operation", "file_operation", "application_operation", "multi_step"}:
+        if any(x in text for x in ("it", "that", "there", "the file", "the project")) and not deterministic_cap.get("intent_entities"):
+            ambiguity.append("referent_or_target_not_resolved")
+
+    if recursion_signals:
+        return {
+            "decision": "stop",
+            "requires_clarification": True,
+            "reason": "The requested workflow contains an unbounded or recursive execution condition.",
+            "ambiguity_reasons": recursion_signals,
+        }
+
+    if ambiguity:
+        return {
+            "decision": "clarify",
+            "requires_clarification": True,
+            "reason": "The execution target or scope is not sufficiently resolved.",
+            "ambiguity_reasons": ambiguity,
+            "clarification_questions": [
+                "What exact target/resource should OmniShell operate on?"
+            ],
+        }
+
+    return {
+        "decision": "continue",
+        "requires_clarification": False,
+        "reason": "",
+        "ambiguity_reasons": [],
+    }
+
+
+def hardcoded_guardrail_check(prompt: str) -> tuple:
+    """Backward-compatible wrapper around the V4 deterministic policy gate."""
+    allowed, _category, reason = _deterministic_safety_gate(prompt)
+    return (not allowed, reason)
 
 
 # ============================================================
@@ -1684,9 +1880,50 @@ def generate_dynamic_mermaid_diagram(data: dict, prompt: str, user_os: str) -> s
 async def generate_workflow(request: AutomationRequest, background_tasks: BackgroundTasks):
     import time
     t_start = time.time()
-    timing = {"llm_reasoning": 0.0, "research": 0.0, "validation": 0.0, "execution": 0.0, "total": 0.0}
+    timing = {"safety": 0.0, "llm_reasoning": 0.0, "research": 0.0, "validation": 0.0, "execution": 0.0, "total": 0.0}
+    workflow_deadline = time.monotonic() + WORKFLOW_BUDGET_SECONDS
 
-    # LAYER 0: Hardcoded pre-LLM guardrail (un-jailbreakable)
+    # LAYER 0: V4 Safety/Policy Supervisor. This is a hard boundary before
+    # classification, research, planning, or any execution-capable LLM call.
+    t_safety = time.monotonic()
+    safety = await safety_supervisor(request.natural_language_prompt)
+    timing["safety"] = time.monotonic() - t_safety
+    if not safety.get("allowed", False):
+        return MultiAgentResult(
+            multi_agent_discussion=[
+                AgentThought(
+                    agent_name="Safety & Policy Supervisor",
+                    thought=f"BLOCKED/HELD before planning: {safety.get('reason')}",
+                ),
+                AgentThought(
+                    agent_name="Execution Boundary",
+                    thought="No planning, command generation, research, scheduling, or host execution is permitted for this request.",
+                ),
+            ],
+            capability_type="human_approval" if safety.get("decision") == "clarify" else "clarification",
+            direct_answer=(
+                "### 🛑 OmniShell Safety Supervisor\n\n"
+                f"**Decision:** `{safety.get('decision', 'block').upper()}`\n\n"
+                f"**Reason:** {safety.get('reason', 'Policy denied the request.')}\n\n"
+                "**No command or execution plan was generated.**"
+            ),
+            is_safe=False,
+            target_os=request.user_agent_os,
+            shell_script=None,
+            requires_clarification=safety.get("decision") == "clarify",
+            clarification_questions=(
+                ["Please restate the request as a benign, non-operational question."]
+                if safety.get("decision") == "clarify" else None
+            ),
+            safety_level="blocked",
+            workflow_state="blocked_by_safety_supervisor",
+            timing={"safety": timing["safety"], "total": time.monotonic() - t_start},
+            mermaid_diagram_body='User["User Request"] --> Safety["V4 Safety Supervisor"] -->|BLOCK| Abort["No further processing"]',
+        )
+
+    # LAYER 0b: legacy deterministic wrapper retained for compatibility.
+    # It should normally be a no-op because the supervisor already ran.
+    is_blocked, block_reason = hardcoded_guardrail_check(request.natural_language_prompt) (un-jailbreakable)
     is_blocked, block_reason = hardcoded_guardrail_check(request.natural_language_prompt)
     if is_blocked:
         return MultiAgentResult(
@@ -1704,6 +1941,30 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
 
     # Fast deterministic capability pre-check
     deterministic_cap = classify_prompt_capability(request.natural_language_prompt, request.user_agent_os)
+
+    # V4 Runtime Supervisor: ambiguity + recursion + scope gate.
+    runtime = await runtime_supervisor(request.natural_language_prompt, deterministic_cap)
+    if runtime.get("decision") in {"stop", "clarify"}:
+        return MultiAgentResult(
+            multi_agent_discussion=[
+                AgentThought(agent_name="Safety & Policy Supervisor", thought="Safety gate passed."),
+                AgentThought(agent_name="Runtime Supervisor", thought=runtime.get("reason", "Execution held for clarification.")),
+            ],
+            capability_type="clarification",
+            direct_answer=runtime.get("reason", "More information is required before execution."),
+            is_safe=True,
+            target_os=request.user_agent_os,
+            requires_clarification=True,
+            clarification_questions=runtime.get("clarification_questions") or [
+                "Please clarify the exact target and desired outcome."
+            ],
+            ambiguity_reasons=runtime.get("ambiguity_reasons", []),
+            workflow_state="waiting_for_clarification",
+            shell_script=None,
+            requires_browser=False,
+            timing={"safety": timing["safety"], "runtime_supervisor": time.monotonic() - t_safety, "total": time.monotonic() - t_start},
+            mermaid_diagram_body='User["User Request"] --> Safety["Safety Supervisor"] --> Runtime["Runtime Supervisor"] --> Clarify["Human Clarification"]',
+        )
 
     # Deterministic intent is the safety envelope. The LLM may enrich details,
     # but it cannot downgrade a clarification/approval/answer-only decision.
@@ -1740,14 +2001,25 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     - CURRENT SYSTEM TIME (UTC): {request.local_time or datetime.datetime.now(datetime.timezone.utc).isoformat()}
     - USER TIMEZONE: {request.timezone}
     
-    You must simulate a multi-turn, iterative discussion between SEVEN distinct agents:
-    1. Intent & Planning Agent: Identifies the exact capability type (from the 19 above), decomposes prompt into logical steps.
-    2. System Reconnaissance Agent: Identifies dynamic OS paths, binaries, and environment variables.
-    3. Content Generation Agent: For Q&A, info requests, analysis, research, or communications, drafts rich, detailed Markdown text for `direct_answer`.
-    4. Security Guard: Ruthlessly screens for malicious intent, credential theft, system file destruction, or unauthorized exploits.
-    5. Command Research Agent: Formulates exact, resilient CLI commands, deep links, or multi-step plans.
-    6. Command Validator Agent (CRITIC): Reviews the plan, loops back if flawed, checks case-sensitivity, error handling, and recovery strategies.
-    7. Execution Planner: Decides the final execution mode (direct answer only, browser deep link, local shell script, scheduled/recurring task, or interactive plan).
+    You are the execution planner inside OmniShell V4.
+    The request has already passed the separate V4 Safety & Policy Supervisor.
+    Perform ONE bounded planning pass using these seven roles as structured checks.
+    Do NOT simulate a multi-turn conversation, recursive debate, self-critique loop, or repeated
+    agent calls. Return concise decision evidence only; never expose private chain-of-thought.
+    1. Intent & Planning Agent: resolves the capability and exact user goal.
+    2. System Reconnaissance Agent: identifies only the host facts needed for the task.
+    3. Content Generation Agent: drafts direct answers for non-executable requests.
+    4. Security Guard: verifies the already-approved safety envelope and detects policy drift.
+    5. Command Research Agent: proposes only task-scoped commands when execution is permitted.
+    6. Command Validator Agent: performs ONE validation pass; no recursive repair loop.
+    7. Execution Planner: selects answer, clarification, approval, scheduled, or execution mode.
+
+    HARD BUDGET RULES:
+    - Never create a recursive plan.
+    - Never ask another agent to re-run the whole workflow.
+    - Maximum 3 plan steps unless the user explicitly requested more.
+    - If ambiguity materially affects safety or target scope, stop and ask one focused clarification question.
+    - A model-generated command is never authorization to execute it.
 
     CRITICAL RULES FOR CAPABILITIES:
     - If user asks a Question or Information Request (e.g. "what is capital of india", "explain kubernetes", "2+2"):
@@ -1825,7 +2097,9 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                 {"role": "user", "content": f"Task: {request.natural_language_prompt}"}
             ],
             purpose="multi-agent-workflow",
-            timeout=float(os.getenv("LLM_REQUEST_TIMEOUT", "30")),
+            timeout=float(os.getenv("LLM_REQUEST_TIMEOUT", "8")),
+            deadline=workflow_deadline,
+            max_models=LLM_MAX_MODELS_PER_REQUEST,
         )
         timing["llm_reasoning"] = time.time() - t_llm_start
         raw_content = response.choices[0].message.content.strip()
@@ -2074,13 +2348,31 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         except Exception as schedule_error:
             logger.warning(f"Unable to persist scheduled task: {schedule_error}")
 
+    # Never allow post-processing to convert a safety-held request into executable data.
+    if not safety.get("allowed", True):
+        structured_data["shell_script"] = None
+        structured_data["multi_step_plan"] = None
+        structured_data["requires_browser"] = False
+        structured_data["is_safe"] = False
+        structured_data["workflow_state"] = "blocked_by_safety_supervisor"
+
     structured_data["model_used"] = model_name
     structured_data.setdefault("idempotency_key", request.request_id or hashlib.sha256(request.natural_language_prompt.encode("utf-8")).hexdigest()[:24])
     structured_data.setdefault("workflow_state", "planned" if structured_data.get("is_planning_only") else ("waiting_for_clarification" if structured_data.get("requires_clarification") else ("waiting_for_approval" if structured_data.get("requires_approval") else ("scheduled" if structured_data.get("is_scheduled") else "ready"))))
     structured_data.setdefault("failure_policy", deterministic_cap.get("failure_policy", {"max_attempts": 2, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True}))
     timing["research"] = time.time() - t_res
     timing["total"] = time.time() - t_start
-    timing["execution"] = max(0.0, timing["total"] - timing["llm_reasoning"] - timing["research"])
+    timing["execution"] = max(0.0, timing["total"] - timing["safety"] - timing["llm_reasoning"] - timing["research"])
+    if time.monotonic() > workflow_deadline:
+        structured_data["workflow_state"] = "budget_exhausted"
+        structured_data["requires_approval"] = False
+        structured_data["requires_clarification"] = True
+        structured_data["shell_script"] = None
+        structured_data["multi_step_plan"] = None
+        structured_data["direct_answer"] = (
+            "OmniShell stopped planning because the request exceeded the V4 planning budget. "
+            "No host command was executed."
+        )
     structured_data["timing"] = timing
 
     # Ensure required default fields exist
