@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div id="app-container" class="max-w-xl w-full bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+        <div class="bg-blue-600 px-6 py-4 flex items-center justify-between">
+            <h1 class="text-xl font-bold text-white flex items-center gap-2">
+                ⏳ Scheduled Action Ready
+            </h1>
+            <span id="countdown" class="text-blue-200 font-mono text-sm font-medium">Expires in 05:00</span>
+        </div>
+        
+        <div class="p-8">
+            <div id="loading" class="text-center py-8">
+                <p class="text-slate-400">Loading scheduled task details...</p>
+            </div>
+            
+            <div id="error-screen" class="hidden text-center py-8">
+                <div class="text-red-500 text-5xl mb-4">❌</div>
+                <h2 class="text-xl font-bold text-white mb-2" id="error-title">Task Unavailable</h2>
+                <p class="text-slate-400" id="error-message">This task may have expired, been cancelled, or already executed.</p>
+                <button onclick="window.close()" class="mt-6 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors">Close Window</button>
+            </div>
+
+            <div id="task-details" class="hidden">
+                <div class="mb-6">
+                    <p class="text-sm text-slate-400 uppercase tracking-wider font-semibold mb-1">Original Request</p>
+                    <p id="original-prompt" class="text-lg text-white font-medium bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 italic"></p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4 mb-8">
+                    <div class="bg-slate-700/30 p-4 rounded-xl border border-slate-700/50">
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Target OS</p>
+                        <p id="target-os" class="text-white font-medium"></p>
+                    </div>
+                    <div class="bg-slate-700/30 p-4 rounded-xl border border-slate-700/50">
+                        <p class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Action Type</p>
+                        <p id="action-type" class="text-white font-medium"></p>
+                    </div>
+                </div>
+
+                <div class="mb-8 bg-slate-900 rounded-xl p-4 border border-slate-700 font-mono text-sm text-green-400 overflow-x-auto">
+                    <p class="text-xs text-slate-500 font-sans uppercase tracking-wider font-semibold mb-2">Execution Details</p>
+                    <div id="execution-payload"></div>
+                </div>
+
+                <div id="action-buttons" class="flex gap-4">
+                    <button id="btn-deny" class="flex-1 bg-slate-700 hover:bg-red-600 hover:text-white text-slate-300 py-3 rounded-xl font-bold transition-all focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-800">
+                        Deny Execution
+                    </button>
+                    <button id="btn-approve" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800 flex justify-center items-center gap-2">
+                        <span>Approve & Execute</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="success-screen" class="hidden text-center py-8">
+                <div class="text-green-500 text-5xl mb-4">✅</div>
+                <h2 class="text-xl font-bold text-white mb-2">Execution Approved</h2>
+                <p class="text-slate-400 mb-6">The task has been approved and dispatched to the host executor.</p>
+                <div id="execution-result-box" class="hidden text-left bg-slate-900 rounded-xl p-4 border border-slate-700 font-mono text-xs text-slate-300 overflow-x-auto max-h-40">
+                </div>
+                <button onclick="window.close()" class="mt-6 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors">Close Window</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const taskId = urlParams.get('taskId');
+        const token = window.location.pathname.split('/').pop();
+        let expirationTimer;
+        
+        async function fetchDetails() {
+            if (!taskId) {
+                showError("Invalid Link", "Missing task ID.");
+                return;
+            }
+            try {
+                const response = await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}`);
+                if (!response.ok) throw new Error('Task not found');
+                const data = await response.json();
+                
+                if (data.status !== 'awaiting_approval' || data.approval_token !== token) {
+                    showError("Invalid State", `Task is ${data.status} or token mismatch.`);
+                    return;
+                }
+                
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('task-details').classList.remove('hidden');
+                
+                document.getElementById('original-prompt').innerText = `"${data.original_prompt}"`;
+                document.getElementById('target-os').innerText = data.target_os;
+                document.getElementById('action-type').innerText = data.requires_browser ? "🌐 Web Browser Launch" : "💻 Local Shell Script";
+                
+                if (data.requires_browser) {
+                    document.getElementById('execution-payload').innerText = `URL: ${data.target_url}`;
+                } else {
+                    document.getElementById('execution-payload').innerText = data.shell_script;
+                }
+                
+                // Expiration timer (5 minutes from triggered_at)
+                const triggeredAt = new Date(data.triggered_at).getTime();
+                const expireAt = triggeredAt + 300000;
+                
+                expirationTimer = setInterval(() => {
+                    const now = new Date().getTime();
+                    const distance = expireAt - now;
+                    if (distance <= 0) {
+                        clearInterval(expirationTimer);
+                        showError("Expired", "Approval time window has elapsed.");
+                    } else {
+                        const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                        const s = Math.floor((distance % (1000 * 60)) / 1000);
+                        document.getElementById('countdown').innerText = `Expires in ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    }
+                }, 1000);
+                
+            } catch (err) {
+                showError("Error", err.message);
+            }
+        }
+        
+        function showError(title, msg) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('task-details').classList.add('hidden');
+            document.getElementById('error-screen').classList.remove('hidden');
+            document.getElementById('error-title').innerText = title;
+            document.getElementById('error-message').innerText = msg;
+            if (expirationTimer) clearInterval(expirationTimer);
+            document.getElementById('countdown').innerText = "Expired";
+        }
+        
+        document.getElementById('btn-approve').addEventListener('click', async () => {
+            if (expirationTimer) clearInterval(expirationTimer);
+            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-blue-400 font-bold w-full">Approving...</p>';
+            try {
+                const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                if (!res.ok) throw new Error('Failed to approve');
+                
+                document.getElementById('task-details').classList.add('hidden');
+                document.getElementById('success-screen').classList.remove('hidden');
+                
+                // Poll for execution result
+                pollResult();
+            } catch (e) {
+                showError("Approval Failed", e.message);
+            }
+        });
+        
+        document.getElementById('btn-deny').addEventListener('click', async () => {
+            if (expirationTimer) clearInterval(expirationTimer);
+            document.getElementById('action-buttons').innerHTML = '<p class="text-center text-red-400 font-bold w-full">Denying...</p>';
+            try {
+                await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}/deny`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                showError("Execution Denied", "You have cancelled this action.");
+            } catch (e) {
+                showError("Denial Failed", e.message);
+            }
+        });
+        
+        async function pollResult() {
+            const resultBox = document.getElementById('execution-result-box');
+            let attempts = 0;
+            const iv = setInterval(async () => {
+                attempts++;
+                if (attempts > 30) {
+                    clearInterval(iv);
+                    return;
+                }
+                try {
+                    const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${taskId}`);
+                    const data = await res.json();
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        clearInterval(iv);
+                        resultBox.classList.remove('hidden');
+                        resultBox.innerText = `Status: ${data.status.toUpperCase()}\n\n${JSON.stringify(data.execution_result, null, 2) || data.failure_reason}`;
+                        if (data.status === 'failed') resultBox.classList.add('text-red-400');
+                    }
+                } catch(e) {}
+            }, 1000);
+        }
+        
+        fetchDetails();
+    </script>
+</body>
+</html>

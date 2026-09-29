@@ -495,6 +495,31 @@ async def init_db():
     DB_POOL = await asyncpg.create_pool(db_url)
     async with DB_POOL.acquire() as conn:
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id SERIAL PRIMARY KEY,
+                original_prompt TEXT NOT NULL,
+                target_os VARCHAR(50),
+                requires_browser BOOLEAN DEFAULT FALSE,
+                target_url TEXT,
+                shell_script TEXT,
+                expected_process VARCHAR(100),
+                scheduled_for TIMESTAMP WITH TIME ZONE NOT NULL,
+                timezone VARCHAR(50),
+                status VARCHAR(20) DEFAULT 'scheduled',
+                approval_token VARCHAR(64),
+                execution_id VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                triggered_at TIMESTAMP WITH TIME ZONE,
+                approved_at TIMESTAMP WITH TIME ZONE,
+                denied_at TIMESTAMP WITH TIME ZONE,
+                completed_at TIMESTAMP WITH TIME ZONE,
+                failed_at TIMESTAMP WITH TIME ZONE,
+                failure_reason TEXT,
+                execution_result JSONB,
+                raw_workflow JSONB
+            )
+        ''')
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
                 id SERIAL PRIMARY KEY,
                 message TEXT NOT NULL,
@@ -771,12 +796,12 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
        CRITICAL RULES FOR JSON OUTPUT:
        - If the user asks to open ANY website or web app, YOU MUST SET requires_browser=true and target_url="https://...".
        - DEEP LINKING: For multi-step web actions (e.g., "open gmail... draft email..."), construct the exact deep link!
-       - REMINDERS & SCHEDULING: If the user asks to "remind me to...", "schedule", or do something at a specific future time:
-         * DO NOT write a bash script. DO NOT open Google Calendar. DO NOT use pyautogui.
-         * INSTEAD, set `is_reminder=true`.
-         * Set `reminder_message` to the task (e.g. "Call manager").
-         * Set `reminder_time` to the EXACT future time in ISO 8601 format, STRICTLY CONVERTED TO UTC (e.g., "2026-10-01T10:30:00Z"). CALCULATE this based on the CURRENT SYSTEM TIME provided above.
-         * Set `shell_script` to a simple comment: "# Reminder scheduled in database".
+              - SCHEDULING / FUTURE EXECUTION: If the user asks to do something in the future (e.g., "in 10 minutes", "tomorrow at 5", "after 30 minutes"):
+         * You MUST set `is_scheduled=true`.
+         * Set `scheduled_time` to the EXACT future time in ISO 8601 format (UTC preferred). CALCULATE this based on the CURRENT SYSTEM TIME provided above.
+         * The REST of the JSON must contain the COMPLETE executable workflow as if it were happening now (e.g. requires_browser=true and target_url="...", or shell_script="...", and expected_process="...").
+         * DO NOT write a `sleep` command in the shell script. The system's native scheduler handles the delay.
+         * Set `is_reminder=false` (simple reminders are deprecated in favor of scheduled executable tasks).
        - If the user asks to EMPTY/CLEAR the RECYCLE BIN: Look at target_os! If Windows, use `Clear-RecycleBin -Force`. If Linux, use `rm -rf ~/.local/share/Trash/*`. DO NOT hallucinate Windows commands on Linux.
        - If the user asks to OPEN an app (e.g. "text editor"): DO NOT HARDCODE PATHS. 
          * On Linux, write a Bash script that loops through an array of possibilities (e.g., `for app in gnome-text-editor gedit kwrite mousepad nano; do if command -v $app >/dev/null; then $app & exit 0; fi; done`).
@@ -799,9 +824,12 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
       "shell_script": "str",
       "expected_process": "str or null",
       "mermaid_diagram_body": "str",
-      "is_reminder": true or false,
+            "is_reminder": true or false,
       "reminder_time": "str or null",
-      "reminder_message": "str or null"
+      "reminder_message": "str or null",
+      "is_scheduled": true or false,
+      "scheduled_time": "str or null",
+      "schedule_timezone": "str or null"
     }}
 
     CRITICAL MERMAID RULES:
@@ -852,25 +880,35 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         structured_data = json.loads(raw_content)
         logger.info(f'PARSED DATA: {structured_data}')
         
-        if structured_data.get("is_reminder") and structured_data.get("reminder_time"):
+        if structured_data.get("is_scheduled") and structured_data.get("scheduled_time"):
             try:
-                # Handle Z and ISO formats
-                time_str = structured_data["reminder_time"].replace("Z", "+00:00")
+                import uuid
+                time_str = structured_data["scheduled_time"].replace("Z", "+00:00")
                 dt_obj = datetime.datetime.fromisoformat(time_str)
-                # convert to naive UTC for asyncpg timestamp
-                if dt_obj.tzinfo:
-                    dt_obj = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                # Keep it aware, or assume UTC. The db column is TIMESTAMP WITH TIME ZONE
+                if not dt_obj.tzinfo:
+                    dt_obj = dt_obj.replace(tzinfo=datetime.timezone.utc)
                 
                 async with DB_POOL.acquire() as conn:
                     await conn.execute(
-                        "INSERT INTO reminders (message, trigger_time) VALUES ($1, $2)",
-                        structured_data["reminder_message"],
-                        dt_obj
+                        """INSERT INTO scheduled_tasks 
+                        (original_prompt, target_os, requires_browser, target_url, shell_script, expected_process, scheduled_for, timezone, status, raw_workflow)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9)""",
+                        request.natural_language_prompt,
+                        structured_data.get("target_os", request.user_agent_os),
+                        bool(structured_data.get("requires_browser")),
+                        structured_data.get("target_url"),
+                        structured_data.get("shell_script"),
+                        structured_data.get("expected_process"),
+                        dt_obj,
+                        structured_data.get("schedule_timezone"),
+                        json.dumps(structured_data)
                     )
-                logger.info(f"Scheduled reminder saved to DB: {structured_data['reminder_message']} at {structured_data['reminder_time']}")
+                logger.info(f"Scheduled task saved to DB: {request.natural_language_prompt} at {dt_obj.isoformat()}")
             except Exception as e:
-                logger.error(f"Failed to insert reminder into DB: {e}")
-                raise e
+                logger.error(f"Failed to insert scheduled task into DB: {e}")
+                # Don't throw, let it return the UI
+
 
         
         logger.debug("Extracted JSON data from model response")
@@ -1039,3 +1077,143 @@ async def complete_reminder(reminder_id: int):
     async with DB_POOL.acquire() as conn:
         await conn.execute("UPDATE reminders SET status = 'completed' WHERE id = $1", reminder_id)
         return {"status": "success"}
+
+
+# ============================================================
+# SCHEDULED TASKS API
+# ============================================================
+
+import uuid
+
+@app.get("/api/scheduled-tasks")
+async def get_scheduled_tasks():
+    async with DB_POOL.acquire() as conn:
+        records = await conn.fetch("SELECT id, original_prompt, target_os, requires_browser, target_url, shell_script, expected_process, scheduled_for, status, created_at FROM scheduled_tasks ORDER BY scheduled_for DESC LIMIT 100")
+        return [dict(r) for r in records]
+
+@app.get("/api/scheduled-tasks/{task_id}")
+async def get_scheduled_task(task_id: int):
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return dict(record)
+
+@app.post("/api/scheduled-tasks/{task_id}/cancel")
+async def cancel_scheduled_task(task_id: int):
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id = $1", task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if record['status'] in ('completed', 'failed', 'cancelled', 'denied'):
+            raise HTTPException(status_code=400, detail="Cannot cancel task in this state")
+        
+        await conn.execute("UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = $1", task_id)
+        return {"status": "cancelled"}
+
+@app.get("/api/scheduled-tasks/internal/poll")
+async def poll_due_tasks():
+    # Atomic claim logic for host executor
+    async with DB_POOL.acquire() as conn:
+        async with conn.transaction():
+            # Find a scheduled task that is due
+            record = await conn.fetchrow(
+                '''
+                SELECT id FROM scheduled_tasks 
+                WHERE status = 'scheduled' AND scheduled_for <= CURRENT_TIMESTAMP
+                ORDER BY scheduled_for ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+                '''
+            )
+            if not record:
+                return {"task": None}
+                
+            task_id = record['id']
+            approval_token = str(uuid.uuid4())
+            await conn.execute(
+                '''
+                UPDATE scheduled_tasks 
+                SET status = 'awaiting_approval', approval_token = $1, triggered_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+                ''',
+                approval_token, task_id
+            )
+            
+            task = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
+            # return Dict, stringifying datetimes
+            res = dict(task)
+            for k, v in res.items():
+                if isinstance(v, datetime.datetime):
+                    res[k] = v.isoformat()
+            return {"task": res}
+
+@app.post("/api/scheduled-tasks/{task_id}/approve")
+async def approve_scheduled_task(task_id: int, request: Request):
+    body = await request.json()
+    token = body.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+        
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if record['status'] != 'awaiting_approval':
+            raise HTTPException(status_code=400, detail=f"Task is in {record['status']} state, not awaiting_approval")
+            
+        if record['approval_token'] != token:
+            raise HTTPException(status_code=403, detail="Invalid token")
+            
+        await conn.execute("UPDATE scheduled_tasks SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approval_token = NULL WHERE id = $1", task_id)
+        
+        # We also need to return the full payload so the UI can execute it if needed, or the host executor can pick it up.
+        # Actually, the host executor will be waiting or polling for status.
+        return {"status": "approved"}
+
+@app.post("/api/scheduled-tasks/{task_id}/deny")
+async def deny_scheduled_task(task_id: int, request: Request):
+    body = await request.json()
+    token = body.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+        
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if record['approval_token'] != token:
+            raise HTTPException(status_code=403, detail="Invalid token")
+            
+        await conn.execute("UPDATE scheduled_tasks SET status = 'denied', denied_at = CURRENT_TIMESTAMP, approval_token = NULL WHERE id = $1", task_id)
+        return {"status": "denied"}
+
+@app.post("/api/scheduled-tasks/{task_id}/result")
+async def store_scheduled_task_result(task_id: int, request: Request):
+    body = await request.json()
+    status = body.get("status") # completed, failed
+    execution_result = body.get("execution_result", {})
+    execution_id = body.get("execution_id")
+    failure_reason = body.get("failure_reason")
+    
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id = $1", task_id)
+        if not record or record['status'] != 'approved':
+            return {"status": "ignored"}
+            
+        if status == 'completed':
+            await conn.execute("UPDATE scheduled_tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP, execution_result = $1, execution_id = $2 WHERE id = $3", json.dumps(execution_result), execution_id, task_id)
+        else:
+            await conn.execute("UPDATE scheduled_tasks SET status = 'failed', failed_at = CURRENT_TIMESTAMP, failure_reason = $1, execution_result = $2, execution_id = $3 WHERE id = $4", failure_reason, json.dumps(execution_result), execution_id, task_id)
+            
+        return {"status": "ok"}
+
+@app.post("/api/scheduled-tasks/{task_id}/expire")
+async def expire_scheduled_task(task_id: int):
+    async with DB_POOL.acquire() as conn:
+        record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id = $1", task_id)
+        if record and record['status'] == 'awaiting_approval':
+            await conn.execute("UPDATE scheduled_tasks SET status = 'expired', approval_token = NULL WHERE id = $1", task_id)
+        return {"status": "expired"}

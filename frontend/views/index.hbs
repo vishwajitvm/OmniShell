@@ -170,66 +170,7 @@
 
     <script>
         // Polling for Scheduled Reminders
-        async function fetchReminders() {
-            try {
-                const res = await fetch('http://localhost:8000/api/reminders');
-                const reminders = await res.json();
-                
-                const list = document.getElementById('scheduled-tasks-list');
-                if(!list) return;
-                
-                list.innerHTML = '';
-                if(reminders.length === 0) {
-                    list.innerHTML = '<li class="text-slate-400 text-xs italic">No scheduled tasks.</li>';
-                }
-                
-                const now = new Date();
-                
-                reminders.forEach(r => {
-                    const li = document.createElement('li');
-                    li.className = "text-slate-300 text-xs border-l-2 border-blue-500 pl-2 py-1 mb-1";
-                    const t = new Date(r.trigger_time + 'Z');
-                    li.innerHTML = `<span class="text-white font-semibold">${r.message}</span><br/><span class="text-slate-500">${t.toLocaleString()}</span>`;
-                    list.appendChild(li);
-                    
-                    if (t <= now) {
-                        triggerPopup(r);
-                    }
-                });
-            } catch(e) {
-                console.error("Failed to fetch reminders:", e);
-            }
-        }
-        
-        async function triggerPopup(reminder) {
-            await fetch(`http://localhost:8000/api/reminders/${reminder.id}/complete`, {method: 'POST'});
-            
-            const container = document.getElementById('toast-container');
-            if(!container) return;
-            const toast = document.createElement('div');
-            toast.className = "glass p-4 rounded-xl shadow-2xl border-2 border-red-500/50 flex items-center justify-between w-80 animate-bounce cursor-pointer transition-all hover:scale-105";
-            toast.style.background = "linear-gradient(135deg, rgba(239,68,68,0.9), rgba(153,27,27,0.9))";
-            
-            toast.innerHTML = `
-                <div>
-                    <h4 class="text-white font-bold text-lg">⏰ Reminder Alert!</h4>
-                    <p class="text-red-100 text-sm mt-1">${reminder.message}</p>
-                </div>
-                <button class="text-white hover:text-red-300 ml-4 p-2 focus:outline-none">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            `;
-            
-            toast.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); toast.remove(); });
-            toast.addEventListener('click', () => toast.remove());
-            container.appendChild(toast);
-            
-            setTimeout(() => { if (document.body.contains(toast)) { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); } }, 10000);
-            fetchReminders();
-        }
-
-        fetchReminders();
-        setInterval(fetchReminders, 5000);
+        // Removed legacy reminder polling
 
         document.getElementById('generate-btn').addEventListener('click', async () => {
             const prompt = document.getElementById('prompt-input').value;
@@ -287,8 +228,16 @@
                 }
                 document.getElementById('results-section').classList.remove('hidden');
 
+                // Check if this was a scheduled future task
+                if (data.is_scheduled) {
+                    statusDiv.innerHTML += ` <span class="ml-4 text-blue-300">📅 Scheduled Successfully for ${new Date(data.scheduled_time).toLocaleString()}!</span>`;
+                    document.getElementById('btn-text').innerText = 'Execute';
+                    document.getElementById('btn-spinner').classList.add('hidden');
+                    return; // DO NOT EXECUTE NOW
+                }
+
                 // Trigger Native Host Execution Agent with STRICT Human-in-the-Loop
-                if (data.is_safe) {
+                if (data.is_safe && !data.is_scheduled) {
                     const statusSpan = document.createElement('span');
                     statusSpan.className = "animate-pulse ml-4 text-yellow-300";
                     statusSpan.innerText = "⚡ Awaiting Human Confirmation...";

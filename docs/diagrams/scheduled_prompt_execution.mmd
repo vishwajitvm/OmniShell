@@ -1,0 +1,53 @@
+graph TD
+    %% SCHEDULED PROMPT EXECUTION FLOW
+    
+    User((User)) -->|1. "Open Spotify after 10 mins"| UI[Main UI - index.hbs]
+    UI -->|2. POST /generate-workflow| Backend[FastAPI Backend]
+    
+    subgraph Agent Syndicate
+        Backend --> AI[7-Agent Swarm]
+        AI -->|3. Resolves to target_url & scheduled_time| Backend
+    end
+    
+    Backend -->|4. INSERT INTO scheduled_tasks| DB[(PostgreSQL)]
+    DB --> Pipeline[Pipeline UI Dashboard]
+    
+    %% TIME PASSES
+    Time((10 Mins Later)) -.-> HostExec
+    
+    subgraph Host Machine Native
+        HostExec[local_executor.py Scheduler Thread] -->|5. GET /api/scheduled-tasks/internal/poll| Backend
+        Backend -->|6. Atomic Claim & Gen Token| DB
+        DB -->|7. Return Task & Token| Backend
+        Backend -->|8. Task Payload| HostExec
+        
+        HostExec -->|9. webbrowser.open_new()| NewWindow[NEW Browser Window]
+    end
+    
+    NewWindow -->|10. GET /scheduled-approval/:token| ApprovalUI[scheduled-approval.hbs]
+    
+    ApprovalUI -->|11a. Click Approve| AppEndpoint[POST /approve]
+    ApprovalUI -->|11b. Click Deny| DenyEndpoint[POST /deny]
+    
+    AppEndpoint -->|12. Validate Token & Set APPROVED| DB
+    DenyEndpoint -->|13. Validate Token & Set DENIED| DB
+    
+    %% Execution
+    HostExec -.->|14. Polling GET /status| Backend
+    Backend -.->|15. Returns 'approved'| HostExec
+    
+    HostExec -->|16. Security Policy Check| Policy{local_executor Classify}
+    Policy -->|Pass| ExecCmd[execute_command]
+    ExecCmd -->|17. Execute Web/Shell| NativeOS[Native OS Action]
+    NativeOS -->|18. psutil verify| PsUtil[Process Verification]
+    
+    PsUtil -->|19. POST /result| ResultEndpoint[Store Result]
+    ResultEndpoint -->|20. Status=COMPLETED| DB
+    DB --> Pipeline
+    
+    %% Styling
+    style User fill:#4CAF50,stroke:#2E7D32,color:#fff;
+    style UI fill:#2196F3,stroke:#1565C0,color:#fff;
+    style NewWindow fill:#FF9800,stroke:#E65100,color:#fff;
+    style DB fill:#E91E63,stroke:#880E4F,color:#fff;
+    style HostExec fill:#9C27B0,stroke:#4A148C,color:#fff;
