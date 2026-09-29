@@ -2019,6 +2019,73 @@ SCHEDULER_INTERVAL = int(os.getenv("OMNISHELL_SCHEDULER_INTERVAL_SECONDS", "2"))
 APPROVAL_TIMEOUT = int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300"))
 BACKEND_URL = "http://127.0.0.1:8000"
 
+def handle_claimed_task(task):
+    task_id = task["id"]
+    token = task["approval_token"]
+    print(f"[SCHEDULER] Claimed due task {task_id}. Requesting approval...")
+    
+    # Launch new browser window
+    approval_url = f"http://localhost:3000/scheduled-approval/{token}?taskId={task_id}"
+    
+    try:
+        webbrowser.open_new(approval_url)
+    except Exception as e:
+        print(f"[SCHEDULER] Failed to open browser natively: {e}")
+    
+    # Polling for approval status
+    start_wait = time.time()
+    resolved = False
+    while time.time() - start_wait < APPROVAL_TIMEOUT:
+        try:
+            status_resp = requests.get(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}", timeout=5)
+            if status_resp.status_code == 200:
+                t_status = status_resp.json().get("status")
+                if t_status == "approved":
+                    print(f"[SCHEDULER] Task {task_id} approved. Executing...")
+                    resolved = True
+                    raw = task.get("raw_workflow")
+                    if isinstance(raw, str):
+                        raw = json.loads(raw)
+                    
+                    try:
+                        res = execute_command(
+                            requires_browser=task.get("requires_browser", False),
+                            target_url=task.get("target_url"),
+                            shell_script=task.get("shell_script"),
+                            expected_process=task.get("expected_process")
+                        )
+                        exec_res = res.get("execution", {})
+                        status = "completed" if res.get("status") == "success" else "failed"
+                        requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json={
+                            "status": status,
+                            "execution_result": exec_res,
+                            "execution_id": exec_res.get("execution_id"),
+                            "failure_reason": res.get("error") if status == "failed" else None
+                        }, timeout=5)
+                        print(f"[SCHEDULER] Task {task_id} execution finished: {status}")
+                    except Exception as e:
+                        requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/result", json={
+                            "status": "failed",
+                            "failure_reason": str(e)
+                        }, timeout=5)
+                        print(f"[SCHEDULER] Task {task_id} execution failed: {e}")
+                    break
+                elif t_status in ("denied", "cancelled"):
+                    print(f"[SCHEDULER] Task {task_id} {t_status} by user.")
+                    resolved = True
+                    break
+        except Exception as e:
+            pass # ignore temporary connection issues during polling
+            
+        time.sleep(1)
+        
+    if not resolved:
+        print(f"[SCHEDULER] Task {task_id} approval timed out.")
+        try:
+            requests.post(f"{BACKEND_URL}/api/scheduled-tasks/{task_id}/expire", timeout=5)
+        except:
+            pass
+
 def scheduler_loop():
     print("[SCHEDULER] Started background polling loop.")
     while True:

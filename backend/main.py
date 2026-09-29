@@ -905,9 +905,12 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                         json.dumps(structured_data)
                     )
                 logger.info(f"Scheduled task saved to DB: {request.natural_language_prompt} at {dt_obj.isoformat()}")
+            except ValueError as ve:
+                logger.error(f"Invalid date format from LLM: {ve}")
+                raise HTTPException(status_code=400, detail=f"The AI generated an invalid time format: {structured_data.get('scheduled_time')}. Please try your request again.")
             except Exception as e:
                 logger.error(f"Failed to insert scheduled task into DB: {e}")
-                # Don't throw, let it return the UI
+                raise HTTPException(status_code=500, detail="Database error while scheduling task.")
 
 
         
