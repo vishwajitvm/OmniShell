@@ -151,12 +151,36 @@ Open https://github.com/trending in Google Chrome
 - **Expected Target URL**: `https://github.com/trending`
 - **Expected Behavior**: Opens Chrome to GitHub Trending page.
 
-### Test Prompt 4.3: Open YouTube Music
+### Test Prompt 4.3: Open YouTube Music & Song Search
 ```text
 Open YouTube Music in my browser
 ```
 - **Expected Capability**: `browser_operation`
 - **Expected Target URL**: `https://music.youtube.com`
+
+### Test Prompt 4.4: GitHub Username / Profile Resolution
+```text
+Open vishwajitvm github
+```
+- **Expected Capability**: `browser_operation`
+- **Expected Target URL**: `https://github.com/vishwajitvm`
+- **Expected Behavior**: Automatically resolves the user handle and targets `https://github.com/vishwajitvm`.
+
+### Test Prompt 4.5: In-Platform GitHub Search
+```text
+open github and search kubernetes
+```
+- **Expected Capability**: `browser_operation`
+- **Expected Target URL**: `https://github.com/search?q=kubernetes`
+- **Expected Behavior**: Directs to the in-platform GitHub search results page.
+
+### Test Prompt 4.6: Search Engine Query (Google)
+```text
+search vishwajitvm on google
+```
+- **Expected Capability**: `browser_operation`
+- **Expected Target URL**: `https://www.google.com/search?q=vishwajitvm`
+- **Expected Behavior**: Automatically formats the search engine query URL.
 
 ---
 

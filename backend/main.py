@@ -1550,8 +1550,13 @@ def resolve_browser_and_email(prompt: str, user_agent_os: str) -> tuple[Optional
 
     target_url = None
 
-    # Check for Gmail / Email Drafting
-    if "gmail" in p or "email" in p or "mail" in p:
+    # 0. Check for explicit Full HTTP/HTTPS or WWW URLs in prompt (e.g. "Open https://github.com")
+    raw_urls = re.findall(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+', prompt)
+    if raw_urls and not ("gmail" in p and any(w in p for w in ["draft", "compose", "write", "send", "message", "@", "mail to"])):
+        target_url = raw_urls[0] if raw_urls[0].startswith("http") else f"https://{raw_urls[0]}"
+
+    # 1. Check for Gmail / Email Drafting
+    if not target_url and ("gmail" in p or "email" in p or "mail" in p):
         if any(w in p for w in ["draft", "compose", "write", "send", "message", "@", "mail to"]):
             # Extract recipient email
             email_match = re.findall(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', prompt)
@@ -1561,14 +1566,12 @@ def resolve_browser_and_email(prompt: str, user_agent_os: str) -> tuple[Optional
             subject = ""
             body = ""
 
-            # Extract body message: e.g. "write message that i am availabe around 02:00pm for internal call with team"
             body_match = re.search(r'(?:write\s+message\s+(?:that|saying|:)?|write\s+(?:email|mail)\s+(?:that|saying|:)?|message\s+(?:that|saying|:)?|saying\s+(?:that)?|body\s+(?:is|:)?|content\s+(?:is|:)?)\s*(.+)', prompt, re.IGNORECASE)
             if body_match:
                 raw_body = body_match.group(1).strip()
                 raw_body = re.sub(r'^(that\s+|saying\s+)', '', raw_body, flags=re.IGNORECASE).strip()
                 body = raw_body[0].upper() + raw_body[1:] if raw_body else raw_body
 
-            # Extract explicit subject or infer from body
             subj_match = re.search(r'(?:subject\s+(?:is|:)?\s*["\']?([^"\'\n]+)["\']?)', prompt, re.IGNORECASE)
             if subj_match:
                 subject = subj_match.group(1).strip()
@@ -1592,36 +1595,104 @@ def resolve_browser_and_email(prompt: str, user_agent_os: str) -> tuple[Optional
                 params.append(f"body={urllib.parse.quote(body)}")
             target_url = f"https://mail.google.com/mail/?{'&'.join(params)}"
 
+    # 2. Check for GitHub (User Profile, Repository, Search, or Landing)
+    if not target_url and ("github" in p or "git hub" in p):
+        # Explicit search on github
+        search_m = re.search(r'(?:search|find|look\s+up|explore)\s+(?:for\s+)?(.+?)\s+(?:on|in)\s+git\s*hub', prompt, re.IGNORECASE)
+        if not search_m:
+            search_m = re.search(r'git\s*hub\s+(?:and\s+)?(?:search|find)\s+(.+)', prompt, re.IGNORECASE)
+        if search_m:
+            q = search_m.group(1).strip()
+            target_url = f"https://github.com/search?q={urllib.parse.quote(q)}"
+        else:
+            # Extract target username / handle / repo e.g. "Open vishwajitvm github", "github of vishwajitvm", "open vishwajitvm on github"
+            cleaned = re.sub(r'\b(open|launch|visit|navigate\s+to|navigate|go\s+to|show|view|find|in\s+browser|on\s+browser|using\s+browser|browser|brave|chrome|firefox|edge|safari|git\s*hub(?:\.com)?|profile\s+of|profile|account|user|repo|repository|project|page|\'s|please|and|on|of|to|the|my|for)\b', ' ', prompt, flags=re.IGNORECASE).strip()
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            if cleaned:
+                tokens = cleaned.split()
+                if len(tokens) == 1 or (len(tokens) == 2 and "/" in cleaned):
+                    handle = tokens[0].strip("/@#")
+                    target_url = f"https://github.com/{handle}"
+                else:
+                    target_url = f"https://github.com/search?q={urllib.parse.quote(cleaned)}"
+            else:
+                target_url = "https://github.com"
+
+    # 3. Check for YouTube / YouTube Music
+    if not target_url and any(k in p for k in ["youtube", "you tube", "yt music", "youtube music"]):
+        if any(k in p for k in ["yt music", "youtube music"]):
+            q_clean = re.sub(r'\b(open|launch|play|listen\s+to|search|on|in|using|browser|brave|chrome|firefox|edge|safari|youtube\s+music|yt\s+music|music|please)\b', ' ', prompt, flags=re.IGNORECASE).strip()
+            q_clean = re.sub(r'\s+', ' ', q_clean).strip()
+            if q_clean:
+                target_url = f"https://music.youtube.com/search?q={urllib.parse.quote(q_clean)}"
+            else:
+                target_url = "https://music.youtube.com"
+        else:
+            search_m = re.search(r'(?:search|play|watch|find|look\s+up)\s+(?:for\s+)?(.+?)\s+(?:on|in)\s+you\s*tube', prompt, re.IGNORECASE)
+            if not search_m:
+                search_m = re.search(r'you\s*tube\s+(?:and\s+)?(?:search|play|watch)\s+(.+)', prompt, re.IGNORECASE)
+            if search_m:
+                q = search_m.group(1).strip()
+                target_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(q)}"
+            else:
+                q_clean = re.sub(r'\b(open|launch|visit|go\s+to|in\s+browser|on\s+browser|using\s+browser|browser|brave|chrome|firefox|edge|safari|youtube|you\s+tube|please)\b', ' ', prompt, flags=re.IGNORECASE).strip()
+                q_clean = re.sub(r'\s+', ' ', q_clean).strip()
+                if q_clean:
+                    target_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(q_clean)}"
+                else:
+                    target_url = "https://www.youtube.com"
+
+    # 4. Check for Google Search / Direct Query Search
+    if not target_url and any(k in p for k in ["google", "search on google", "search google", "search web", "search internet", "search for"]):
+        search_m = re.search(r'(?:search|find|look\s+up)\s+(?:for\s+)?(.+?)\s+(?:on|in|using)\s+(?:google|web|internet)', prompt, re.IGNORECASE)
+        if not search_m:
+            search_m = re.search(r'google\s+(?:search\s+(?:for\s+)?)?(.+)', prompt, re.IGNORECASE)
+        if not search_m:
+            search_m = re.search(r'search\s+(?:for\s+)?(.+)', prompt, re.IGNORECASE)
+        if search_m:
+            q = search_m.group(1).strip()
+            q_clean = re.sub(r'\b(in\s+browser|on\s+browser|using\s+browser|browser|brave|chrome|firefox|edge|safari|google|please)\b', ' ', q, flags=re.IGNORECASE).strip()
+            q_clean = re.sub(r'\s+', ' ', q_clean).strip()
+            if q_clean:
+                target_url = f"https://www.google.com/search?q={urllib.parse.quote(q_clean)}"
+            else:
+                target_url = "https://www.google.com"
+
+    # 5. Major Platform Landing / Search Map
     if not target_url:
-        web_keywords = {
-            "youtube music": "https://music.youtube.com",
-            "you tube music": "https://music.youtube.com",
-            "yt music": "https://music.youtube.com",
-            "youtube": "https://www.youtube.com",
-            "you tube": "https://www.youtube.com",
-            "spotify": "https://open.spotify.com",
-            "netflix": "https://www.netflix.com",
-            "github": "https://github.com",
-            "google": "https://www.google.com",
-            "gmail": "https://mail.google.com",
-            "reddit": "https://www.reddit.com",
-            "twitter": "https://twitter.com",
-            "x.com": "https://x.com",
-            "amazon": "https://www.amazon.com",
-            "chatgpt": "https://chat.openai.com",
-            "claude": "https://claude.ai",
+        platform_search_map = {
+            "reddit": ("https://www.reddit.com/search/?q=", "https://www.reddit.com"),
+            "twitter": ("https://twitter.com/search?q=", "https://twitter.com"),
+            "x.com": ("https://x.com/search?q=", "https://x.com"),
+            "wikipedia": ("https://en.wikipedia.org/wiki/Special:Search?search=", "https://en.wikipedia.org"),
+            "stackoverflow": ("https://stackoverflow.com/search?q=", "https://stackoverflow.com"),
+            "stack overflow": ("https://stackoverflow.com/search?q=", "https://stackoverflow.com"),
+            "amazon": ("https://www.amazon.com/s?k=", "https://www.amazon.com"),
+            "spotify": ("https://open.spotify.com/search/", "https://open.spotify.com"),
+            "netflix": (None, "https://www.netflix.com"),
+            "chatgpt": (None, "https://chat.openai.com"),
+            "claude": (None, "https://claude.ai"),
+            "linkedin": ("https://www.linkedin.com/search/results/all/?keywords=", "https://www.linkedin.com"),
         }
-        for kw, u in web_keywords.items():
-            if kw in p:
-                target_url = u
+        for plat, (search_prefix, home_url) in platform_search_map.items():
+            if plat in p:
+                if search_prefix and any(w in p for w in ["search", "find", "look up", "profile", "user", "post", "track", "song"]):
+                    q_clean = re.sub(rf'\b(open|launch|visit|search|find|look\s+up|for|on|in|using|browser|brave|chrome|firefox|edge|safari|{plat}|please)\b', ' ', prompt, flags=re.IGNORECASE).strip()
+                    q_clean = re.sub(r'\s+', ' ', q_clean).strip()
+                    if q_clean:
+                        target_url = f"{search_prefix}{urllib.parse.quote(q_clean)}"
+                        break
+                target_url = home_url
                 break
 
+    # 6. Raw URLs in prompt
     if not target_url:
         raw_urls = re.findall(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+', prompt)
         if raw_urls:
             target_url = raw_urls[0] if raw_urls[0].startswith("http") else f"https://{raw_urls[0]}"
 
-    if not target_url and any(t in p for t in ["open browser", "on browser", "in browser", "browse"]):
+    # 7. Generic Browser Open
+    if not target_url and any(t in p for t in ["open browser", "on browser", "in browser", "browse", "surf the web", "open web"]):
         target_url = "https://www.google.com"
 
     if not target_url:
