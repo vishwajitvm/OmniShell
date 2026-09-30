@@ -26,6 +26,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgrespassword@postgres:5432/nl_automation
       - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
     depends_on:
       - postgres
       - redis
@@ -36,6 +38,10 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend/views:/app/views
+      - ./frontend/public:/app/public
+      - ./frontend/src:/app/src
     depends_on:
       - backend
 

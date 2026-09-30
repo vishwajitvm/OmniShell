@@ -1,113 +1,135 @@
-# 🏗️ Architecture Deep Dive
+# 🏗️ OmniShell Architecture Deep Dive
 
-OmniShell relies on a strict separation of concerns to maintain security while executing AI-generated commands.
+OmniShell is architected as an autonomous, multi-agent operating system copilot and knowledge syndicate designed with a strict separation of concerns, multi-layered security guardrails, background scheduling, and self-healing automation.
 
-## The 7-Agent Syndicate
-Within the FastAPI backend, requests are processed by a multi-agent system before any code is generated:
-1. **Intent & Planning Agent:** Parses natural language into a logical sequence of actions.
-2. **System Reconnaissance Agent:** Dynamically writes scripts to discover available applications locally (e.g. searching for text editors) to prevent hallucinating hardcoded paths on different OS builds.
-3. **Content Generation Agent:** Expands rough instructions for emails/messages into fully professional text.
-4. **Security Guard Agent:** A rigid, active AI firewall that hunts for destructive intents (password theft, wiping data) and forces compliance.
-5. **Command Research Agent:** Searches for the exact CLI command for the specific target OS.
-6. **Command Validator Agent (CRITIC):** A ruthless reviewer that scrutinizes the Command Research Agent's output. Enforces strict case-sensitivity for Linux, checks for robust fallbacks (e.g., using `find`), and forces a complete rewrite if the initial draft is flawed.
-7. **Execution Planner:** Maps the finalized, validated intent to either a `requires_browser=True` Deep Link URL, a robust `shell_script` for local OS execution, or a scheduled reminder.
+---
 
-## 3-Tier Command Resolution
+## 🏛️ The 19 Core Capabilities Matrix
 
-Before executing any command, OmniShell runs a **3-tier resolution pipeline** to ensure the correct command is used:
+OmniShell natively supports 19 core interaction paradigms within a single unified pipeline:
+
+| # | Capability Name | Identifier | Execution Required | Primary Output Mode |
+|---|---|---|---|---|
+| **1** | **Question Answering** | `question_answering` | ❌ No | Markdown Direct Answer Card |
+| **2** | **Information Requests** | `information_request` | ❌ No | Structured Technical Dossier |
+| **3** | **System Inspection** | `system_inspection` | ✅ Yes | Real-time Diagnostic Terminal Box |
+| **4** | **System Analysis** | `analysis` | ❌/✅ Optional | Diagnostic Synthesis & Bottleneck Report |
+| **5** | **Application Operations** | `application_operation` | ✅ Yes | Native Process Spawning |
+| **6** | **Browser Operations** | `browser_operation` | ✅ Yes | Browser Picker & Deep-Link Navigation |
+| **7** | **File Operations** | `file_operation` | ✅ Yes | Native File Creation / Script Execution |
+| **8** | **Shell Operations** | `shell_operation` | ✅ Yes | Native Shell Terminal Execution |
+| **9** | **Multi-Step Pipelines** | `multi_step` | ✅ Yes | Sequential Step Visualizer & Checklist |
+| **10** | **Interactive Workflows** | `interactive_workflow` | ✅ Yes | Multi-Stage Interactive Checkpoints |
+| **11** | **Scheduled Workflows** | `scheduled_workflow` | ✅ Yes | PostgreSQL Scheduled Task Queue |
+| **12** | **Recurring Workflows** | `recurring_workflow` | ✅ Yes | Continuous Periodic Recurrence Loop |
+| **13** | **Conditional Workflows** | `conditional_workflow` | ✅ Yes | Dynamic Condition Evaluation & Branching |
+| **14** | **Desktop Reminders** | `reminder` | ✅ Yes | Native Desktop Notification Dispatch |
+| **15** | **Research Tasks** | `research` | ❌ No | Multi-Source Web & System Synthesis |
+| **16** | **Planning-Only Requests** | `planning_only` | ❌ No | Architectural Roadmap (Zero Shell Exec) |
+| **17** | **Elevated Human Approval** | `human_approval` | ✅ Yes | In-UI SweetAlert2 Double-Confirmation |
+| **18** | **Clarification Requests** | `clarification` | ❌ No | Actionable Option Buttons |
+| **19** | **Failure Recovery** | `recovery_failure` | ✅ Yes | Self-Healing Retry Chain & Rollback |
+
+---
+
+## 🤖 The 8-Agent Swarm Syndicate
+
+Every user prompt submitted to the backend is evaluated by a collaborative swarm of specialized agents:
 
 ```mermaid
-graph LR;
-    Prompt["User Prompt"] --> T1{"Tier 1: Redis Cache"};
-    T1 -->|"HIT"| Exec["Execute Correct Command"];
-    T1 -->|"MISS"| T2{"Tier 2: Knowledge Base"};
-    T2 -->|"MATCH"| Exec;
-    T2 -->|"MISS"| T3["Tier 3: Research Agent"];
-    T3 -->|"Web Search + LLM"| Exec;
-    T3 -->|"Learn"| Redis[("Redis")];
+graph TD
+    User["👤 User Prompt"] --> A1["1. Intent & Planning Agent"]
+    A1 --> A2["2. System Reconnaissance Agent"]
+    A2 --> A3["3. Content & Knowledge Synthesizer"]
+    A3 --> A4["4. Security Guard"]
+    A4 --> A5["5. Safety & Policy Supervisor"]
+    A5 --> A6["6. Command Research Agent"]
+    A6 --> A7["7. Command Validator Agent"]
+    A7 --> A8["8. Execution Planner"]
+
+    A5 -.->|"Ambiguous Intent"| Clarify["❓ Clarification Agent"]
 ```
 
-| Tier | Source | Speed | Description |
-|------|--------|-------|-------------|
-| **1** | Redis Cache | ⚡ < 1ms | Previously learned commands. Checked first for instant lookups. |
-| **2** | `KNOWN_APP_COMMANDS` | ⚡ < 1ms | Hardcoded knowledge base of 20+ common apps and their correct commands. |
-| **3** | Research Agent | 🔍 3-10s | DuckDuckGo web search → LLM extraction → stores result in Redis for future. |
+### Agent Roles & Deliverables:
+1. **Intent & Planning Agent**: Deconstructs raw natural language into structured operational steps, identifying target parameters and the primary capability category (confidence score: 0–100%).
+2. **System Reconnaissance Agent**: Identifies the host environment (Linux, macOS, Windows), inspects binary paths (`/bin/bash`, `which`, `where`), and maps required environment variables.
+3. **Content & Knowledge Synthesizer**: Synthesizes rich, structured Markdown answers for factual queries and drafts contextual email bodies or documentation notes.
+4. **Security Guard**: Evaluates the prompt against prohibited Abstract Syntax Tree (AST) patterns, mass deletion risks, and malicious payloads.
+5. **Safety & Policy Supervisor**: Enforces execution boundaries and assigns risk levels (`LOW`, `MEDIUM`, `HIGH`, `BLOCKED`).
+6. **Command Research Agent**: Queries the local knowledge base and autonomous web search (DuckDuckGo) to discover appropriate command syntax for unknown applications.
+7. **Command Validator Agent**: Validates shell quoting, environment compatibility, process termination criteria, and expected exit codes.
+8. **Execution Planner**: Finalizes the routing path, constructing either a direct Markdown card, a browser deep-link, a multi-step plan, or a persistent host execution payload.
+9. **Clarification & Disambiguation Agent**: Triggered when a prompt is underspecified or ambiguous, generating structured interactive choice buttons for user clarification.
+
+---
+
+## 🎛️ The Request Control Plane Lifecycle
+
+OmniShell implements a formal Request Control Plane tracking 5 continuous stages:
+
+$$\text{Intent} \longrightarrow \text{Policy} \longrightarrow \text{Plan} \longrightarrow \text{Execute} \longrightarrow \text{Verify}$$
+
+1. **Stage 1: Intent Analysis**: Maps prompt signals to capability and confidence score.
+2. **Stage 2: Policy & Safety Gate**: Validates the command against safety rules and determines if human authorization is required.
+3. **Stage 3: Workflow Planning**: Constructs the executable payload or direct answer with the 8-agent swarm.
+4. **Stage 4: Host Execution**: Dispatches commands to the local daemon, opens browsers, or enrolls in the database queue.
+5. **Stage 5: Output Verification**: Inspects exit codes (`$? == 0`), process hierarchies via `psutil`, and captures telemetry timings.
+
+---
 
 ## 🛡️ 4-Layer Defense Architecture
 
-To ensure zero catastrophic failures, OmniShell implements a rigid 4-Layer Defense:
-
-1. **Layer 0 (Pre-LLM Guardrail):** A hardcoded Python regex interceptor in the backend that scans the raw user prompt. It immediately blocks passwords, system files, dark web, hacking, and mass deletion *before* the AI even sees it. This cannot be jailbroken.
-2. **Layer 1 (AI Security Guard):** The Security Guard Agent in the swarm actively denies malicious intents that slip past Layer 0 (e.g., context-aware semantic threats).
-3. **Layer 2 (Frontend Double-Confirmation):** Destructive commands (`rm`, `delete`) require a secondary Human-in-the-Loop (HITL) popup. The AI never runs silently.
-4. **Layer 3 (Frontend System Override):** Even if the human approves it, a final client-side safeguard blocks known malicious script patterns (like `rm -rf /` or accessing `/etc/shadow`) and permanently terminates the execution.
-
-## Docker-to-Host Bridging (V2 Executor)
-Because the FastAPI backend lives inside an isolated Docker network, it cannot natively launch applications on the host Windows/Linux machine. 
-
-To solve this, OmniShell uses an asynchronous bridge:
-1. The AI generates the script/URL.
-2. The UI intercepts it and triggers a **SweetAlert2** popup for human approval.
-3. Upon approval, the UI sends an HTTP POST request to `http://localhost:8003`.
-4. `local_executor.py` (V2) intercepts this on the host machine.
-5. The V2 Executor securely uses Python's `subprocess.Popen` pipeline to execute the script in the background, capturing stdout/stderr, applying exact timeouts, and managing the process tree safely without relying on fragile terminal popups.
-
-## 🧠 Self-Learning Pipeline
-
-OmniShell includes a self-correcting learning system that ensures the AI gets smarter with every interaction. Instead of blindly trusting LLM-generated commands, the system validates outputs and learns from mistakes.
-
-### How It Works
+OmniShell protects the host machine through four concentric layers of security:
 
 ```mermaid
-graph TD;
-    A((User)) -->|"open vs code"| B["LLM Agent Pipeline"];
-    B -->|"Generates WRONG command"| C{"3-Tier Resolution"};
-    C -->|"Tier 1: Redis MISS"| D{"Tier 2: Knowledge Base"};
-    D -->|"FOUND: vs code = code"| E["Override LLM with correct command"];
-    D -->|"NOT FOUND"| F["Tier 3: Research Agent searches web"];
-    F -->|"DuckDuckGo + LLM extract"| G["Found correct command"];
-    G -->|"Store in Redis"| H[("Redis Cache")];
-    E --> I["Host Execution"];
-    G --> I;
-    I --> J{"psutil Validator"};
-    J -->|"SUCCESS"| K["Return to User"];
-    J -->|"FAILURE"| L["Log and Learn"];
-    L --> H;
+graph TD
+    Prompt["👤 Incoming Prompt"] --> L0["Layer 0: Pre-LLM Regex Red-Line Guard"]
+    L0 -->|"Safe"| L1["Layer 1: AI Security Guard Agent"]
+    L0 -->|"Malicious Pattern"| Block0["🛑 Immediate Pre-LLM Block"]
+
+    L1 -->|"Approved"| L2["Layer 2: Frontend Human Confirmation Gate"]
+    L1 -->|"Destructive Intent"| Block1["🛑 Security Policy Block"]
+
+    L2 -->|"User Confirms"| L3["Layer 3: Client-Side Safety Pattern Check"]
+    L2 -->|"User Denies"| Cancel["🛑 User Cancelled"]
+
+    L3 -->|"Passed"| Host["💻 Host Executor Daemon Execution"]
+    L3 -->|"Failed Pattern"| Block3["🛑 Terminal Override Block"]
 ```
 
-### The Three Execution Paths
+1. **Layer 0 (Pre-LLM Regex Guard)**: Hardcoded deterministic filter in Python (`re.search`) that blocks mass deletion (`rm -rf /`, `mkfs`), credential dumping (`/etc/shadow`, `SAM`), and crypto-miners before the AI engine is invoked.
+2. **Layer 1 (AI Security Guard Agent)**: Cognitive agent evaluating semantic risk, privilege escalation, and downgrading sensitive intents (e.g., forcing auto-send to draft).
+3. **Layer 2 (Frontend Human Gate)**: Interactive SweetAlert2 dialogs and standalone Pop-out Approval Windows requiring explicit user confirmation before host mutation.
+4. **Layer 3 (Client-Side Terminal Override)**: Final regex screening in the browser client prior to dispatching HTTP payloads to port 8003.
 
-| Path | Trigger | Behavior |
-|------|---------|----------|
-| **Known App (Cached)** | App exists in Redis or `KNOWN_APP_COMMANDS` | LLM output is **overridden** with the known-correct command. Near-instant response. |
-| **Unknown App (Research)** | App is NOT in knowledge base or cache | **Research Agent** searches the web, extracts the correct command, stores it in Redis, and executes. Next time it's instant. |
-| **Failed Execution** | psutil validation fails | The failure is logged with full context (command, expected process, error output, timestamp). Flagged for manual review. |
+---
 
-### Knowledge Base: `KNOWN_APP_COMMANDS`
+## 🔒 Dual Approval Architecture
 
-A curated dictionary of common application mappings that acts as a **middleware override layer** between the LLM and execution:
+OmniShell provides specialized approval flows tailored for user context:
 
-```python
-KNOWN_APP_COMMANDS = {
-    "Windows": {
-        "vs code":   {"script": "code",     "process": "Code.exe"},
-        "calculator": {"script": "calc",    "process": "Calculator.exe"},
-        # ...
-    },
-    "Linux": {
-        "vs code":   {"script": "code",     "process": "code"},
-        "calculator": {"script": "gnome-calculator", "process": "gnome-calculator"},
-        # ...
-    }
-}
-```
+### 1. In-UI SweetAlert2 Confirmation Modal (Immediate Operations)
+- **Use Case**: Real-time elevated shell operations, file cleanups, and trash purges.
+- **Workflow**: Renders an interactive modal displaying the exact script payload, warning labels, and "Authorize & Execute" / "Cancel" buttons directly in the active session.
 
-### Dual-Store Caching Strategy
+### 2. Pop-out Approval Window Document (Scheduled & Background Operations)
+- **Use Case**: Scheduled tasks (`scheduled_workflow`) and recurring cron jobs (`recurring_workflow`) where the original browser tab may be closed or inactive.
+- **Workflow**: When the task timestamp matures, the Host Executor Daemon automatically launches a standalone window pointing to `http://localhost:3000/scheduled-approval/<token>?taskId=<id>`.
+- **Security**: Validates single-use URL-safe SHA-256 tokens and enforces a 300-second countdown timeout before automatic expiration.
 
-- **Redis** — Fast in-memory cache for corrected command mappings. Enables sub-millisecond lookups for repeat requests, allowing the system to bypass the LLM entirely for known apps.
-- **PostgreSQL** — Persistent store for the complete correction history including timestamps, original LLM output, corrected command, validation results, and error logs. Used for analytics, debugging, and model fine-tuning.
+---
 
-> See the full diagrams at:
-> - [`architecture.mmd`](./diagrams/architecture.mmd) — 5-Agent architecture with 3-Tier resolution
-> - [`self_learning_pipeline.mmd`](./diagrams/self_learning_pipeline.mmd) — Detailed pipeline with known/unknown/cached paths
-> - [`learning_fix_flow.mmd`](./diagrams/learning_fix_flow.mmd) — Complete learning & self-correction flow
+## 💻 Host Daemon Specification (`local_executor.py` on Port 8003)
+
+The Host Executor Daemon is a Python service running natively on the host machine:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | `GET` | Reports daemon uptime, platform OS, and status |
+| `/capabilities` | `GET` | Returns list of 19 supported execution modes |
+| `/system/metrics` | `GET` | Real-time CPU, RAM, disk, network, and system uptime |
+| `/browsers` | `GET` | Returns auto-detected installed web browsers |
+| `/execute` | `POST` | Executes shell commands with process and exit code validation |
+| `/execute/multi-step` | `POST` | Executes structured sequential sub-steps with status tracking |
+| `/execute/conditional` | `POST` | Evaluates system conditions and dispatches conditional branches |
+| `/notify` | `POST` | Dispatches native cross-platform OS notifications |

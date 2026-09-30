@@ -1,58 +1,106 @@
-# 🛠️ Local Setup Guide
+# 🛠️ OmniShell Local Setup & Installation Guide
 
-This guide will walk you through setting up OmniShell on your local machine.
-
-## 📋 Prerequisites
-Before you begin, ensure you have the following installed on your machine:
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) (For the AI Backend & UI)
-- [Python 3.10+](https://www.python.org/downloads/) (For the Host Executor)
-- [Git](https://git-scm.com/)
+This guide provides instructions to install, configure, and run OmniShell on your local machine (Linux, macOS, or Windows).
 
 ---
 
-## 🚀 Step 1: Clone the Repository
-Open your terminal and clone the repository:
+## 📋 Prerequisites
 
-`ash
+Before starting, ensure you have the following installed:
+- **[Docker & Docker Compose](https://www.docker.com/)**: For the backend, database, cache, and frontend containers.
+- **[Python 3.10+](https://www.python.org/downloads/)**: For running the Native Host Executor Daemon (`local_executor.py`).
+- **[Git](https://git-scm.com/)**: For repository cloning and source management.
+
+---
+
+## 🚀 Step-by-Step Setup
+
+### Step 1: Clone the Repository
+```bash
 git clone https://github.com/vishwajitvm/OmniShell.git
-cd OmniShell
+cd OmniShell/saas_poc
 ```
 
-## ⚙️ Step 2: Configure Environment Variables
-You need to provide your LLM API keys so the Agent Swarm can function.
+---
 
-1. Copy the template file to create your .env file:
-`ash
-cp .env.template .env
-```
-*(On Windows Command Prompt, use copy .env.template .env)*
-
-2. Open the .env file in your favorite text editor and add your API keys (e.g., Groq, OpenAI, or OpenRouter).
-
-## 🐳 Step 3: Spin Up the AI Brain (Docker)
-Start the PostgreSQL database, Redis cache, FastAPI backend, and NestJS frontend.
-
-`ash
-docker-compose up --build -d
-```
-> **Note:** The -d flag runs it in the background. To see the logs, you can run docker-compose logs -f.
-
-## 💻 Step 4: Start the Host Executor V2 (Native OS)
-The AI Brain is safely isolated in Docker. To allow it to execute approved commands on your actual Windows/Linux desktop, you must run the Host Executor natively.
-
-Open a **new terminal window** on your physical machine and run:
+### Step 2: Configure Environment Variables
+Copy the template configuration file to create your local `.env`:
 
 ```bash
-pip install psutil
-python local_executor.py
+cp .env.template .env
 ```
-*(Leave this terminal window open! It listens on Port 8003 for approved commands. The V2 executor runs safely in the background.)*
+*(On Windows Command Prompt, run `copy .env.template .env`)*
 
-## 🌐 Step 5: Open the UI
-Everything is now running! Open your browser and navigate to:
+Open `.env` and verify your LLM configurations (e.g. OpenAI, Anthropic, Groq, NVIDIA NIM, or Ollama):
+```env
+# AI / LLM Configuration
+LITELLM_MODEL=nvidia/deepseek-ai/deepseek-r1
+NVIDIA_NIM_API_KEY=your_api_key_here
+
+# Database & Cache
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=omnishell
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Host Daemon
+OMNISHELL_EXECUTOR_URL=http://localhost:8003
+```
+
+---
+
+### Step 3: Start the Dockerized AI Stack
+Build and start the PostgreSQL database, Redis cache, FastAPI backend, and NestJS frontend:
+
+```bash
+docker-compose up --build -d
+```
+
+To view live container logs:
+```bash
+docker-compose logs -f
+```
+
+---
+
+### Step 4: Start the Native Host Executor Daemon
+Because the backend runs securely inside an isolated Docker container, physical desktop execution (launching apps, opening terminals, inspecting host metrics) is performed by the host daemon.
+
+Open a **new terminal window** on your physical host machine and run:
+
+```bash
+# Install host daemon dependencies
+pip install psutil
+
+# Start the Host Executor Daemon (runs on port 8003)
+python3 local_executor.py
+```
+
+> **Note:** Keep this terminal session running. The daemon listens on `http://localhost:8003` and runs background scheduler polls every 2 seconds.
+
+---
+
+### Step 5: Access the Control Center
+Open your browser and navigate to:
 
 ```text
 http://localhost:3000
 ```
 
-Try typing: Open Gmail and draft an email to hello@example.com saying I will be late.
+Additional dashboards:
+- **Command Center**: [http://localhost:3000](http://localhost:3000)
+- **Pipeline & Scheduler Dashboard**: [http://localhost:3000/pipeline](http://localhost:3000/pipeline)
+- **Analytics & Telemetry**: [http://localhost:3000/analytics](http://localhost:3000/analytics)
+- **Backend Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## 🧪 Running Automated Tests
+
+To run the automated capabilities and safety test suite:
+
+```bash
+python3 -m unittest tests/test_capabilities.py
+```
+*(32/32 tests should pass with 100% success rate)*

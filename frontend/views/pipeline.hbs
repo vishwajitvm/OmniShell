@@ -3,131 +3,523 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{title}}</title>
+    <title>{{title}} — OmniShell Workflow Pipeline Control Plane</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        body {
+            background: radial-gradient(circle at top, #172554 0%, #090d16 45%, #020617 100%);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
         .glass {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+        .glass:hover {
+            border-color: rgba(99, 102, 241, 0.35);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 9999px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.6);
         }
     </style>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white font-sans p-8">
-    
-    <div class="max-w-4xl mx-auto">
-        <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400">Scheduled Pipeline Dashboard</h1>
-            <a href="/" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold transition">← Back to Agent</a>
-        </div>
+<body class="min-h-screen text-white p-4 sm:p-8">
+    <main class="max-w-7xl mx-auto space-y-6">
+        
+        <!-- Header & Top Nav -->
+        <header class="flex flex-col lg:flex-row lg:items-end justify-between gap-5 pb-2 border-b border-slate-800/80">
+            <div>
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-2">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    OmniShell / Operations Control Plane
+                </div>
+                <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-300">
+                    Autonomous Workflow Pipeline
+                </h1>
+                <p class="text-slate-400 text-sm mt-1 max-w-3xl leading-relaxed">
+                    Monitor scheduled, recurring, conditional, approval-gated and background workflows. Inspect generated scripts, execution telemetry, and host outputs in real-time.
+                </p>
+            </div>
+            
+            <div class="flex items-center gap-3 shrink-0">
+                <span id="refresh-state" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-400 font-mono">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="sync-text">live sync</span>
+                </span>
+                <a href="/" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                    Command Center
+                </a>
+                <a href="/analytics" class="px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    Analytics & Telemetry
+                </a>
+            </div>
+        </header>
 
-        <div class="glass p-8 rounded-2xl shadow-2xl">
-            <h2 class="text-xl font-semibold mb-4 text-slate-300">Active Background Jobs</h2>
+        <!-- KPI Summary Cards -->
+        <section class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3.5">
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total Workflows</div>
+                <div id="k-total" class="text-2xl sm:text-3xl font-black text-white mt-1">0</div>
+                <div class="text-[10px] text-slate-500 mt-1">Registry queue</div>
+            </div>
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Scheduled / Ready</div>
+                <div id="k-scheduled" class="text-2xl sm:text-3xl font-black text-cyan-300 mt-1">0</div>
+                <div class="text-[10px] text-cyan-500/80 mt-1">Awaiting trigger</div>
+            </div>
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Awaiting Approval</div>
+                <div id="k-approval" class="text-2xl sm:text-3xl font-black text-amber-300 mt-1">0</div>
+                <div class="text-[10px] text-amber-500/80 mt-1">Safety gated</div>
+            </div>
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Active / Running</div>
+                <div id="k-running" class="text-2xl sm:text-3xl font-black text-indigo-300 mt-1">0</div>
+                <div class="text-[10px] text-indigo-400/80 mt-1">Executing on host</div>
+            </div>
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Completed</div>
+                <div id="k-completed" class="text-2xl sm:text-3xl font-black text-emerald-300 mt-1">0</div>
+                <div class="text-[10px] text-emerald-500/80 mt-1">Success verified</div>
+            </div>
+            <div class="glass rounded-2xl p-4 shadow-xl">
+                <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Failed / Cancelled</div>
+                <div id="k-failed" class="text-2xl sm:text-3xl font-black text-rose-300 mt-1">0</div>
+                <div class="text-[10px] text-rose-500/80 mt-1">Error audited</div>
+            </div>
+        </section>
+
+        <!-- Filters and Search Toolbar -->
+        <section class="glass rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div class="flex flex-wrap items-center gap-3 flex-1">
+                <div class="relative flex-1 min-w-[240px]">
+                    <input id="search" type="text" placeholder="Search prompts, capability types, IDs..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition" />
+                </div>
+                <div class="relative min-w-[160px]">
+                    <select id="status" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 transition cursor-pointer">
+                        <option value="all">All States</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="awaiting_approval">Awaiting Approval</option>
+                        <option value="approved">Approved</option>
+                        <option value="running">Running / Triggered</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="expired">Expired</option>
+                    </select>
+                </div>
+                <label class="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none hover:border-slate-700 transition">
+                    <input id="recurring" type="checkbox" class="accent-indigo-500 rounded cursor-pointer" />
+                    <span>↻ Recurring Only</span>
+                </label>
+            </div>
+
+            <button onclick="load()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                Refresh
+            </button>
+        </section>
+
+        <!-- Pipeline Workflow Registry Table -->
+        <section class="glass rounded-3xl overflow-hidden shadow-2xl">
+            <div class="p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <span>⚡</span> Pipeline Execution & Task Registry
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Latest operations on top. Click any row to expand generated execution scripts, step sequences, and terminal results.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="queue-badge" class="text-xs font-mono px-3 py-1 bg-slate-900 border border-slate-800 text-slate-400 rounded-xl">0 Tasks</span>
+                </div>
+            </div>
+
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-slate-600/50">
-                            <th class="py-3 px-4 text-blue-400 font-semibold">ID</th>
-                            <th class="py-3 px-4 text-blue-400 font-semibold">Task/Message</th>
-                            <th class="py-3 px-4 text-blue-400 font-semibold">Scheduled Execution Time</th>
-                            <th class="py-3 px-4 text-blue-400 font-semibold">Status</th>
-                            <th class="py-3 px-4 text-blue-400 font-semibold">Action</th>
+                    <thead class="bg-slate-950/80 text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                        <tr>
+                            <th class="p-4 font-semibold">ID / Created</th>
+                            <th class="p-4 font-semibold">Workflow Prompt</th>
+                            <th class="p-4 font-semibold">Capability</th>
+                            <th class="p-4 font-semibold">Schedule Time</th>
+                            <th class="p-4 font-semibold">State</th>
+                            <th class="p-4 font-semibold">Attempts</th>
+                            <th class="p-4 font-semibold text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="pipeline-table-body">
-                        <tr><td colspan="5" class="py-4 text-center text-slate-400 italic">Loading pipeline...</td></tr>
+                    <tbody id="body" class="divide-y divide-slate-800/60 text-xs">
+                        <tr>
+                            <td colspan="7" class="p-12 text-center text-slate-500">Loading pipeline registry...</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
-        </div>
-    </div>
+        </section>
 
-    <!-- Toast Container for active popups -->
-    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2"></div>
+    </main>
 
     <script>
-        async function fetchPipeline() {
-            try {
-                const res = await fetch('http://localhost:8000/api/reminders');
-                if (!res.ok) throw new Error("Backend not responding");
-                const reminders = await res.json();
-                
-                const tbody = document.getElementById('pipeline-table-body');
-                tbody.innerHTML = '';
-                
-                if (reminders.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 italic">No tasks currently scheduled in the pipeline.</td></tr>';
-                    return;
+        let tasks = [];
+        let openTaskIds = new Set();
+
+        const esc = (x) => String(x ?? '').replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+
+        function badge(s) {
+            const map = {
+                completed: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', icon: '✓' },
+                scheduled: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', text: 'text-cyan-400', icon: '⏰' },
+                awaiting_approval: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', icon: '⚡' },
+                approved: { bg: 'bg-indigo-500/10', border: 'border-indigo-500/30', text: 'text-indigo-400', icon: '▶' },
+                running: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-400', icon: '⚙' },
+                failed: { bg: 'bg-rose-500/10', border: 'border-rose-500/30', text: 'text-rose-400', icon: '✕' },
+                denied: { bg: 'bg-rose-500/10', border: 'border-rose-500/30', text: 'text-rose-400', icon: '⛔' },
+                cancelled: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', text: 'text-slate-400', icon: '⊘' },
+                expired: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', text: 'text-orange-400', icon: '⌛' }
+            };
+            const item = map[s] || { bg: 'bg-slate-500/10', border: 'border-slate-500/30', text: 'text-slate-400', icon: '•' };
+            return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${item.bg} border ${item.border} ${item.text} text-[10px] font-bold uppercase tracking-wider">
+                <span>${item.icon}</span> ${esc(s || 'unknown')}
+            </span>`;
+        }
+
+        function toggleTaskDetails(taskId) {
+            if (openTaskIds.has(taskId)) {
+                openTaskIds.delete(taskId);
+            } else {
+                openTaskIds.add(taskId);
+            }
+            render();
+        }
+
+        function copyToClipboard(text, btnElement) {
+            navigator.clipboard.writeText(text).then(() => {
+                if (btnElement) {
+                    const original = btnElement.innerText;
+                    btnElement.innerText = 'Copied!';
+                    setTimeout(() => { btnElement.innerText = original; }, 1800);
                 }
+            }).catch(err => {
+                console.error('Clipboard copy failed:', err);
+            });
+        }
 
-                const now = new Date();
+        function render() {
+            const q = document.getElementById('search').value.toLowerCase().trim();
+            const st = document.getElementById('status').value;
+            const rr = document.getElementById('recurring').checked;
 
-                reminders.forEach(r => {
-                    const tr = document.createElement('tr');
-                    tr.className = "border-b border-slate-700/30 hover:bg-slate-800/30 transition";
-                    
-                    const t = new Date(r.trigger_time + 'Z');
-                    
-                    tr.innerHTML = `
-                        <td class="py-3 px-4 font-mono text-xs text-slate-400">#${r.id}</td>
-                        <td class="py-3 px-4 font-semibold text-indigo-200">${r.message}</td>
-                        <td class="py-3 px-4 text-sm text-blue-300">${t.toLocaleString()}</td>
-                        <td class="py-3 px-4">
-                            <span class="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full animate-pulse border border-yellow-500/30">WAITING</span>
+            // Ensure tasks are sorted latest ID on top
+            const sorted = [...tasks].sort((a, b) => (b.id || 0) - (a.id || 0));
+
+            const filtered = sorted.filter(t => {
+                const matchesStatus = (st === 'all' || t.status === st);
+                const matchesRecurring = (!rr || t.is_recurring);
+                const textSearch = `${t.id} ${t.original_prompt} ${t.capability_type || ''} ${t.expected_process || ''}`.toLowerCase();
+                const matchesSearch = textSearch.includes(q);
+                return matchesStatus && matchesRecurring && matchesSearch;
+            });
+
+            // Update KPI cards
+            document.getElementById('k-total').innerText = tasks.length;
+            document.getElementById('k-scheduled').innerText = tasks.filter(t => t.status === 'scheduled').length;
+            document.getElementById('k-approval').innerText = tasks.filter(t => t.status === 'awaiting_approval').length;
+            document.getElementById('k-running').innerText = tasks.filter(t => ['approved', 'running', 'triggered'].includes(t.status)).length;
+            document.getElementById('k-completed').innerText = tasks.filter(t => t.status === 'completed').length;
+            document.getElementById('k-failed').innerText = tasks.filter(t => ['failed', 'cancelled', 'denied', 'expired'].includes(t.status)).length;
+            document.getElementById('queue-badge').innerText = `${filtered.length} of ${tasks.length} Tasks`;
+
+            const tbody = document.getElementById('body');
+            if (!filtered.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-12 text-center text-slate-500 font-medium">No workflow tasks match your current filter criteria.</td></tr>`;
+                return;
+            }
+
+            let rowsHtml = '';
+            filtered.forEach(t => {
+                const isOpen = openTaskIds.has(t.id);
+                const promptEscaped = esc(t.original_prompt);
+                const promptEncoded = encodeURIComponent(t.original_prompt || '');
+                const createdTime = t.created_at ? new Date(t.created_at).toLocaleString() : '—';
+                const scheduledTime = t.scheduled_for ? new Date(t.scheduled_for).toLocaleString() : '—';
+                const hasScript = Boolean(t.shell_script && t.shell_script.trim());
+                const hasBrowser = Boolean(t.requires_browser && t.target_url);
+                const hasPlan = Array.isArray(t.multi_step_plan) && t.multi_step_plan.length > 0;
+                const hasResult = Boolean(t.execution_result);
+                const execResult = t.execution_result || {};
+                const exitCode = execResult.exit_code !== undefined ? execResult.exit_code : null;
+                const outputText = execResult.output || t.last_error || t.failure_reason || '';
+
+                rowsHtml += `
+                <tr class="hover:bg-slate-900/60 transition cursor-pointer ${isOpen ? 'bg-slate-900/80 border-b-0' : ''}" onclick="toggleTaskDetails(${t.id})">
+                    <td class="p-4 font-mono text-slate-400">
+                        <div class="font-bold text-indigo-400">#${t.id}</div>
+                        <div class="text-[10px] text-slate-500">${createdTime}</div>
+                    </td>
+                    <td class="p-4 max-w-md">
+                        <div class="font-semibold text-slate-100 line-clamp-2">${promptEscaped}</div>
+                        <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400 font-mono">
+                            <span>OS: ${esc(t.target_os || 'Host')}</span>
+                            ${t.expected_process ? `<span class="text-slate-600">•</span><span class="text-slate-400 truncate max-w-[200px]">Proc: ${esc(t.expected_process)}</span>` : ''}
+                        </div>
+                    </td>
+                    <td class="p-4">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-mono">
+                            ${esc(t.capability_type || (t.requires_browser ? 'browser' : 'scheduled_exec'))}
+                        </span>
+                    </td>
+                    <td class="p-4 text-xs font-mono">
+                        <div class="text-slate-200">${scheduledTime}</div>
+                        <div class="mt-0.5 text-[10px] ${t.is_recurring ? 'text-emerald-400 font-semibold' : 'text-slate-500'}">
+                            ${t.is_recurring ? '↻ ' + esc(t.recurrence_rule || 'recurring') : 'one-time'}
+                        </div>
+                    </td>
+                    <td class="p-4">${badge(t.status)}</td>
+                    <td class="p-4 text-xs font-mono text-slate-300">
+                        <span class="${t.attempt_count > 1 ? 'text-amber-400 font-bold' : ''}">${t.attempt_count ?? 0}</span> / ${t.max_attempts ?? 3}
+                    </td>
+                    <td class="p-4 text-right" onclick="event.stopPropagation()">
+                        <div class="flex items-center justify-end gap-2">
+                            ${t.status === 'awaiting_approval' ? `
+                                <a href="/scheduled-approval?taskId=${t.id}" target="_blank" class="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 text-[11px] font-bold transition flex items-center gap-1">
+                                    <span>⚡</span> Approve
+                                </a>
+                            ` : ''}
+                            ${['scheduled', 'awaiting_approval', 'approved'].includes(t.status) ? `
+                                <button onclick="cancelTask(${t.id})" class="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] font-semibold hover:bg-rose-500/20 transition cursor-pointer">
+                                    Cancel
+                                </button>
+                            ` : ''}
+                            <button onclick="toggleTaskDetails(${t.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold border border-slate-700 transition cursor-pointer">
+                                ${isOpen ? 'Hide' : 'Inspect'}
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                `;
+
+                if (isOpen) {
+                    rowsHtml += `
+                    <tr class="bg-slate-950/90 border-b border-indigo-500/20">
+                        <td colspan="7" class="p-5 sm:p-6 space-y-5">
+                            
+                            <!-- Prompt & Action Header -->
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900/90 border border-slate-800">
+                                <div>
+                                    <div class="text-[10px] font-bold uppercase tracking-wider text-indigo-400 mb-1">Full Request Prompt</div>
+                                    <div class="text-sm font-medium text-slate-100">${promptEscaped}</div>
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    ${t.status === 'awaiting_approval' ? `
+                                        <a href="/scheduled-approval?taskId=${t.id}" target="_blank" class="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                                            <span>📄</span> Scheduled Approval Document
+                                        </a>
+                                    ` : ''}
+                                    <button onclick="copyToClipboard('${promptEscaped.replace(/'/g, "\\'")}', this)" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 transition">
+                                        Copy Prompt
+                                    </button>
+                                    <a href="/?prompt=${promptEncoded}" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1">
+                                        <span>⚡</span> Load in Command Center
+                                    </a>
+                                </div>
+                            </div>
+
+                            ${t.status === 'awaiting_approval' ? `
+                                <!-- Human-in-the-Loop Authorization Box -->
+                                <div class="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-2xl">🔒</span>
+                                        <div>
+                                            <div class="text-xs font-bold text-amber-300 uppercase tracking-wide">Human-in-the-Loop Authorization Required</div>
+                                            <div class="text-xs text-amber-200/80 mt-0.5">This scheduled operation has been held by Safety Supervisor. Review and authorize or deny.</div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 shrink-0">
+                                        <button onclick="denyTask(${t.id})" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-rose-950 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/30 transition cursor-pointer">
+                                            🛑 Deny
+                                        </button>
+                                        <button onclick="approveTask(${t.id})" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer">
+                                            <span>✅ Approve & Execute</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            <!-- Execution Plan / Script Section -->
+                            <div class="grid grid-cols-1 ${hasResult || outputText ? 'lg:grid-cols-2' : ''} gap-4">
+                                
+                                <!-- Script / Target details -->
+                                <div class="space-y-4">
+                                    ${hasScript ? `
+                                        <div class="rounded-2xl p-4 bg-slate-900/80 border border-slate-800 space-y-2">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono">
+                                                    <span>💻</span> Generated Shell Script
+                                                </span>
+                                                <button onclick="copyToClipboard('${esc(t.shell_script).replace(/'/g, "\\'")}', this)" class="text-[11px] text-indigo-400 hover:text-indigo-300 font-mono">
+                                                    Copy Script
+                                                </button>
+                                            </div>
+                                            <pre class="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre-wrap border border-slate-950">${esc(t.shell_script)}</pre>
+                                        </div>
+                                    ` : ''}
+
+                                    ${hasBrowser ? `
+                                        <div class="rounded-2xl p-4 bg-slate-900/80 border border-slate-800 space-y-2">
+                                            <div class="text-xs font-bold text-cyan-300 flex items-center gap-1.5 font-mono">
+                                                <span>🌐</span> Browser Automation Target
+                                            </div>
+                                            <div class="flex items-center justify-between p-3 bg-black/40 rounded-xl border border-slate-800 font-mono text-xs">
+                                                <span class="text-cyan-400 truncate">${esc(t.target_url)}</span>
+                                                <a href="${esc(t.target_url)}" target="_blank" class="text-indigo-400 hover:underline shrink-0 ml-2">Open ↗</a>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    ${hasPlan ? `
+                                        <div class="rounded-2xl p-4 bg-slate-900/80 border border-slate-800 space-y-2">
+                                            <div class="text-xs font-bold text-indigo-300 flex items-center gap-1.5 font-mono">
+                                                <span>📋</span> Multi-Step Workflow Sequence (${t.multi_step_plan.length} Steps)
+                                            </div>
+                                            <div class="space-y-2">
+                                                ${t.multi_step_plan.map(step => `
+                                                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
+                                                        <div class="flex items-center justify-between font-bold text-slate-200">
+                                                            <span>Step ${step.step_number || '•'}: ${esc(step.description || 'Action')}</span>
+                                                        </div>
+                                                        ${step.command ? `<pre class="mt-1.5 p-2 bg-black/50 rounded-lg text-emerald-400 font-mono text-[11px] overflow-x-auto">${esc(step.command)}</pre>` : ''}
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+
+                                <!-- Output / Telemetry Section -->
+                                ${(hasResult || outputText) ? `
+                                    <div class="space-y-4">
+                                        <div class="rounded-2xl p-4 bg-slate-900/80 border border-slate-800 space-y-2">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono">
+                                                    <span>⚡</span> Live Host Execution Telemetry
+                                                </span>
+                                                ${exitCode !== null ? `
+                                                    <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${exitCode === 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">
+                                                        Exit Code: ${exitCode}
+                                                    </span>
+                                                ` : ''}
+                                            </div>
+                                            <pre class="p-3 bg-black/80 rounded-xl font-mono text-xs ${exitCode === 0 ? 'text-slate-200' : 'text-rose-300'} overflow-x-auto whitespace-pre-wrap max-h-72 custom-scrollbar border border-slate-950">${esc(outputText || 'No terminal output recorded.')}</pre>
+                                        </div>
+
+                                        <!-- Diagnostic Timeline Metadata -->
+                                        <div class="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                                            <div>Triggered: <span class="text-slate-200">${t.triggered_at ? new Date(t.triggered_at).toLocaleTimeString() : '—'}</span></div>
+                                            <div>Completed: <span class="text-slate-200">${t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : '—'}</span></div>
+                                            <div>Max Attempts: <span class="text-slate-200">${t.max_attempts || 3}</span></div>
+                                            <div>Execution ID: <span class="text-indigo-300 font-bold">${t.execution_id || '—'}</span></div>
+                                        </div>
+                                    </div>
+                                ` : ''}
+
+                            </div>
+
                         </td>
-                        <td class="py-3 px-4">
-                            <button onclick="triggerPopup(${r.id}, '${r.message.replace(/'/g, "\\'")}')" class="text-xs px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-white font-bold transition">Force Execute</button>
-                        </td>
+                    </tr>
                     `;
-                    tbody.appendChild(tr);
+                }
+            });
 
-                    if (t <= now) {
-                        triggerPopup(r.id, r.message);
-                    }
-                });
+            tbody.innerHTML = rowsHtml;
+        }
 
+        async function load() {
+            try {
+                const res = await fetch('http://localhost:8000/api/scheduled-tasks');
+                if (!res.ok) throw new Error('Backend offline');
+                tasks = await res.json();
+                render();
+                document.getElementById('sync-text').innerText = 'synced ' + new Date().toLocaleTimeString();
+                document.getElementById('sync-text').className = 'text-slate-400';
             } catch (err) {
-                console.error(err);
-                document.getElementById('pipeline-table-body').innerHTML = '<tr><td colspan="5" class="py-4 text-center text-red-400 font-bold">Failed to connect to backend database</td></tr>';
+                console.error('Fetch error:', err);
+                document.getElementById('sync-text').innerText = 'backend offline';
+                document.getElementById('sync-text').className = 'text-rose-400';
             }
         }
 
-        async function triggerPopup(id, message) {
-            await fetch(`http://localhost:8000/api/reminders/${id}/complete`, {method: 'POST'});
-            
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = "glass p-4 rounded-xl shadow-2xl border-2 border-red-500 flex items-center justify-between w-96 animate-bounce cursor-pointer transition-all hover:scale-105";
-            toast.style.background = "linear-gradient(135deg, rgba(239,68,68,0.9), rgba(153,27,27,0.9))";
-            
-            toast.innerHTML = `
-                <div>
-                    <h4 class="text-white font-black text-xl mb-1">⏰ PIPELINE EXECUTION!</h4>
-                    <p class="text-red-100 text-md font-semibold">${message}</p>
-                </div>
-                <button class="text-white hover:text-red-300 ml-4 p-2 focus:outline-none">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            `;
-            
-            toast.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); toast.remove(); });
-            toast.addEventListener('click', () => toast.remove());
-            container.appendChild(toast);
-            
-            setTimeout(() => {
-                if (document.body.contains(toast)) {
-                    toast.style.opacity = '0';
-                    setTimeout(() => toast.remove(), 500);
+        async function cancelTask(id) {
+            if (!confirm(`Are you sure you want to cancel scheduled workflow #${id}?`)) return;
+            try {
+                const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${id}/cancel`, { method: 'POST' });
+                if (res.ok) {
+                    await load();
+                } else {
+                    alert('Could not cancel task.');
                 }
-            }, 10000);
-            
-            fetchPipeline();
+            } catch (e) {
+                alert('Network error while cancelling task.');
+            }
         }
 
-        // Poll pipeline every 3 seconds
-        fetchPipeline();
-        setInterval(fetchPipeline, 3000);
+        async function approveTask(id) {
+            try {
+                const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${id}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: 'admin' })
+                });
+                if (res.ok) {
+                    await load();
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    alert('Approval failed: ' + (err.detail || 'Error'));
+                }
+            } catch (e) {
+                alert('Network error during approval: ' + e.message);
+            }
+        }
+
+        async function denyTask(id) {
+            if (!confirm(`Deny and cancel scheduled workflow #${id}?`)) return;
+            try {
+                const res = await fetch(`http://localhost:8000/api/scheduled-tasks/${id}/deny`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: 'admin' })
+                });
+                if (res.ok) {
+                    await load();
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    alert('Denial failed: ' + (err.detail || 'Error'));
+                }
+            } catch (e) {
+                alert('Network error during denial: ' + e.message);
+            }
+        }
+
+        ['search', 'status', 'recurring'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', render);
+        });
+
+        load();
+        setInterval(load, 3000);
     </script>
 </body>
 </html>

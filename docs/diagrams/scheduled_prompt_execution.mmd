@@ -1,0 +1,65 @@
+graph TD
+    %% SCHEDULED PROMPT EXECUTION & BACKGROUND DAEMON WORKFLOW
+    
+    User(["👤 User Prompt"]):::userClass -->|"1. 'Open Spotify in 10 minutes' / 'Backup logs daily'"| UI["🖥️ Main Command Center (index.hbs)"]:::uiClass
+    UI -->|"2. POST /generate-workflow"| Backend["⚡ FastAPI Backend Engine"]:::backendClass
+    
+    subgraph AgentSyndicate ["🤖 8-Agent Swarm Syndicate"]
+        Backend --> A1["Intent & Planning Agent"]:::agentClass
+        A1 --> A2["Scheduler & Recurrence Agent"]:::agentClass
+        A2 -->|"3. Resolves Payload & Timestamp (UTC) / Recurrence Rule"| Plan["Workflow Plan"]:::agentClass
+    end
+    
+    Backend -->|"4. INSERT INTO scheduled_tasks (status='scheduled')"| DB[("🐘 PostgreSQL Database")]:::dbClass
+    DB --> Dashboard["📊 Pipeline Dashboard & Execution Timeline"]:::uiClass
+    
+    %% Background Scheduler Lifecycle
+    subgraph BackgroundExecution ["⚙️ Autonomous Host & Polling Lifecycle"]
+        HostDaemon["💻 Host Executor Daemon (local_executor.py:8003)"]:::hostClass
+        HostDaemon -->|"5. GET /api/scheduled-tasks/internal/poll (Every 2s)"| Backend
+        Backend -->|"6. Atomic Claim (FOR UPDATE SKIP LOCKED)"| DB
+        DB -->|"7. Return Task & Secure SHA-256 Token"| Backend
+        Backend -->|"8. Claimed Task Payload + Token"| HostDaemon
+        
+        HostDaemon -->|"9. Launch Pop-out Window Document (webbrowser.open_new)"| PopoutWindow["📄 Standalone Pop-out Approval Window\n(/scheduled-approval/:token?taskId=id)"]:::windowClass
+    end
+    
+    %% User Approval Decision
+    PopoutWindow -->|"10a. User clicks 'Approve & Execute'"| ApproveEndpoint["POST /api/scheduled-tasks/:id/approve"]:::approveClass
+    PopoutWindow -->|"10b. User clicks 'Deny Request'"| DenyEndpoint["POST /api/scheduled-tasks/:id/deny"]:::denyClass
+    PopoutWindow -->|"10c. 300s Countdown Timeout"| ExpireEndpoint["POST /api/scheduled-tasks/:id/expire"]:::denyClass
+    
+    ApproveEndpoint -->|"11. Validate Token & Set Status='approved'"| DB
+    DenyEndpoint -->|"12. Set Status='denied'"| DB
+    ExpireEndpoint -->|"13. Set Status='expired'"| DB
+    
+    %% Host Daemon Execution & Recurrence Loop
+    HostDaemon -.->|"14. Poll GET /api/scheduled-tasks/:id (status check)"| Backend
+    Backend -.->|"15. Status verified as 'approved'"| HostDaemon
+    
+    subgraph LocalDispatch ["⚡ Host Native Execution & Verification"]
+        HostDaemon -->|"16. Security Policy Check"| PolicyCheck{"Policy Gate Passed?"}:::decisionClass
+        PolicyCheck -->|"Pass"| Subprocess["Subprocess Invocation (Bash / PowerShell / Browser)"]:::execClass
+        Subprocess -->|"17. Real-time Output & PID capture"| Psutil["psutil Process & Exit Code Verification"]:::verifyClass
+    end
+    
+    Psutil -->|"18. POST /api/scheduled-tasks/:id/result"| ResultHandler["Store Result & Telemetry"]:::backendClass
+    ResultHandler -->|"19. Status='completed'"| DB
+    
+    %% Recurring Task Next-Run Rescheduling
+    ResultHandler -->|"20. If is_recurring=true: Calculate Next Timestamp"| Rescheduler["🔁 Recurrence Engine"]:::agentClass
+    Rescheduler -->|"21. INSERT/UPDATE next iteration (status='scheduled')"| DB
+
+    %% Class Styles
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef uiClass fill:#1e1b4b,stroke:#6366f1,color:#ffffff,stroke-width:2px;
+    classDef backendClass fill:#064e3b,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef windowClass fill:#451a03,stroke:#f59e0b,color:#fef3c7,stroke-width:2px;
+    classDef approveClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;
+    classDef denyClass fill:#450a0a,stroke:#ef4444,color:#fee2e2,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef verifyClass fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:2px;

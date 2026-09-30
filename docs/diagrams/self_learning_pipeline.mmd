@@ -1,56 +1,46 @@
-graph TD;
+graph TD
     %% ============================================================
-    %% SELF-LEARNING PIPELINE - HOW THE SYSTEM LEARNS FROM MISTAKES
-    %% Real example: User says "open vs code"
+    %% SELF-LEARNING PIPELINE - MULTI-TIER KNOWLEDGE & RESILIENCE
+    %% Real example: Dynamic binary resolution & continuous caching
     %% ============================================================
 
-    %% === FIRST TIME: Unknown App ===
-    subgraph First Request - Learning Phase
-        U1((User)) -->|"open vs code"| LLM1["LLM generates script"];
-        LLM1 -->|"WRONG: Start-Process LOCALAPPDATA Code.exe"| T1{"Tier 1: Redis Cache"};
-        T1 -->|"MISS - never seen before"| T2{"Tier 2: Knowledge Base"};
-        T2 -->|"FOUND: vs code = code"| Override1["Override LLM with correct command: code"];
-        Override1 --> Exec1["Host executes: code"];
-        Exec1 --> Val1{"psutil: Is Code.exe running?"};
-        Val1 -->|"YES"| Store1["Store in Redis: vs code = code"];
-        Store1 --> Success1["VS Code opens correctly"];
+    %% === TIER 1: CACHED FAST PATH ===
+    subgraph Tier1 ["⚡ Fast Path: In-Memory Redis Knowledge Tier"]
+        U1(["👤 User Prompt"]):::userClass -->|"1. 'open vs code'"| RedisCheck{"Tier 1: Redis Key Check\n('app:vscode' / 'cmd:vscode')"}:::decisionClass
+        RedisCheck -->|"✅ Cache HIT (<1ms)"| FastExec["🚀 Instant Resolution\n(Skip LLM Pipeline)"]:::execClass
+        FastExec --> DirectHost["Execute via local_executor.py\n('code' or 'code .')"]:::hostClass
     end
 
-    %% === SECOND TIME: Cached Fast Path ===
-    subgraph Second Request - Instant from Cache
-        U2((User)) -->|"open vs code"| T1b{"Tier 1: Redis Cache"};
-        T1b -->|"HIT: vs code = code"| Skip["Skip LLM entirely"];
-        Skip --> Exec2["Host executes: code"];
-        Exec2 --> Success2["VS Code opens instantly"];
+    %% === TIER 2: STATIC KNOWLEDGE BASE & SYSTEM RECONNAISSANCE ===
+    subgraph Tier2 ["🧠 Tier 2: Static Knowledge Base & System Reconnaissance Agent"]
+        RedisCheck -->|"❌ Cache MISS"| Swarm["🤖 8-Agent Swarm Syndicate"]:::agentClass
+        Swarm --> Recon["System Reconnaissance Agent\n(Scans OS PATH & which/where probes)"]:::agentClass
+        Recon --> KB{"Known Application Registry"}:::decisionClass
+        KB -->|"✅ Found Known Binary Alias"| SynthesizeCmd["Synthesize Resilient Command\n(e.g., 'command -v code && code')"]:::execClass
+        SynthesizeCmd --> HostRun1["Host Execution Attempt"]:::hostClass
+        HostRun1 --> Validate1{"psutil Process & Exit Code Validation"}:::decisionClass
+        Validate1 -->|"✅ Process Running / Exit 0"| CacheStore["💾 Store in Redis & PostgreSQL\n(Future Instant Hits)"]:::dbClass
     end
 
-    %% === BRAND NEW APP: Research Agent Deployed ===
-    subgraph Unknown App - Research Agent
-        U3((User)) -->|"open some-new-app"| LLM3["LLM generates best-guess"];
-        LLM3 --> T1c{"Tier 1: Redis Cache"};
-        T1c -->|"MISS"| T2c{"Tier 2: Knowledge Base"};
-        T2c -->|"MISS"| T3c["Tier 3: Research Agent"];
-        T3c --> DDG["DuckDuckGo Search: how to open some-new-app from command line"];
-        DDG --> Extract["Fast LLM extracts correct command from results"];
-        Extract --> Learn["Store in Redis for future"];
-        Learn --> Exec3["Host executes researched command"];
-        Exec3 --> Val3{"psutil validates"};
-        Val3 -->|"SUCCESS"| Done3["App opens + command permanently learned"];
-        Val3 -->|"FAILURE"| Log3["Log failure for manual review"];
+    %% === TIER 3: AUTONOMOUS RESEARCH AGENT ===
+    subgraph Tier3 ["🔬 Tier 3: Autonomous Web Research Agent (DuckDuckGo Search)"]
+        KB -->|"❌ Unknown App / Obscure Binary"| ResAgent["Command Research Agent"]:::agentClass
+        ResAgent --> DDG["🌐 Autonomous Search API\n('how to launch <app> from CLI on Linux/macOS/Windows')"]:::researchClass
+        DDG --> Extract["Extract CLI invocation pattern from search snippets"]:::agentClass
+        Extract --> SecAudit["Security Guard AST & Flag Audit"]:::secClass
+        SecAudit --> HostRun2["Execute Researched Command on Host"]:::hostClass
+        HostRun2 --> Validate2{"psutil & Process Hierarchy Validation"}:::decisionClass
+        Validate2 -->|"✅ Success"| CacheStore2["💾 Permanently Learn & Cache in Redis"]:::dbClass
+        Validate2 -->|"❌ Failed"| SelfHeal["🔁 Trigger Self-Healing & Failure Recovery Agent"]:::healClass
     end
 
     %% Styling
-    style U1 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style U2 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style U3 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Override1 fill:#2196F3,stroke:#1565C0,color:#fff;
-    style Store1 fill:#E91E63,stroke:#880E4F,color:#fff;
-    style Success1 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Skip fill:#00BCD4,stroke:#006064,color:#fff;
-    style Success2 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style T3c fill:#FF9800,stroke:#E65100,color:#fff;
-    style DDG fill:#FF9800,stroke:#E65100,color:#fff;
-    style Extract fill:#FF9800,stroke:#E65100,color:#fff;
-    style Learn fill:#E91E63,stroke:#880E4F,color:#fff;
-    style Done3 fill:#4CAF50,stroke:#2E7D32,color:#fff;
-    style Log3 fill:#F44336,stroke:#B71C1C,color:#fff;
+    classDef userClass fill:#3b82f6,stroke:#1d4ed8,color:#ffffff,stroke-width:2px;
+    classDef decisionClass fill:#312e81,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef execClass fill:#022c22,stroke:#059669,color:#a7f3d0,stroke-width:2px;
+    classDef hostClass fill:#111827,stroke:#10b981,color:#6ee7b7,stroke-width:2px;
+    classDef agentClass fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px;
+    classDef dbClass fill:#1e293b,stroke:#0284c7,color:#38bdf8,stroke-width:2px;
+    classDef researchClass fill:#451a03,stroke:#f59e0b,color:#fef3c7,stroke-width:2px;
+    classDef secClass fill:#450a0a,stroke:#ef4444,color:#fee2e2,stroke-width:2px;
+    classDef healClass fill:#3b0764,stroke:#c084fc,color:#fae8ff,stroke-width:2px;

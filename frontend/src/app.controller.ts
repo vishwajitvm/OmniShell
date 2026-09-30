@@ -19,4 +19,16 @@ export class AppController {
   pipeline() {
     return { title: 'Scheduled Pipeline' };
   }
+
+  @Get('/scheduled-approval')
+  @Render('scheduled-approval')
+  scheduledApprovalDefault() {
+    return { title: 'OmniShell - Scheduled Approval Window & Document' };
+  }
+
+  @Get('/scheduled-approval/:token')
+  @Render('scheduled-approval')
+  scheduledApproval() {
+    return { title: 'OmniShell - Scheduled Approval Window & Document' };
+  }
 }
