@@ -1216,16 +1216,40 @@ def _calculate_next_recurrence(rule: str, tz_name: str = None) -> datetime.datet
     return (now_local + datetime.timedelta(minutes=5)).astimezone(datetime.timezone.utc)
 
 
+def _extract_max_attempts(prompt: str, default: int = 3) -> int:
+    """Extract max execution attempts count from natural language prompt."""
+    if not prompt:
+        return default
+    p = prompt.lower()
+    word_to_num = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+    }
+    m = re.search(
+        r'\b(?:max(?:imum)?\s+attempts?|max\s+attempt|max\s+attemt|retry\s+limit|max\s+retries|retries|attempts?)\s*(?:is|still\s+be|be|to|of|:|=)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b',
+        p
+    )
+    if m:
+        val = m.group(1)
+        return int(val) if val.isdigit() else word_to_num.get(val, default)
+    m_times = re.search(r'\b(?:up\s+to|at\s+most|maximum)\s+(\d+|one|two|three|four|five)\s+(?:times|attempts|runs)\b', p)
+    if m_times:
+        val = m_times.group(1)
+        return int(val) if val.isdigit() else word_to_num.get(val, default)
+    return default
+
+
 def _deterministic_recurrence_rule(prompt: str, timezone_name: str = None) -> tuple[bool, str | None, datetime.datetime | None]:
-    """Detect recurring rules such as 'every 5 minutes', 'daily at 9am', 'every hour'."""
+    """Detect recurring rules such as 'every 5 minutes', 'every 1 minute', 'every minute', 'daily at 9am', 'every hour'."""
     p = prompt.lower().strip()
     tz_name = _safe_timezone(timezone_name)
     now_local = _utc_now().astimezone(ZoneInfo(tz_name))
 
-    # Pattern: every N minutes/hours/days/seconds
-    m = re.search(r"\bevery\s+(\d+(?:\.\d+)?)\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
+    # Pattern: every [N] minutes/hours/days/seconds
+    m = re.search(r"\bevery\s+(?:(\d+(?:\.\d+)?)\s*)?(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
     if m:
-        amount = float(m.group(1))
+        amount_str = m.group(1)
+        amount = float(amount_str) if amount_str else 1.0
         unit = m.group(2)
         if unit.startswith(("sec", "second")):
             rule = f"interval:{int(amount)}s"
@@ -1265,6 +1289,7 @@ def _deterministic_recurrence_rule(prompt: str, timezone_name: str = None) -> tu
         return True, rule, (now_local + datetime.timedelta(hours=1)).astimezone(datetime.timezone.utc)
 
     return False, None, None
+
 
 
 def _deterministic_relative_schedule(prompt, timezone_name):
@@ -1369,7 +1394,7 @@ async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_nam
             schedule_type, priority, initial_status,
             token_hash, approval_expires_at,
             client_id, request_id,
-            int(os.getenv("OMNISHELL_SCHEDULE_MAX_ATTEMPTS", "3")),
+            int(workflow.get("max_attempts") or (workflow.get("failure_policy") or {}).get("max_attempts") or os.getenv("OMNISHELL_SCHEDULE_MAX_ATTEMPTS", "3")),
             _safe_json_dumps(workflow),
             json.dumps({
                 "created_by": "omnishell-ai",
@@ -2292,6 +2317,103 @@ def synthesize_dynamic_multi_agent_discussion(
     ]
 
 
+def synthesize_threshold_conditional_command(prompt: str, user_agent_os: str, threshold: int = 30) -> tuple[str, str, dict]:
+    """Builds a guarded condition script that evaluates host thresholds (trash size, disk usage, memory) before taking action."""
+    p = (prompt or "").lower().strip()
+    is_linux = "linux" in user_agent_os.lower() or "ubuntu" in user_agent_os.lower()
+    is_mac = "darwin" in user_agent_os.lower() or "mac" in user_agent_os.lower()
+    is_win = "windows" in user_agent_os.lower()
+
+    if any(k in p for k in ["trash", "recycle bin", "rubbish", "clean", "empty", "for that", "for this"]):
+        target_name = "Trash & Temporary Cache"
+        if is_linux:
+            shell_script = (
+                f"THRESHOLD={threshold}\n"
+                f"DISK_USAGE=$(df / | awk 'NR==2 {{print $5}}' | tr -d '%')\n"
+                f"TRASH_KB=$(du -sk ~/.local/share/Trash/ 2>/dev/null | awk '{{print $1}}')\n"
+                f"TRASH_MB=$(( ${{TRASH_KB:-0}} / 1024 ))\n"
+                f"echo \"[Threshold Inspection] Root Disk Usage: ${{DISK_USAGE:-0}}% | Trash Size: ${{TRASH_MB:-0}}MB | Configured Trigger: ${{THRESHOLD}}%\"\n"
+                f"if [ \"${{DISK_USAGE:-0}}\" -ge \"$THRESHOLD\" ] || [ \"${{TRASH_MB:-0}}\" -ge \"$THRESHOLD\" ]; then\n"
+                f"  echo \"✅ Threshold reached (Current metric >= ${{THRESHOLD}}%). Purging trash now...\"\n"
+                f"  rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true\n"
+                f"  echo \"✅ Trash emptied successfully.\"\n"
+                f"else\n"
+                f"  echo \"🛑 Condition NOT met (Current usage is below ${{THRESHOLD}}%). Trash was NOT emptied.\"\n"
+                f"fi"
+            )
+            cond_check = f"[ $(df / | awk 'NR==2 {{print $5}}' | tr -d '%') -ge {threshold} ]"
+        elif is_mac:
+            shell_script = (
+                f"THRESHOLD={threshold}\n"
+                f"DISK_USAGE=$(df / | awk 'NR==2 {{print $5}}' | tr -d '%')\n"
+                f"TRASH_KB=$(du -sk ~/.Trash/ 2>/dev/null | awk '{{print $1}}')\n"
+                f"TRASH_MB=$(( ${{TRASH_KB:-0}} / 1024 ))\n"
+                f"echo \"[Threshold Inspection] Root Disk Usage: ${{DISK_USAGE:-0}}% | Trash Size: ${{TRASH_MB:-0}}MB | Configured Trigger: ${{THRESHOLD}}%\"\n"
+                f"if [ \"${{DISK_USAGE:-0}}\" -ge \"$THRESHOLD\" ] || [ \"${{TRASH_MB:-0}}\" -ge \"$THRESHOLD\" ]; then\n"
+                f"  echo \"✅ Threshold reached (Current metric >= ${{THRESHOLD}}%). Purging trash now...\"\n"
+                f"  rm -rf ~/.Trash/* 2>/dev/null || true\n"
+                f"  echo \"✅ Trash emptied successfully.\"\n"
+                f"else\n"
+                f"  echo \"🛑 Condition NOT met (Current usage is below ${{THRESHOLD}}%). Trash was NOT emptied.\"\n"
+                f"fi"
+            )
+            cond_check = f"[ $(df / | awk 'NR==2 {{print $5}}' | tr -d '%') -ge {threshold} ]"
+        else:
+            shell_script = (
+                f"$Threshold = {threshold}\n"
+                f"$Drive = Get-Volume -DriveLetter C\n"
+                f"$UsedPct = [math]::Round((($Drive.Size - $Drive.SizeRemaining) / $Drive.Size) * 100)\n"
+                f"Write-Output \"[Threshold Inspection] C: Drive Usage: $UsedPct% | Target Threshold: $Threshold%\"\n"
+                f"if ($UsedPct -ge $Threshold) {{\n"
+                f"    Write-Output \"Threshold reached ($UsedPct% >= $Threshold%). Purging Recycle Bin...\"\n"
+                f"    Clear-RecycleBin -Force -ErrorAction SilentlyContinue\n"
+                f"    Write-Output \"Recycle Bin emptied successfully.\"\n"
+                f"}} else {{\n"
+                f"    Write-Output \"Condition NOT met (Current usage $UsedPct% is below $Threshold%). Recycle Bin was NOT modified.\"\n"
+                f"}}"
+            )
+            cond_check = f"$((Get-Volume -DriveLetter C).SizeRemaining / (Get-Volume -DriveLetter C).Size -le {(100 - threshold)/100})"
+    elif any(k in p for k in ["memory", "ram"]):
+        target_name = "System Memory (RAM)"
+        if is_linux:
+            shell_script = (
+                f"THRESHOLD={threshold}\n"
+                f"MEM_USED=$(free | awk '/Mem:/ {{printf(\"%.0f\", $3/$2 * 100)}}')\n"
+                f"echo \"[Threshold Inspection] RAM Usage: ${{MEM_USED:-0}}% | Target Threshold: ${{THRESHOLD}}%\"\n"
+                f"if [ \"${{MEM_USED:-0}}\" -ge \"$THRESHOLD\" ]; then\n"
+                f"  echo \"✅ Memory threshold reached (>= ${{THRESHOLD}}%). Triggering cache purge alert...\"\n"
+                f"  echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true\n"
+                f"else\n"
+                f"  echo \"🛑 Memory usage is below threshold (${{MEM_USED:-0}}% < ${{THRESHOLD}}%). No action needed.\"\n"
+                f"fi"
+            )
+            cond_check = f"[ $(free | awk '/Mem:/ {{printf(\"%.0f\", $3/$2 * 100)}}') -ge {threshold} ]"
+        else:
+            shell_script = f"echo 'Checking memory threshold at {threshold}%'"
+            cond_check = "true"
+    else:
+        target_name = "Host Metric Threshold"
+        dyn_cmd, _ = synthesize_dynamic_shell_command(prompt, user_agent_os)
+        shell_script = dyn_cmd or f"echo 'Evaluating condition threshold at {threshold}%'"
+        cond_check = "true"
+
+    cond_logic = {
+        "target": target_name,
+        "threshold": f"{threshold}%",
+        "condition_script": cond_check,
+        "on_success": "Action dispatched only when threshold condition evaluates to true",
+        "on_failure": "Zero destructive mutations performed when below threshold",
+        "guarded_evaluation": True
+    }
+    direct_answer = (
+        f"### 🔀 Conditional Threshold Automation: {target_name}\n\n"
+        f"- **Trigger Threshold:** **{threshold}% and above**.\n"
+        f"- **Guarded Execution Rule:** Files will **ONLY** be deleted if current system/trash telemetry meets or exceeds **{threshold}%**.\n"
+        f"- **Safety Contract:** If the host usage is currently below **{threshold}%**, the condition evaluates to `FALSE` and zero files are deleted."
+    )
+    return shell_script, direct_answer, cond_logic
+
+
 def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     """Resolve intent using deterministic precedence, entity extraction and safety gates.
 
@@ -2305,7 +2427,83 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     is_linux = "linux" in user_agent_os.lower() or "ubuntu" in user_agent_os.lower()
     entities = _intent_entities(raw)
 
-    # Hard stop / human approval takes precedence over all other classifications.
+    # 1. Planning Only: requests to plan/roadmap without executing
+    planning_terms = ["without executing", "do not execute", "don't execute", "plan only", "create a plan", "roadmap", "system design", "architecture for", "migration plan"]
+    if p.startswith(("plan ", "design ", "create a plan", "roadmap ")) or any(t in p for t in planning_terms):
+        plan = decompose_dynamic_multi_step_plan(prompt, user_agent_os)
+        return _intent_result(
+            "planning_only", confidence=.99, signals=["planning_language"],
+            execution_mode="plan_only", safety_level="low", intent_entities=entities,
+            is_planning_only=True, multi_step_plan=plan,
+            direct_answer=f"### Architectural Roadmap: {raw}\n\nDecomposed into {len(plan)} structured milestones with non-executing safety boundary.",
+        )
+
+    # Extract max execution attempts if specified
+    max_attempts = _extract_max_attempts(p, default=3)
+
+    # 2. Recurring Workflows (e.g. "check every 1 minute if trash reaches 30% and above, max 3 attempts", "every 10 seconds check disk")
+    is_rec, rec_rule, rec_dt = _deterministic_recurrence_rule(p, None)
+    if is_rec:
+        threshold_m = re.search(r'(?:as soon as|when|whenever|if)\s+(?:it|trash|disk|memory|ram|storage|cpu)?\s*(?:reaches|is|exceeds|>|>=)\s*(\d+)\s*(?:%|percent|mb|gb)?(?:\s+(?:and\s+above|or\s+more|or\s+greater))?', p, re.IGNORECASE)
+        if not threshold_m:
+            threshold_m = re.search(r'(\d+)\s*%\s*(?:and\s+above|or\s+more|or\s+higher|or\s+greater)', p, re.IGNORECASE)
+        has_conditional_or_threshold = bool(threshold_m) or any(k in p for k in ["trash", "recycle bin", "clean", "empty", "memory", "ram", "for that", "threshold", "reaches"])
+        
+        if has_conditional_or_threshold:
+            threshold_val = int(threshold_m.group(1)) if threshold_m else (30 if "30" in p else (80 if "80" in p else 50))
+            cond_script, cond_answer, cond_logic = synthesize_threshold_conditional_command(prompt, user_agent_os, threshold_val)
+            interval_str = rec_rule.replace("interval:", "") if rec_rule else "1m"
+            direct_ans = (
+                f"### 🔁 Recurring Guarded Automation: Trash & Storage Gate\n\n"
+                f"- **Recurrence Schedule:** Recurring every **{interval_str}** (`{rec_rule}`).\n"
+                f"- **Max Execution Limit:** **{max_attempts} attempts**.\n"
+                f"- **Trigger Threshold:** **{threshold_val}% and above**.\n"
+                f"- **Guarded Safety Rule:** Evaluates host metrics on each cycle. Zero destructive actions performed if usage is below **{threshold_val}%**."
+            )
+            return _intent_result(
+                "recurring_workflow", confidence=.99, signals=["recurrence_expression", "conditional_threshold_trigger"],
+                execution_mode="scheduled_execution", safety_level="high", intent_entities=entities,
+                is_scheduled=True, is_recurring=True, recurrence_rule=rec_rule,
+                scheduled_time=rec_dt.isoformat() if rec_dt else None,
+                shell_script=cond_script,
+                conditional_logic=cond_logic,
+                requires_approval=True,
+                approval_reason="Recurring operation performs periodic threshold inspection and guarded deletions requiring authorization.",
+                failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
+                direct_answer=direct_ans,
+            )
+        else:
+            dyn_cmd, dyn_proc = synthesize_dynamic_shell_command(prompt, user_agent_os)
+            return _intent_result(
+                "recurring_workflow", confidence=.99, signals=["recurrence_expression"],
+                execution_mode="scheduled_execution", safety_level="medium", intent_entities=entities,
+                is_scheduled=True, is_recurring=True, recurrence_rule=rec_rule,
+                scheduled_time=rec_dt.isoformat() if rec_dt else None,
+                shell_script=dyn_cmd or "uptime",
+                expected_process=dyn_proc,
+                failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
+                direct_answer=f"Recurring workflow resolved with rule `{rec_rule}` (max attempts: {max_attempts}).",
+            )
+
+    # 3. Conditional & Threshold Workflows (e.g. "empty my trash as soon as it reaches 30% and above", "clean logs if disk > 80%")
+    threshold_m = re.search(r'(?:as soon as|when|whenever|if)\s+(?:it|trash|disk|memory|ram|storage|cpu)?\s*(?:reaches|is|exceeds|>|>=)\s*(\d+)\s*(?:%|percent|mb|gb)?(?:\s+(?:and\s+above|or\s+more|or\s+greater))?', p, re.IGNORECASE)
+    if not threshold_m:
+        threshold_m = re.search(r'(\d+)\s*%\s*(?:and\s+above|or\s+more|or\s+higher|or\s+greater)', p, re.IGNORECASE)
+    
+    is_conditional_trigger = bool(threshold_m) or bool(re.search(r'\b(as soon as|when it reaches|whenever|if\s+.*\b(?:then|alert|notify|clean|empty|delete|purge|remove|kill|restart)\b)', p))
+    if is_conditional_trigger:
+        threshold_val = int(threshold_m.group(1)) if threshold_m else (30 if "30" in p else (80 if "80" in p else 50))
+        cond_script, cond_answer, cond_logic = synthesize_threshold_conditional_command(prompt, user_agent_os, threshold_val)
+        return _intent_result(
+            "conditional_workflow", confidence=.98, signals=["conditional_threshold_trigger", "condition_and_branch"],
+            execution_mode="conditional_execution", safety_level="medium", intent_entities=entities,
+            shell_script=cond_script,
+            conditional_logic=cond_logic,
+            failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
+            direct_answer=cond_answer,
+        )
+
+    # 4. Hard stop / unconditional human approval for immediate destructive operations.
     destructive = re.search(
         r"\b(rm\s+-rf|rm\s+-[^\s]*r|rm\s+-[^\s]*f|delete\b.*(?:folder|files?|cache|trash|directory|data)|empty\s+trash|clean\s+trash|trash|wipe|format|mkfs|fdisk|drop\s+database|killall|pkill\s+-9|destroy|nuke|rmdir)\b",
         p,
@@ -2320,6 +2518,7 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             approval_reason="The requested operation performs file deletions, trash purges, or system mutations requiring authorization.",
             shell_script=dyn_cmd or ("rm -rf ~/.local/share/Trash/files/*" if is_linux else "Clear-RecycleBin -Force"),
             expected_process=dyn_proc,
+            failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
             direct_answer="This operation performs file deletions or system mutations and must pass a human approval gate before execution.",
         )
 
@@ -2335,13 +2534,13 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             shell_script=script,
             expected_process=dyn_proc,
             recovery_strategy={
-                "retry_limit": 3,
+                "retry_limit": max_attempts,
                 "retry_backoff_seconds": [1, 3, 8],
                 "diagnostic_command": "systemctl status nginx --no-pager" if is_linux else "Get-Service nginx",
                 "fallback_script": "echo 'Fallback/rollback required; no destructive fallback is assumed.'",
                 "rollback_on_failure": "rollback" in p,
             },
-            failure_policy={"max_attempts": 3, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
+            failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
             direct_answer="A resilient workflow will retry transient failures, verify the result, and use the configured recovery path when necessary.",
         )
 
@@ -2369,22 +2568,10 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             "multi_step", confidence=.98, signals=["explicit_sequence"],
             execution_mode="verified_pipeline", safety_level="medium", intent_entities=entities,
             multi_step_plan=plan, shell_script=compound_cmd,
+            failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
             direct_answer=f"Multi-step workflow resolved into {len(plan)} structured stages with step boundary validation.",
         )
 
-    # Scheduling/recurrence is evaluated before ordinary action verbs.
-    is_rec, rec_rule, rec_dt = _deterministic_recurrence_rule(p, None)
-    if is_rec:
-        dyn_cmd, dyn_proc = synthesize_dynamic_shell_command(prompt, user_agent_os)
-        return _intent_result(
-            "recurring_workflow", confidence=.99, signals=["recurrence_expression"],
-            execution_mode="scheduled_execution", safety_level="medium", intent_entities=entities,
-            is_scheduled=True, is_recurring=True, recurrence_rule=rec_rule,
-            scheduled_time=rec_dt.isoformat() if rec_dt else None,
-            shell_script=dyn_cmd or "uptime",
-            expected_process=dyn_proc,
-            direct_answer=f"Recurring workflow resolved with rule `{rec_rule}`.",
-        )
 
     if p.startswith(("remind me", "set reminder", "set a reminder")):
         dt = _utc_now() + datetime.timedelta(minutes=15)
@@ -2431,15 +2618,6 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             direct_answer="Interactive workflow detected; OmniShell will pause at explicit checkpoints instead of guessing missing inputs.",
         )
 
-    planning_terms = ["without executing", "do not execute", "don't execute", "plan only", "create a plan", "roadmap", "system design", "architecture for", "migration plan"]
-    if p.startswith(("plan ", "design ", "create a plan", "roadmap ")) or any(t in p for t in planning_terms):
-        plan = decompose_dynamic_multi_step_plan(prompt, user_agent_os)
-        return _intent_result(
-            "planning_only", confidence=.99, signals=["planning_language"],
-            execution_mode="plan_only", safety_level="low", intent_entities=entities,
-            is_planning_only=True, multi_step_plan=plan,
-            direct_answer=f"### Architectural Roadmap: {raw}\n\nDecomposed into {len(plan)} structured milestones with non-executing safety boundary.",
-        )
 
     research_terms = ["research ", "research about", "deep research", "investigate", "compare current", "find latest", "look up"]
     if any(t in p for t in research_terms):
@@ -3170,12 +3348,24 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
 
     # Check recurring scheduling
     is_rec, rec_rule, rec_dt = _deterministic_recurrence_rule(request.natural_language_prompt, request.timezone)
+    max_att = _extract_max_attempts(request.natural_language_prompt, default=3)
     if is_rec:
         structured_data["capability_type"] = "recurring_workflow"
         structured_data["is_scheduled"] = True
         structured_data["is_recurring"] = True
         structured_data["recurrence_rule"] = rec_rule
         structured_data["scheduled_time"] = rec_dt.isoformat() if rec_dt else None
+        if deterministic_cap.get("shell_script"):
+            structured_data["shell_script"] = deterministic_cap["shell_script"]
+        if deterministic_cap.get("conditional_logic"):
+            structured_data["conditional_logic"] = deterministic_cap["conditional_logic"]
+        if deterministic_cap.get("direct_answer"):
+            structured_data["direct_answer"] = deterministic_cap["direct_answer"]
+        if deterministic_cap.get("requires_approval"):
+            structured_data["requires_approval"] = True
+            structured_data["approval_reason"] = deterministic_cap.get("approval_reason")
+        structured_data["max_attempts"] = max_att
+        structured_data["failure_policy"] = {"max_attempts": max_att, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True}
 
     # Check relative scheduling
     deterministic_dt, deterministic_tz = _deterministic_relative_schedule(

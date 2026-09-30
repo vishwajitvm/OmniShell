@@ -263,6 +263,17 @@ Check system uptime every day at 09:00
 - **Expected Capability**: `recurring_workflow`
 - **Recurrence Rule**: `daily:09:00`
 
+### Test Prompt 8.3: Recurring Guarded Threshold Cleanup (Every 1 Minute, Max 3 Attempts)
+```text
+schedule and check every 1 minutes for that max attemt still be three
+```
+- **Alternative Formulation**: `check every 1 minute if trash reaches 30% and above, max 3 attempts`
+- **Expected Capability**: `recurring_workflow`
+- **Recurrence Rule**: `interval:1m`
+- **Max Execution Attempts**: `3`
+- **Safety Policy**: Inspects telemetry on every 1-minute interval (`df /` & trash size); purges only when threshold is reached, otherwise logs condition not met and preserves all files without modification.
+
+
 ---
 
 ## 9. 🔀 Conditional Logic & Branching Prompts
@@ -274,6 +285,14 @@ If memory usage is greater than 90% then alert me and clean temporary cache
 ```
 - **Expected Capability**: `conditional_workflow`
 - **Expected Behavior**: Evaluates memory check condition script; triggers success action if threshold is breached.
+
+### Test Prompt 9.2: Guarded Threshold Trash Cleanup (Threshold Gate)
+```text
+empty my trash as soon as it reaches 30% and above
+```
+- **Expected Capability**: `conditional_workflow`
+- **Expected Shell Script**: Inspects real-time root disk and trash size (`df /` & `du -sk ~/.local/share/Trash/` on Linux / `Get-Volume` on Windows).
+- **Safety Contract**: If usage is **$\ge$ 30%**, purges trash files. If usage is **$< 30\%$**, outputs `Condition NOT met (Current usage is below 30%). Trash was NOT emptied.` with zero file modifications.
 
 ---
 
