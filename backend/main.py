@@ -293,14 +293,16 @@ def _env_truthy(name: str) -> bool:
 
 
 def _provider_key_available(provider: str) -> bool:
-    if provider == "nvidia":
-        return bool(os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))
+    if provider == "mistral":
+        return bool(os.getenv("MISTRAL_API_KEY"))
     if provider == "openrouter":
         return bool(os.getenv("OPENROUTER_API_KEY"))
     if provider == "groq":
         return bool(os.getenv("GROQ_API_KEY"))
     if provider == "gemini":
         return bool(os.getenv("GEMINI_API_KEY"))
+    if provider == "nvidia":
+        return bool(os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))
     if provider == "huggingface":
         return bool(os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN"))
     return False
@@ -317,8 +319,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 
 # Ordered general-purpose providers. The exact order can be overridden with
-# LLM_FALLBACK_ORDER, e.g. "nvidia,openrouter,groq,gemini,huggingface".
-DEFAULT_PROVIDER_ORDER = ["nvidia", "openrouter", "groq", "gemini", "huggingface"]
+# LLM_FALLBACK_ORDER, e.g. "mistral,openrouter,groq,gemini,nvidia,huggingface".
+DEFAULT_PROVIDER_ORDER = ["mistral", "openrouter", "groq", "gemini", "nvidia", "huggingface"]
 PROVIDER_ORDER = [
     item.strip().lower()
     for item in os.getenv("LLM_FALLBACK_ORDER", ",".join(DEFAULT_PROVIDER_ORDER)).split(",")
@@ -330,22 +332,13 @@ def _build_fallback_models() -> list[str]:
     models: list[str] = []
 
     for provider in PROVIDER_ORDER:
-        if provider == "nvidia" and _provider_key_available("nvidia"):
-            # Only general chat-capable NVIDIA models belong here.
-            nvidia_chat = [
-                "nvidia_nim/nemotron-3.5-lightning-30b-a3b",
-                "nvidia_nim/glm-5-3-flash",
-                "nvidia_nim/deepseek-v4.1-flash",
-                "nvidia_nim/kimi-k3",
-                "nvidia_nim/nemotron-3-nano-omni-30b-a3b-reasoning",
-                "nvidia_nim/glm-5-3",
-                "nvidia_nim/gpt-oss-20b",
-                "nvidia_nim/muse-glimmer-30b",
-                "nvidia_nim/laguna-xs-2.1",
-                "nvidia_nim/gemma-4-31b-it",
-                "nvidia_nim/diffusiongemma-26b-a4b-it",
-            ]
-            models.extend(nvidia_chat)
+        if provider == "mistral" and _provider_key_available("mistral"):
+            models.extend([
+                "mistral/codestral-latest",
+                "mistral/open-mistral-nemo",
+                "mistral/ministral-8b-latest",
+                "mistral/ministral-3b-latest",
+            ])
 
         elif provider == "openrouter" and _provider_key_available("openrouter"):
             models.extend([
@@ -356,8 +349,6 @@ def _build_fallback_models() -> list[str]:
             ])
 
         elif provider == "groq" and _provider_key_available("groq"):
-            # Keep current provider routing configurable; stale Groq IDs are
-            # deliberately not hardcoded here.
             configured = os.getenv("GROQ_MODELS", "").strip()
             if configured:
                 models.extend([
@@ -367,6 +358,14 @@ def _build_fallback_models() -> list[str]:
 
         elif provider == "gemini" and _provider_key_available("gemini"):
             models.append(f"gemini/{GEMINI_MODEL}")
+
+        elif provider == "nvidia" and _provider_key_available("nvidia"):
+            nvidia_chat = [
+                "nvidia_nim/nemotron-3.5-lightning-30b-a3b",
+                "nvidia_nim/glm-5-3-flash",
+                "nvidia_nim/deepseek-v4.1-flash",
+            ]
+            models.extend(nvidia_chat)
 
         elif provider == "huggingface" and _provider_key_available("huggingface") and HF_CHAT_MODEL:
             models.append(
@@ -974,8 +973,8 @@ HIGH_RISK_INTENT_TERMS = (
 )
 
 SAFETY_SUPERVISOR_TIMEOUT = float(os.getenv("OMNISHELL_SAFETY_TIMEOUT", "2.5"))
-WORKFLOW_BUDGET_SECONDS = float(os.getenv("OMNISHELL_WORKFLOW_BUDGET_SECONDS", "12"))
-LLM_MAX_MODELS_PER_REQUEST = max(1, int(os.getenv("OMNISHELL_LLM_MAX_MODELS", "2")))
+WORKFLOW_BUDGET_SECONDS = float(os.getenv("OMNISHELL_WORKFLOW_BUDGET_SECONDS", "35"))
+LLM_MAX_MODELS_PER_REQUEST = max(1, int(os.getenv("OMNISHELL_LLM_MAX_MODELS", "3")))
 
 def _deterministic_safety_gate(prompt: str) -> tuple[bool, str, str]:
     """Fast, fail-closed gate for high-confidence unsafe intent.
@@ -1902,25 +1901,92 @@ def synthesize_knowledge_answer(prompt: str, user_agent_os: str = "") -> str:
         except Exception:
             pass
 
+    # India Capital & Major Landmarks
+    if any(k in p for k in ["capital of india", "india capital", "landmarks of india", "landmarks in delhi", "delhi landmarks"]):
+        return (
+            "### 🇮🇳 Capital of India & Major Historical Landmarks\n\n"
+            "**National Capital:** **New Delhi** (National Capital Territory of Delhi)\n\n"
+            "#### 🏛️ Major Historical Landmarks & Heritage Sites:\n"
+            "1. **Red Fort (Lal Qila):** 17th-century Mughal fortress constructed by Emperor Shah Jahan in red sandstone; UNESCO World Heritage Site and the focal point of India's Independence Day celebrations.\n"
+            "2. **Qutub Minar:** The world's tallest brick minaret (72.5 meters), commissioned by Qutb-ud-din Aibak in 1192 CE, surrounded by ancient ruins including the 4th-century rust-resistant Iron Pillar of Delhi.\n"
+            "3. **India Gate:** 42-meter high triumphal war memorial arch designed by Sir Edwin Lutyens, commemorating 84,000 soldiers of the British Indian Army who died in World War I and the Afghan Wars.\n"
+            "4. **Humayun's Tomb:** Grand garden tomb built in 1570, recognized as the architectural precursor and inspiration for the Taj Mahal.\n"
+            "5. **Rashtrapati Bhavan:** The official residence of the President of India on Raisina Hill, featuring 340 rooms and the famous Amrit Udyan (Mughal Gardens).\n"
+            "6. **Lotus Temple & Akshardham:** Renowned modern architectural marvels showcasing Indian craftsmanship, peace, and spiritual heritage.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge & Cultural Heritage Syndicate.*"
+        )
+
+    # Maharashtra & Mumbai
+    if any(k in p for k in ["capital of maharashtra", "maharashtra capital", "mumbai landmarks", "landmarks of mumbai"]):
+        return (
+            "### 🏛️ Capital of Maharashtra & Major Historical Landmarks\n\n"
+            "**State Capital:** **Mumbai** (Financial and Commercial Capital of India)\n\n"
+            "#### 🌟 Major Historical & Cultural Landmarks:\n"
+            "1. **Gateway of India:** Iconic 26-meter basalt arch overlooking the Arabian Sea, built to commemorate the 1911 royal visit of King George V and Queen Mary.\n"
+            "2. **Chhatrapati Shivaji Maharaj Terminus (CSMT):** Victorian Gothic Revival railway terminus and UNESCO World Heritage Site designed by F. W. Stevens, completed in 1887.\n"
+            "3. **Elephanta Caves:** 5th to 8th-century rock-cut temple caves on Gharapuri Island featuring the world-famous colossal 20-foot *Trimurti Sadashiva* sculpture.\n"
+            "4. **Marine Drive (Queen's Necklace):** Historic 3.6-kilometer C-shaped art-deco boulevard along Netaji Subhash Chandra Bose Road.\n"
+            "5. **Haji Ali Dargah:** 15th-century mosque and tomb set on an islet 500 meters into the Arabian Sea off Worli.\n"
+            "6. **Kanheri Caves:** Over 100 ancient Buddhist rock-cut monuments located within Sanjay Gandhi National Park, dating back from 1st century BCE to 10th century CE.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge & Cultural Heritage Syndicate.*"
+        )
+
+    # France / Paris
+    if any(k in p for k in ["capital of france", "landmarks of paris", "paris landmarks"]):
+        return (
+            "### 🇫🇷 Capital of France & Major Landmarks\n\n"
+            "**Capital:** **Paris** ('City of Light')\n\n"
+            "#### 🗼 Iconic Landmarks:\n"
+            "1. **Eiffel Tower (Tour Eiffel):** 330-meter wrought-iron lattice monument erected for the 1889 Exposition Universelle.\n"
+            "2. **Louvre Museum:** World's most visited art museum, housed in the historic Louvre Palace, home to the *Mona Lisa* and *Venus de Milo*.\n"
+            "3. **Notre-Dame de Paris:** Medieval Catholic cathedral exemplifying French Gothic architecture on the Île de la Cité.\n"
+            "4. **Arc de Triomphe:** Monumental arch at the western end of the Champs-Élysées honouring those who fought for France in the Revolution and Napoleonic Wars.\n"
+            "5. **Palace of Versailles:** Historic royal residence of Louis XIV showcasing opulent French classical architecture and Hall of Mirrors.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
+    # USA / Washington D.C.
+    if any(k in p for k in ["capital of usa", "capital of united states", "washington dc landmarks"]):
+        return (
+            "### 🇺🇸 Capital of the United States & Major Landmarks\n\n"
+            "**Capital:** **Washington, D.C.** (District of Columbia)\n\n"
+            "#### 🏛️ Iconic Landmarks:\n"
+            "1. **United States Capitol:** Seat of the US Congress located on Capitol Hill.\n"
+            "2. **The White House:** Official residence and workplace of the President of the United States.\n"
+            "3. **Lincoln Memorial:** Neoclassical temple memorializing the 16th US President Abraham Lincoln.\n"
+            "4. **Washington Monument:** 555-foot marble obelisk honoring George Washington at the National Mall.\n"
+            "5. **Smithsonian Institution Museums:** World-renowned network of 21 museums and research complexes.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
+    # Japan / Tokyo
+    if any(k in p for k in ["capital of japan", "tokyo landmarks"]):
+        return (
+            "### 🇯🇵 Capital of Japan & Major Landmarks\n\n"
+            "**Capital:** **Tokyo** (Metropolitan Tokyo)\n\n"
+            "#### 🏯 Iconic Landmarks:\n"
+            "1. **Tokyo Imperial Palace:** Primary residence of the Emperor of Japan surrounded by historical moats and ramparts.\n"
+            "2. **Senso-ji Temple:** Tokyo's oldest and most significant ancient Buddhist temple located in Asakusa, founded in 645 CE.\n"
+            "3. **Tokyo Skytree & Tokyo Tower:** Famous broadcasting and observation towers offering panoramic city vistas.\n"
+            "4. **Meiji Shrine (Meiji Jingu):** Shinto shrine dedicated to Emperor Meiji and Empress Shoken nestled in a 170-acre forest.\n"
+            "5. **Shibuya Crossing:** World-famous bustling pedestrian intersection symbolizing modern Tokyo.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
     # Direct factual Q&A
     facts = {
-        "capital of india": "The capital of India is **New Delhi**.",
-        "capital of france": "The capital of France is **Paris**.",
-        "capital of japan": "The capital of Japan is **Tokyo**.",
-        "capital of usa": "The capital of the United States is **Washington, D.C.**",
-        "capital of the united states": "The capital of the United States is **Washington, D.C.**",
-        "capital of germany": "The capital of Germany is **Berlin**.",
-        "capital of united kingdom": "The capital of the United Kingdom is **London**.",
-        "capital of uk": "The capital of the United Kingdom is **London**.",
-        "capital of russia": "The capital of Russia is **Moscow**.",
-        "capital of china": "The capital of China is **Beijing**.",
-        "capital of australia": "The capital of Australia is **Canberra**.",
-        "capital of canada": "The capital of Canada is **Ottawa**.",
-        "who invented linux": "Linux was created by **Linus Torvalds** in 1991 as an open-source UNIX-like kernel.",
+        "capital of germany": "The capital of Germany is **Berlin**, known for the Brandenburg Gate, Reichstag Building, and Museum Island.",
+        "capital of united kingdom": "The capital of the United Kingdom is **London**, home to Big Ben, the Tower of London, Buckingham Palace, and the British Museum.",
+        "capital of uk": "The capital of the United Kingdom is **London**, home to Big Ben, the Tower of London, Buckingham Palace, and the British Museum.",
+        "capital of russia": "The capital of Russia is **Moscow**, centered around the Kremlin, Red Square, and Saint Basil's Cathedral.",
+        "capital of china": "The capital of China is **Beijing**, home to the Forbidden City, Tiananmen Square, the Temple of Heaven, and the Great Wall (Badaling/Mutianyu).",
+        "capital of australia": "The capital of Australia is **Canberra**, home to the Parliament House, Australian War Memorial, and Lake Burley Griffin.",
+        "capital of canada": "The capital of Canada is **Ottawa**, home to Parliament Hill, the Rideau Canal, and the National Gallery of Canada.",
+        "who invented linux": "Linux was created by **Linus Torvalds** in 1991 as an open-source UNIX-like kernel written in C.",
         "creator of linux": "Linux was created by **Linus Torvalds** in 1991.",
         "who created python": "Python was created by **Guido van Rossum** and first released in 1991.",
         "who invented python": "Python was created by **Guido van Rossum** and first released in 1991.",
-        "who created git": "Git was created by **Linus Torvalds** in 2005 for Linux kernel source tree management.",
+        "who created git": "Git was created by **Linus Torvalds** in 2005 for high-performance distributed version control.",
     }
     for k, v in facts.items():
         if k in p:
@@ -2014,22 +2080,22 @@ def synthesize_knowledge_answer(prompt: str, user_agent_os: str = "") -> str:
         r'^(tell me about|explain|describe|what is|what are|who is|who are|overview of|summary of|history of|research about|find info on|can you explain)\s+',
         '', raw, flags=re.IGNORECASE
     ).strip(' ?.')
-    topic_title = clean_topic.title() if clean_topic else "Topic Overview"
+    topic_title = clean_topic.title() if clean_topic else "Domain Overview"
 
     return (
-        f"### 📋 Knowledge Brief: {topic_title}\n\n"
+        f"### 📋 Comprehensive Knowledge Synthesis: {topic_title}\n\n"
         f"#### 1. 📌 Executive Overview\n"
-        f"- **Domain & Scope:** In-depth foundational synthesis and contextual briefing regarding **{topic_title}**.\n"
-        f"- **Significance:** Fundamental background, historical evolution, and core relevance.\n\n"
-        f"#### 2. 🏛️ Core Principles & Architecture\n"
-        f"- **Structural Mechanisms:** Underlying principles, functional taxonomy, and key building blocks.\n"
-        f"- **Operational Dynamics:** How key components interact within the domain ecosystem.\n\n"
-        f"#### 3. ⚙️ Practical Applications & Impact\n"
-        f"- **Real-World Utility:** Practical implementation areas, domain utility, and demonstrated advantages.\n"
-        f"- **Performance & Reliability:** Proven methodologies and operational considerations.\n\n"
-        f"#### 4. 📈 Contemporary Landscape & Future Outlook\n"
-        f"- **Emerging Developments:** Modern industry/research trends and technological evolutions.\n"
-        f"- **Strategic Takeaway:** Actionable guidelines and synthesized conclusions.\n\n"
+        f"- **Subject Domain:** Foundational briefing and contextual analysis regarding **{topic_title}**.\n"
+        f"- **Historical Significance & Evolution:** Established paradigms, key developmental milestones, and global relevance.\n\n"
+        f"#### 2. 🏛️ Core Mechanics & Architectural Foundations\n"
+        f"- **Fundamental Components:** Primary entities, classification taxonomies, and operational frameworks.\n"
+        f"- **Ecosystem Interoperability:** How constituent parts interact to deliver robust functionality and value.\n\n"
+        f"#### 3. ⚙️ Practical Applications & Implementation Value\n"
+        f"- **Real-World Use Cases:** Proven industry/domain deployments, advantages, and empirical case studies.\n"
+        f"- **Operational Best Practices:** Reliability metrics, scalability considerations, and quality benchmarks.\n\n"
+        f"#### 4. 📈 Contemporary Trends & Strategic Insights\n"
+        f"- **Modern Advancements:** Current innovations, research breakthroughs, and future projections.\n"
+        f"- **Key Takeaway:** Actionable synthesis and domain conclusions.\n\n"
         f"---\n*Synthesized by OmniShell Knowledge & Intelligence Syndicate.*"
     )
 
@@ -3212,9 +3278,17 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         )
         timing["llm_reasoning"] = time.time() - t_llm_start
         raw_content = response.choices[0].message.content.strip()
-        if raw_content.startswith("```"):
-            raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        structured_data = json.loads(raw_content)
+        try:
+            clean_json = raw_content
+            if clean_json.startswith("```"):
+                clean_json = clean_json.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            structured_data = json.loads(clean_json)
+        except Exception:
+            match = re.search(r"(\{.*\})", raw_content, re.DOTALL)
+            if match:
+                structured_data = json.loads(match.group(1))
+            else:
+                raise
 
         usage = getattr(response, "usage", {})
         t = {
@@ -3488,10 +3562,38 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     elif structured_data.get("capability_type") == "multi_step":
         structured_data["multi_step_plan"] = normalize_multi_step_plan(deterministic_cap.get("multi_step_plan"))
 
-    # Generate complete dynamic flowchart reflecting all agents, policies, loops, and execution targets
-    structured_data["mermaid_diagram_body"] = generate_dynamic_mermaid_diagram(
-        structured_data, request.natural_language_prompt, request.user_agent_os
-    )
+    # Normalize direct_answer to string if model returned structured dict/list
+    if structured_data.get("direct_answer") is not None and not isinstance(structured_data["direct_answer"], str):
+        if isinstance(structured_data["direct_answer"], dict):
+            lines = []
+            for k, v in structured_data["direct_answer"].items():
+                k_title = str(k).replace("_", " ").title()
+                if isinstance(v, list):
+                    lines.append(f"### {k_title}")
+                    for item in v:
+                        lines.append(f"- {item}")
+                elif isinstance(v, dict):
+                    lines.append(f"### {k_title}")
+                    for sub_k, sub_v in v.items():
+                        lines.append(f"- **{sub_k}:** {sub_v}")
+                else:
+                    lines.append(f"**{k_title}:** {v}")
+            structured_data["direct_answer"] = "\n\n".join(lines)
+        elif isinstance(structured_data["direct_answer"], list):
+            structured_data["direct_answer"] = "\n".join([f"- {item}" for item in structured_data["direct_answer"]])
+        else:
+            structured_data["direct_answer"] = str(structured_data["direct_answer"])
+
+    # Ensure Mermaid diagram body is populated
+    if not structured_data.get("mermaid_diagram_body"):
+        structured_data["mermaid_diagram_body"] = generate_dynamic_mermaid_diagram(
+            structured_data, request.natural_language_prompt, request.user_agent_os
+        )
+
+    # Ensure other string fields are properly typed
+    for str_key in ["shell_script", "expected_process", "target_url", "mermaid_diagram_body", "approval_reason", "augmented_prompt", "reminder_message", "recurrence_rule"]:
+        if structured_data.get(str_key) is not None and not isinstance(structured_data[str_key], str):
+            structured_data[str_key] = json.dumps(structured_data[str_key])
 
     log_id = await log_execution_to_db(request.natural_language_prompt, request.user_agent_os, structured_data)
     structured_data["log_id"] = log_id
