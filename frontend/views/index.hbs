@@ -1985,18 +1985,37 @@
                 const res = await fetch('http://localhost:8003/execute/multi-step', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ steps })
+                    body: JSON.stringify({ steps, approved: true })
                 });
                 const data = await res.json();
+                const isOverallSuccess = data.success === true || (data.status === 'completed' && data.success !== false);
                 runMultiBtn.disabled = false;
-                runMultiBtn.innerText = data.overall_success ? "✅ All Steps Passed" : "❌ Step Failed";
+                runMultiBtn.innerText = isOverallSuccess ? "✅ All Steps Passed" : "❌ Step Failed";
                 
                 const existingBoxes = document.querySelectorAll('.multistep-terminal-output');
                 existingBoxes.forEach(b => b.remove());
 
                 const outputDiv = document.createElement('div');
-                outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-72 shadow-2xl";
-                outputDiv.innerText = JSON.stringify(data.results || data, null, 2);
+                outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-80 shadow-2xl space-y-3";
+                
+                if (Array.isArray(data.step_results) && data.step_results.length > 0) {
+                    outputDiv.innerHTML = data.step_results.map((s, idx) => {
+                        const stepSuccess = s.success !== false && s.exit_code === 0;
+                        const outContent = s.output || s.stdout || s.stderr || (stepSuccess ? 'Step executed successfully (exit code 0)' : 'Execution error');
+                        return `
+                            <div class="p-3 bg-slate-900/80 rounded-xl border ${stepSuccess ? 'border-emerald-500/30' : 'border-rose-500/30'}">
+                                <div class="flex items-center justify-between text-xs font-semibold mb-1">
+                                    <span class="${stepSuccess ? 'text-emerald-400' : 'text-rose-400'}">${stepSuccess ? '✅' : '❌'} Step ${s.step_id || (idx + 1)}: ${escHtml(s.name || 'Step')}</span>
+                                    <span class="text-[10px] text-slate-400">${s.duration_ms ? s.duration_ms + 'ms' : ''} | exit: ${s.exit_code ?? 0}</span>
+                                </div>
+                                <pre class="text-[11px] text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap mt-1 leading-relaxed">${escHtml(outContent.trim())}</pre>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    outputDiv.innerText = data.output || JSON.stringify(data, null, 2);
+                }
+                
                 document.getElementById('multistep-card').appendChild(outputDiv);
 
                 updateLifecycle(
@@ -2004,14 +2023,14 @@
                         Intent: 'completed',
                         Policy: 'completed',
                         Plan: 'completed',
-                        Execute: data.overall_success ? 'completed' : 'failed',
-                        Verify: data.overall_success ? 'completed' : 'failed'
+                        Execute: isOverallSuccess ? 'completed' : 'failed',
+                        Verify: isOverallSuccess ? 'completed' : 'failed'
                     },
-                    data.overall_success ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
+                    isOverallSuccess ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
                     {
-                        risk: data.overall_success ? '✅ VERIFIED SAFE' : '⚠️ FAILED',
-                        safetySummary: data.overall_success ? 'Multi-Step Plan Executed' : 'Step Execution Failed',
-                        safetyDetail: data.overall_success ? 'All steps completed successfully on host.' : 'One or more steps failed during execution.',
+                        risk: isOverallSuccess ? '✅ VERIFIED SAFE' : '⚠️ FAILED',
+                        safetySummary: isOverallSuccess ? 'Multi-Step Plan Executed' : 'Step Execution Failed',
+                        safetyDetail: isOverallSuccess ? 'All steps completed successfully on host.' : 'One or more steps failed during execution.',
                         executionMode: '⚡ MULTI-STEP HOST EXECUTION (COMPLETED)'
                     }
                 );
