@@ -2683,41 +2683,45 @@ def execute_scheduled_workflow(task):
 
         multi_step = task.get("multi_step_plan") or raw_wf.get("multi_step_plan")
         if multi_step:
-            if not isinstance(multi_step, list):
-                raise ValueError("Scheduled multi-step plan is not a list")
-            cleaned_steps = []
-            for step in multi_step:
-                if not isinstance(step, dict):
+            if isinstance(multi_step, str):
+                try: multi_step = json.loads(multi_step)
+                except Exception: multi_step = None
+            if isinstance(multi_step, list) and multi_step:
+                cleaned_steps = []
+                for step in multi_step:
+                    if not isinstance(step, dict):
+                        continue
+                    cmd = str(step.get("command") or step.get("script") or "").strip()
+                    if re.fullmatch(r"sleep\s+\d+", cmd):
+                        continue
                     cleaned_steps.append(step)
-                    continue
-                cmd = str(step.get("command") or step.get("script") or "").strip()
-                if re.fullmatch(r"sleep\s+\d+", cmd):
-                    continue
-                cleaned_steps.append(step)
-            exec_steps = cleaned_steps
-            res = execute_multi_step_workflow(exec_steps, approved=True, cancel_event=cancel_event)
-            _report_scheduled_result(task_id, execution_id, bool(res.get("success")),
-                                     {**res, "scheduled_task_id": task_id},
-                                     failure_reason=res.get("output") or "One or more scheduled steps failed",
-                                     is_permanent=False)
-            return res
+                if cleaned_steps:
+                    exec_steps = cleaned_steps
+                    res = execute_multi_step_workflow(exec_steps, approved=True, cancel_event=cancel_event)
+                    _report_scheduled_result(task_id, execution_id, bool(res.get("success")),
+                                             {**res, "scheduled_task_id": task_id},
+                                             failure_reason=res.get("output") or "One or more scheduled steps failed",
+                                             is_permanent=False)
+                    return res
 
         cond_logic = task.get("conditional_logic") or raw_wf.get("conditional_logic")
         if cond_logic:
-            if not isinstance(cond_logic, dict) or not str(cond_logic.get("condition_script") or "").strip():
-                raise ValueError("Scheduled conditional workflow has an invalid condition definition")
-            res = execute_conditional_workflow(
-                condition_script=str(cond_logic["condition_script"]),
-                on_success=cond_logic.get("on_success"),
-                on_failure=cond_logic.get("on_failure"),
-                approved=True,
-                cancel_event=cancel_event,
-            )
-            _report_scheduled_result(task_id, execution_id, bool(res.get("success")),
-                                     {**res, "scheduled_task_id": task_id},
-                                     failure_reason=res.get("error") or res.get("output") or "Conditional workflow failed",
-                                     is_permanent=res.get("status") in {"invalid_condition", "condition_evaluation_failed"})
-            return res
+            if isinstance(cond_logic, str):
+                try: cond_logic = json.loads(cond_logic)
+                except Exception: cond_logic = None
+            if isinstance(cond_logic, dict) and str(cond_logic.get("condition_script") or "").strip():
+                res = execute_conditional_workflow(
+                    condition_script=str(cond_logic["condition_script"]),
+                    on_success=cond_logic.get("on_success"),
+                    on_failure=cond_logic.get("on_failure"),
+                    approved=True,
+                    cancel_event=cancel_event,
+                )
+                _report_scheduled_result(task_id, execution_id, bool(res.get("success")),
+                                         {**res, "scheduled_task_id": task_id},
+                                         failure_reason=res.get("error") or res.get("output") or "Conditional workflow failed",
+                                         is_permanent=res.get("status") in {"invalid_condition", "condition_evaluation_failed"})
+                return res
 
         command = str(task.get("shell_script") or raw_wf.get("shell_script") or "").strip()
         if not command:
@@ -2731,6 +2735,9 @@ def execute_scheduled_workflow(task):
             raise PermissionError("Scheduled execution blocked by host risk policy: destructive root operations are prohibited.")
 
         recovery = task.get("recovery_strategy") or raw_wf.get("recovery_strategy") or {}
+        if isinstance(recovery, str):
+            try: recovery = json.loads(recovery)
+            except Exception: recovery = {}
         result = execute_with_recovery(
             command,
             max_attempts=max(1, min(10, int(recovery.get("retry_limit", 2) or 2))),
