@@ -1292,9 +1292,9 @@ def _calculate_next_recurrence(rule: str, tz_name: str = None, base_time: dateti
         hour, minute = int(m_daily.group(1)), int(m_daily.group(2))
         if not (0 <= hour <= 23 and 0 <= minute <= 59):
             raise ValueError(f"Invalid daily recurrence: {rule}")
-        base_local = base_utc.astimezone(tz)
-        candidate = base_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if candidate <= base_local:
+        now_local = now_utc.astimezone(tz)
+        candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= now_local:
             candidate += datetime.timedelta(days=1)
         return candidate.astimezone(datetime.timezone.utc)
 
@@ -1336,9 +1336,15 @@ def _extract_expiration_or_window(prompt: str, timezone_name: str = None) -> dat
         return end_of_today.astimezone(datetime.timezone.utc)
 
     # 2. Pattern: for/till/until/up to/through [N] seconds / minutes / hours / days (duration boundary)
-    m_dur = re.search(r"\b(?:for|till|until|up\s+to|through|during)\s+(?:the\s+next\s+)?(\d+(?:\.\d+)?)\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
+    m_dur = re.search(r"\b(?:for|till|until|up\s+to|through|during)\s+(?:the\s+next\s+)?(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|sixty)\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
     if m_dur:
-        amount = float(m_dur.group(1))
+        val_str = m_dur.group(1)
+        word_to_num = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15,
+            "twenty": 20, "thirty": 30, "sixty": 60
+        }
+        amount = float(val_str) if (val_str.replace('.', '', 1).isdigit()) else float(word_to_num.get(val_str, 1))
         unit = m_dur.group(2)
         if unit.startswith(("sec", "second")): delta = datetime.timedelta(seconds=amount)
         elif unit.startswith(("min", "minute")): delta = datetime.timedelta(minutes=amount)
@@ -1982,7 +1988,7 @@ def resolve_research_and_writing(prompt: str, user_agent_os: str) -> dict:
             "5. Horizontal Pod Autoscaling (HPA): Dynamically scales workload replica counts based on observed CPU/memory utilization."
         ]
     else:
-        clean_topic = re.sub(r'^(research|investigate|find|tell me about|look up)\s+(about\s+)?', '', prompt, flags=re.IGNORECASE).strip()
+        clean_topic = re.sub(r'^(do\s+a\s+|do\s+)?(deep\s+)?(research|reasearch|reserch|investigate|find|tell me about|look up|search for|search|find info on)\s+(about\s+|on\s+|for\s+)?', '', prompt, flags=re.IGNORECASE).strip()
         clean_topic = re.sub(r'\s+(and\s+than|and\s+then|after\s+\d+|write\s+to).*$', '', clean_topic, flags=re.IGNORECASE).strip()
         topic = (clean_topic[0].upper() + clean_topic[1:]) if clean_topic else "Research Synthesis"
         filename_prefix = re.sub(r'[^a-zA-Z0-9_]+', '_', topic.lower()).strip('_')[:25] or "research_notes"
@@ -2566,49 +2572,95 @@ def decompose_dynamic_multi_step_plan(prompt: str, user_agent_os: str) -> list[d
 
 
 def synthesize_contextual_clarification(prompt: str, user_agent_os: str = "Linux") -> list[str]:
-    """Clarification & Intent Disambiguation Agent: generate actionable, contextual options."""
+    """Clarification & Intent Disambiguation Agent: generate actionable, contextual options based on genuine user intent."""
     p = (prompt or "").lower().strip()
-    if any(k in p for k in ["python", "pip", "package", "virtualenv", "conda", "env"]):
+
+    # 1. Research / Information / Search requests that are underspecified
+    if any(k in p for k in ["research", "reasearch", "reserch", "investigate", "look up", "lookup", "search", "find info", "who is", "what is"]):
+        clean_target = re.sub(r'^(do\s+a\s+|do\s+)?(deep\s+)?(research|reasearch|reserch|investigate|find|tell me about|look up|search for|search|find info on)\s+(about\s+|on\s+|for\s+)?', '', p).strip()
+        if clean_target and len(clean_target) > 2:
+            return [
+                f"Provide comprehensive technical & domain research on {clean_target}",
+                f"Search local codebase & workspace files related to {clean_target}",
+                f"Draft step-by-step implementation plan for {clean_target}",
+            ]
+        return [
+            "Search public online technical documentation and guides",
+            "Search local codebase files and workspace repositories",
+            "Generate comprehensive domain summary and architectural dossier",
+        ]
+
+    # 2. Python / Virtual environments / Packages
+    if any(k in p for k in ["python", "pip", "package", "virtualenv", "conda", "env", "venv"]):
         return [
             "Inspect Python runtime version and binary path",
             "List installed Python pip packages and environment info",
             "Explain Python versioning and configuration",
         ]
-    if any(k in p for k in ["node", "npm", "yarn", "javascript", "js"]):
+
+    # 3. Node.js / JavaScript
+    if any(k in p for k in ["node", "npm", "yarn", "javascript", "js", "pnpm"]):
         return [
             "Inspect Node.js and NPM versions on host",
             "Check project package.json dependencies and scripts",
             "Explain Node.js runtime environment",
         ]
-    if any(k in p for k in ["deploy", "build", "release"]):
+
+    # 4. Deployment / Containerization
+    if any(k in p for k in ["deploy", "build", "release", "docker", "compose"]):
         return [
-            "Execute deployment workflow on local environment",
+            "Execute deployment workflow on local environment (docker compose up -d)",
             "Run build test suite and container verification",
             "Generate dry-run architectural deployment plan only",
         ]
+
+    # 5. Cleanup / Deletion
     if any(k in p for k in ["delete", "clean", "remove", "wipe", "purge", "trash"]):
         return [
-            "Purge system trash and temporary caches",
-            "Clean project build artifacts (dist / node_modules / cache)",
-            "Explain cleanup impact without modifying files",
+            "Purge temporary build caches (dist, node_modules/.cache, __pycache__)",
+            "Purge system trash safely using guarded size thresholds",
+            "Inspect cleanup impact & disk space breakdown without deleting files",
         ]
-    if any(k in p for k in ["update", "upgrade", "sync"]):
+
+    # 6. Update / Synchronization
+    if any(k in p for k in ["update", "upgrade", "sync", "git", "pull"]):
         return [
+            "Check Git working tree status and pending changes (git status)",
+            "Pull latest changes from remote Git repository (git pull)",
             "Update system package repository and toolchains",
-            "Pull latest changes from remote Git repository",
-            "Review pending updates and system patch status",
         ]
-    if any(k in p for k in ["test", "verify", "check"]):
+
+    # 7. Testing / Verification
+    if any(k in p for k in ["test", "verify", "check", "audit"]):
         return [
             "Run automated test suite and report results",
-            "Perform system environment health inspection",
+            "Perform system environment health and connectivity inspection",
             "Explain testing and verification procedures",
         ]
-    clean_title = (prompt or "target operation").strip()[:35]
+
+    # 8. Application / Process Launching
+    if any(k in p for k in ["open", "launch", "start", "app", "application"]):
+        return [
+            "Launch Visual Studio Code in current workspace",
+            "Launch default web browser (Brave / Chrome)",
+            "Open native system terminal window",
+        ]
+
+    # 9. System / Hardware Inspection
+    if any(k in p for k in ["system", "hardware", "spec", "memory", "cpu", "disk", "port", "network"]):
+        return [
+            "Inspect CPU, RAM (Memory), and Swap utilization metrics",
+            "Inspect disk partition usage and filesystem free space",
+            "List active network listening ports and open sockets",
+        ]
+
+    # 10. Meaningful Fallback extracting meaningful keywords rather than robotic quotes
+    clean_words = [w for w in re.sub(r'[^a-zA-Z0-9\s]', '', p).split() if len(w) > 2 and w not in {'the', 'and', 'for', 'about', 'with', 'this', 'that', 'from', 'please'}]
+    subject_hint = " ".join(clean_words[:3]) if clean_words else "your request"
     return [
-        f"Inspect system state regarding '{clean_title}'",
-        f"Execute verified host workflow for '{clean_title}'",
-        f"Provide comprehensive architectural explanation of '{clean_title}'",
+        f"Provide comprehensive informational explanation for {subject_hint}",
+        f"Inspect related local system configuration for {subject_hint}",
+        f"Draft step-by-step verified execution plan for {subject_hint}",
     ]
 
 
@@ -3020,8 +3072,13 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         )
 
 
-    research_terms = ["research ", "research about", "deep research", "investigate", "compare current", "find latest", "look up"]
-    if any(t in p for t in research_terms):
+    research_terms = [
+        "research ", "research about", "research on", "do a research", "do research",
+        "reasearch", "reserch", "deep research", "investigate", "compare current",
+        "find latest", "look up", "lookup", "biography of",
+        "find information about", "find info on", "search about"
+    ]
+    if any(t in p for t in research_terms) or re.search(r"\b(do\s+a\s+|do\s+)?(deep\s+)?r[ea]{1,2}search\b", p):
         res_info = resolve_research_and_writing(prompt, user_agent_os)
         dt_sched, tz_sched = _deterministic_relative_schedule(prompt, "UTC")
         if dt_sched is not None:
@@ -3138,7 +3195,7 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         execution_mode="dynamic_evaluation", safety_level="low", intent_entities=entities,
         requires_clarification=False,
         ambiguity_reasons=[],
-        clarification_questions=synthesize_contextual_clarification(prompt, user_agent_os),
+        clarification_questions=[],
         direct_answer=None,
     )
 
@@ -3746,15 +3803,26 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                 break
 
     # Merge deterministic direct answers and scripts for pure informational, research or scheduled requests
-    if structured_data.get("capability_type") in {"question_answering", "information_request", "planning_only", "clarification"} and not structured_data.get("is_scheduled"):
+    if structured_data.get("capability_type") in {"question_answering", "information_request", "research", "planning_only", "clarification"} and not structured_data.get("is_scheduled"):
         if not structured_data.get("direct_answer"):
             structured_data["direct_answer"] = deterministic_cap.get("direct_answer") or synthesize_knowledge_answer(request.natural_language_prompt, request.user_agent_os)
-        if deterministic_cap.get("clarification_questions") and not structured_data.get("clarification_questions"):
-            structured_data["clarification_questions"] = deterministic_cap["clarification_questions"]
+        
+        is_truly_clarify = (
+            deterministic_cap.get("requires_clarification") or 
+            structured_data.get("capability_type") == "clarification" or 
+            deterministic_cap.get("capability_type") == "clarification"
+        ) and structured_data.get("capability_type") not in {"question_answering", "information_request", "research"}
+
+        if is_truly_clarify:
+            structured_data["capability_type"] = "clarification"
+            structured_data["clarification_questions"] = deterministic_cap.get("clarification_questions") or synthesize_contextual_clarification(request.natural_language_prompt, request.user_agent_os)
             structured_data["requires_clarification"] = True
+        else:
+            structured_data["requires_clarification"] = False
+            structured_data["clarification_questions"] = []
         structured_data["shell_script"] = None
         structured_data["requires_browser"] = False
-    elif structured_data.get("capability_type") in {"research", "scheduled_workflow", "file_operation", "conditional_workflow", "recovery_failure"}:
+    elif structured_data.get("capability_type") in {"scheduled_workflow", "file_operation", "conditional_workflow", "recovery_failure"}:
         if not structured_data.get("direct_answer") and deterministic_cap.get("direct_answer"):
             structured_data["direct_answer"] = deterministic_cap["direct_answer"]
         if not structured_data.get("shell_script") and deterministic_cap.get("shell_script"):
