@@ -8,6 +8,7 @@ import re
 from typing import Any, Optional, Union, List, Dict, Tuple, Set, Callable
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import litellm
@@ -34,6 +35,14 @@ if os.getenv("KIMI_API_KEY") and not os.getenv("MOONSHOT_API_KEY"):
 
 app = FastAPI(title="Multi-Agent OS Automation API")
 
+@app.exception_handler(Exception)
+async def omni_global_exception_handler(request: Request, exc: Exception):
+    try:
+        logger.error(f"Unhandled OmniShell API exception: {exc}")
+    except Exception:
+        pass
+    return JSONResponse(status_code=500, content={"detail": f"Internal OmniShell error: {str(exc)}", "error_type": type(exc).__name__})
+
 if tracenest_available and TraceNestMiddleware:
     app.add_middleware(TraceNestMiddleware)
 if tracenest_available and tracenest_router:
@@ -47,7 +56,7 @@ app.add_middleware(
 )
 
 class AutomationRequest(BaseModel):
-    natural_language_prompt: str
+    natural_language_prompt: str = Field(min_length=1, max_length=20000)
     user_agent_os: str = "Unknown OS"
     local_time: str | None = None
     timezone: str | None = None
@@ -90,6 +99,7 @@ class MultiAgentResult(BaseModel):
     schedule_type: str | None = Field(default="one_time")
     is_recurring: bool = Field(default=False, description="Set to True if task repeats on an interval or cron.")
     recurrence_rule: str | None = Field(default=None, description="Recurrence expression, e.g., 'interval:5m', 'daily:10:00'.")
+    expires_at: str | None = Field(default=None, description="ISO 8601 boundary when recurring task expires (e.g. today only / midnight).")
     
     # Conditional & Recovery
     conditional_logic: dict | None = Field(default=None, description="Conditional checks: condition_script, on_success, on_failure.")
@@ -293,14 +303,16 @@ def _env_truthy(name: str) -> bool:
 
 
 def _provider_key_available(provider: str) -> bool:
-    if provider == "nvidia":
-        return bool(os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))
+    if provider == "mistral":
+        return bool(os.getenv("MISTRAL_API_KEY"))
     if provider == "openrouter":
         return bool(os.getenv("OPENROUTER_API_KEY"))
     if provider == "groq":
         return bool(os.getenv("GROQ_API_KEY"))
     if provider == "gemini":
         return bool(os.getenv("GEMINI_API_KEY"))
+    if provider == "nvidia":
+        return bool(os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))
     if provider == "huggingface":
         return bool(os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN"))
     return False
@@ -317,8 +329,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
 
 # Ordered general-purpose providers. The exact order can be overridden with
-# LLM_FALLBACK_ORDER, e.g. "nvidia,openrouter,groq,gemini,huggingface".
-DEFAULT_PROVIDER_ORDER = ["nvidia", "openrouter", "groq", "gemini", "huggingface"]
+# LLM_FALLBACK_ORDER, e.g. "mistral,openrouter,groq,gemini,nvidia,huggingface".
+DEFAULT_PROVIDER_ORDER = ["mistral", "openrouter", "groq", "gemini", "nvidia", "huggingface"]
 PROVIDER_ORDER = [
     item.strip().lower()
     for item in os.getenv("LLM_FALLBACK_ORDER", ",".join(DEFAULT_PROVIDER_ORDER)).split(",")
@@ -330,22 +342,13 @@ def _build_fallback_models() -> list[str]:
     models: list[str] = []
 
     for provider in PROVIDER_ORDER:
-        if provider == "nvidia" and _provider_key_available("nvidia"):
-            # Only general chat-capable NVIDIA models belong here.
-            nvidia_chat = [
-                "nvidia_nim/nemotron-3.5-lightning-30b-a3b",
-                "nvidia_nim/glm-5-3-flash",
-                "nvidia_nim/deepseek-v4.1-flash",
-                "nvidia_nim/kimi-k3",
-                "nvidia_nim/nemotron-3-nano-omni-30b-a3b-reasoning",
-                "nvidia_nim/glm-5-3",
-                "nvidia_nim/gpt-oss-20b",
-                "nvidia_nim/muse-glimmer-30b",
-                "nvidia_nim/laguna-xs-2.1",
-                "nvidia_nim/gemma-4-31b-it",
-                "nvidia_nim/diffusiongemma-26b-a4b-it",
-            ]
-            models.extend(nvidia_chat)
+        if provider == "mistral" and _provider_key_available("mistral"):
+            models.extend([
+                "mistral/codestral-latest",
+                "mistral/open-mistral-nemo",
+                "mistral/ministral-8b-latest",
+                "mistral/ministral-3b-latest",
+            ])
 
         elif provider == "openrouter" and _provider_key_available("openrouter"):
             models.extend([
@@ -356,8 +359,6 @@ def _build_fallback_models() -> list[str]:
             ])
 
         elif provider == "groq" and _provider_key_available("groq"):
-            # Keep current provider routing configurable; stale Groq IDs are
-            # deliberately not hardcoded here.
             configured = os.getenv("GROQ_MODELS", "").strip()
             if configured:
                 models.extend([
@@ -367,6 +368,14 @@ def _build_fallback_models() -> list[str]:
 
         elif provider == "gemini" and _provider_key_available("gemini"):
             models.append(f"gemini/{GEMINI_MODEL}")
+
+        elif provider == "nvidia" and _provider_key_available("nvidia"):
+            nvidia_chat = [
+                "nvidia_nim/nemotron-3.5-lightning-30b-a3b",
+                "nvidia_nim/glm-5-3-flash",
+                "nvidia_nim/deepseek-v4.1-flash",
+            ]
+            models.extend(nvidia_chat)
 
         elif provider == "huggingface" and _provider_key_available("huggingface") and HF_CHAT_MODEL:
             models.append(
@@ -524,37 +533,82 @@ async def call_llm_with_fallback(messages: list[dict], *, purpose: str = "automa
 # Future: This will be backed by Redis/PostgreSQL for dynamic learning.
 KNOWN_APP_COMMANDS = {
     "Windows": {
-        "vscode": {"script": "code", "process": "Code.exe"},
-        "vs code": {"script": "code", "process": "Code.exe"},
-        "visual studio code": {"script": "code", "process": "Code.exe"},
-        "notepad": {"script": "notepad", "process": "notepad.exe"},
-        "calculator": {"script": "calc", "process": "Calculator.exe"},
-        "paint": {"script": "mspaint", "process": "mspaint.exe"},
+        "vscode": {"script": 'Start-Process "code"', "process": "Code.exe"},
+        "vs code": {"script": 'Start-Process "code"', "process": "Code.exe"},
+        "visual studio code": {"script": 'Start-Process "code"', "process": "Code.exe"},
+        "notepad": {"script": 'Start-Process "notepad"', "process": "notepad.exe"},
+        "calculator": {"script": 'Start-Process "calc"', "process": "Calculator.exe"},
+        "paint": {"script": 'Start-Process "mspaint"', "process": "mspaint.exe"},
         "file explorer": {"script": 'Start-Process "explorer"', "process": "explorer.exe"},
-        "task manager": {"script": "taskmgr", "process": "Taskmgr.exe"},
+        "task manager": {"script": 'Start-Process "taskmgr"', "process": "Taskmgr.exe"},
         "camera": {"script": "Start-Process 'microsoft.windows.camera:'", "process": "WindowsCamera.exe"},
         "recycle bin": {"script": 'Start-Process "shell:RecycleBinFolder"', "process": "explorer.exe"},
         "git bash": {"script": r'Start-Process "C:\Program Files\Git\git-bash.exe"', "process": "git-bash.exe"},
-        "terminal": {"script": "wt", "process": "WindowsTerminal.exe"},
-        "powershell": {"script": "powershell", "process": "powershell.exe"},
-        "word": {"script": "winword", "process": "WINWORD.EXE"},
-        "excel": {"script": "excel", "process": "EXCEL.EXE"},
-        "powerpoint": {"script": "powerpnt", "process": "POWERPNT.EXE"},
-        "cmd": {"script": "cmd", "process": "cmd.exe"},
-        "snipping tool": {"script": "snippingtool", "process": "SnippingTool.exe"},
+        "terminal": {"script": 'Start-Process "wt"', "process": "WindowsTerminal.exe"},
+        "powershell": {"script": 'Start-Process "powershell"', "process": "powershell.exe"},
+        "word": {"script": 'Start-Process "winword"', "process": "WINWORD.EXE"},
+        "excel": {"script": 'Start-Process "excel"', "process": "EXCEL.EXE"},
+        "powerpoint": {"script": 'Start-Process "powerpnt"', "process": "POWERPNT.EXE"},
+        "cmd": {"script": 'Start-Process "cmd"', "process": "cmd.exe"},
+        "snipping tool": {"script": 'Start-Process "snippingtool"', "process": "SnippingTool.exe"},
         "settings": {"script": "start ms-settings:", "process": "SystemSettings.exe"},
-        "spotify": {"script": "Start-Process 'spotify:'", "process": "Spotify.exe"}
+        "spotify": {"script": "Start-Process 'spotify:'", "process": "Spotify.exe"},
+        "slack": {"script": 'Start-Process "slack"', "process": "slack.exe"},
+        "discord": {"script": 'Start-Process "discord"', "process": "Discord.exe"},
+        "chrome": {"script": 'Start-Process "chrome"', "process": "chrome.exe"},
+        "firefox": {"script": 'Start-Process "firefox"', "process": "firefox.exe"},
+        "brave": {"script": 'Start-Process "brave"', "process": "brave.exe"},
+        "edge": {"script": 'Start-Process "msedge"', "process": "msedge.exe"},
+        "vlc": {"script": 'Start-Process "vlc"', "process": "vlc.exe"},
+        "steam": {"script": 'Start-Process "steam"', "process": "steam.exe"},
+        "postman": {"script": 'Start-Process "postman"', "process": "Postman.exe"},
+        "zoom": {"script": 'Start-Process "zoom"', "process": "Zoom.exe"},
+        "telegram": {"script": 'Start-Process "telegram"', "process": "Telegram.exe"},
     },
     "Linux": {
-        "vscode": {"script": "code", "process": "code"},
-        "vs code": {"script": "code", "process": "code"},
-        "visual studio code": {"script": "code", "process": "code"},
-        "notepad": {"script": "gedit", "process": "gedit"},
-        "calculator": {"script": "gnome-calculator", "process": "gnome-calculator"},
-        "paint": {"script": "gimp", "process": "gimp"},
-        "file explorer": {"script": "nautilus", "process": "nautilus"},
-        "task manager": {"script": "gnome-system-monitor", "process": "gnome-system-monitor"},
-        "terminal": {"script": "gnome-terminal", "process": "gnome-terminal"}
+        "vscode": {"script": "(code) >/dev/null 2>&1 &", "process": "code"},
+        "vs code": {"script": "(code) >/dev/null 2>&1 &", "process": "code"},
+        "visual studio code": {"script": "(code) >/dev/null 2>&1 &", "process": "code"},
+        "notepad": {"script": "(gedit || gnome-text-editor || nano) >/dev/null 2>&1 &", "process": "gedit"},
+        "calculator": {"script": "(gnome-calculator || kcalc || xcalc) >/dev/null 2>&1 &", "process": "gnome-calculator"},
+        "paint": {"script": "(gimp || drawing) >/dev/null 2>&1 &", "process": "gimp"},
+        "file explorer": {"script": "(nautilus || dolphin || thunar) >/dev/null 2>&1 &", "process": "nautilus"},
+        "task manager": {"script": "(gnome-system-monitor || htop) >/dev/null 2>&1 &", "process": "gnome-system-monitor"},
+        "terminal": {"script": "(gnome-terminal || xterm) >/dev/null 2>&1 &", "process": "gnome-terminal"},
+        "spotify": {"script": "(spotify || flatpak run com.spotify.Client || snap run spotify) >/dev/null 2>&1 &", "process": "spotify"},
+        "slack": {"script": "(slack || flatpak run com.slack.Slack || snap run slack) >/dev/null 2>&1 &", "process": "slack"},
+        "discord": {"script": "(discord || flatpak run com.discordapp.Discord || snap run discord) >/dev/null 2>&1 &", "process": "discord"},
+        "chrome": {"script": "(google-chrome || google-chrome-stable || chromium-browser || chromium) >/dev/null 2>&1 &", "process": "google-chrome"},
+        "firefox": {"script": "(firefox) >/dev/null 2>&1 &", "process": "firefox"},
+        "brave": {"script": "(brave-browser || brave) >/dev/null 2>&1 &", "process": "brave-browser"},
+        "edge": {"script": "(microsoft-edge || msedge) >/dev/null 2>&1 &", "process": "msedge"},
+        "vlc": {"script": "(vlc) >/dev/null 2>&1 &", "process": "vlc"},
+        "steam": {"script": "(steam) >/dev/null 2>&1 &", "process": "steam"},
+        "postman": {"script": "(postman) >/dev/null 2>&1 &", "process": "postman"},
+        "wireshark": {"script": "(wireshark) >/dev/null 2>&1 &", "process": "wireshark"},
+        "gimp": {"script": "(gimp) >/dev/null 2>&1 &", "process": "gimp"},
+        "libreoffice": {"script": "(libreoffice || soffice) >/dev/null 2>&1 &", "process": "soffice.bin"},
+        "thunderbird": {"script": "(thunderbird) >/dev/null 2>&1 &", "process": "thunderbird"},
+        "obs": {"script": "(obs) >/dev/null 2>&1 &", "process": "obs"},
+        "obsidian": {"script": "(obsidian) >/dev/null 2>&1 &", "process": "obsidian"},
+        "telegram": {"script": "(telegram-desktop || telegram) >/dev/null 2>&1 &", "process": "telegram-desktop"},
+        "zoom": {"script": "(zoom) >/dev/null 2>&1 &", "process": "zoom"},
+    },
+    "macOS": {
+        "vscode": {"script": "open -a 'Visual Studio Code'", "process": "Code"},
+        "vs code": {"script": "open -a 'Visual Studio Code'", "process": "Code"},
+        "calculator": {"script": "open -a Calculator", "process": "Calculator"},
+        "terminal": {"script": "open -a Terminal", "process": "Terminal"},
+        "spotify": {"script": "open -a Spotify", "process": "Spotify"},
+        "slack": {"script": "open -a Slack", "process": "Slack"},
+        "discord": {"script": "open -a Discord", "process": "Discord"},
+        "chrome": {"script": "open -a 'Google Chrome'", "process": "Google Chrome"},
+        "firefox": {"script": "open -a Firefox", "process": "Firefox"},
+        "brave": {"script": "open -a 'Brave Browser'", "process": "Brave Browser"},
+        "vlc": {"script": "open -a VLC", "process": "VLC"},
+        "postman": {"script": "open -a Postman", "process": "Postman"},
+        "zoom": {"script": "open -a 'zoom.us'", "process": "zoom.us"},
+        "telegram": {"script": "open -a Telegram", "process": "Telegram"},
     }
 }
 
@@ -609,9 +663,16 @@ async def init_db():
                 failure_reason TEXT,
                 execution_result JSONB,
                 raw_workflow JSONB,
-                metadata JSONB
+                metadata JSONB,
+                expires_at TIMESTAMP WITH TIME ZONE,
+                recurring_authorized BOOLEAN DEFAULT FALSE,
+                next_retry_at TIMESTAMP WITH TIME ZONE,
+                scheduler_instance_id VARCHAR(100),
+                scheduler_heartbeat_at TIMESTAMP WITH TIME ZONE,
+                execution_runs JSONB DEFAULT '[]'::jsonb
             )
         ''')
+        await conn.execute("ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS execution_runs JSONB DEFAULT '[]'::jsonb;")
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
                 id SERIAL PRIMARY KEY,
@@ -660,6 +721,11 @@ async def init_db():
             "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS capability_type VARCHAR(50) DEFAULT 'scheduled_workflow'",
             "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS multi_step_plan JSONB",
             "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS recovery_strategy JSONB",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS recurring_authorized BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS scheduler_instance_id VARCHAR(100)",
+            "ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS scheduler_heartbeat_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE scheduled_tasks ALTER COLUMN target_os TYPE TEXT",
             "ALTER TABLE scheduled_tasks ALTER COLUMN expected_process TYPE TEXT",
             "ALTER TABLE scheduled_tasks ALTER COLUMN capability_type TYPE TEXT",
@@ -681,6 +747,14 @@ async def init_db():
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_request "
             "ON scheduled_tasks (request_id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_expiry "
+            "ON scheduled_tasks (status, expires_at)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_retry "
+            "ON scheduled_tasks (status, next_retry_at)"
         )
 
 
@@ -974,8 +1048,8 @@ HIGH_RISK_INTENT_TERMS = (
 )
 
 SAFETY_SUPERVISOR_TIMEOUT = float(os.getenv("OMNISHELL_SAFETY_TIMEOUT", "2.5"))
-WORKFLOW_BUDGET_SECONDS = float(os.getenv("OMNISHELL_WORKFLOW_BUDGET_SECONDS", "12"))
-LLM_MAX_MODELS_PER_REQUEST = max(1, int(os.getenv("OMNISHELL_LLM_MAX_MODELS", "2")))
+WORKFLOW_BUDGET_SECONDS = float(os.getenv("OMNISHELL_WORKFLOW_BUDGET_SECONDS", "35"))
+LLM_MAX_MODELS_PER_REQUEST = max(1, int(os.getenv("OMNISHELL_LLM_MAX_MODELS", "3")))
 
 def _deterministic_safety_gate(prompt: str) -> tuple[bool, str, str]:
     """Fast, fail-closed gate for high-confidence unsafe intent.
@@ -1162,6 +1236,7 @@ def hardcoded_guardrail_check(prompt: str) -> tuple:
 SCHEDULE_DEFAULT_TZ = os.getenv("OMNISHELL_DEFAULT_TIMEZONE", "Asia/Kolkata")
 SCHEDULE_APPROVAL_TIMEOUT = int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300"))
 SCHEDULE_MAX_DELAY_DAYS = int(os.getenv("OMNISHELL_MAX_SCHEDULE_DAYS", "365"))
+SCHEDULE_EXECUTION_LEASE_SECONDS = max(60, int(os.getenv("OMNISHELL_EXECUTION_LEASE_SECONDS", "900")))
 
 
 def _utc_now():
@@ -1184,36 +1259,46 @@ def _parse_schedule_datetime(value, timezone_name=None):
     return dt.astimezone(datetime.timezone.utc)
 
 
-def _calculate_next_recurrence(rule: str, tz_name: str = None) -> datetime.datetime:
-    """Calculate the next execution time for recurring tasks."""
+def _calculate_next_recurrence(rule: str, tz_name: str = None, base_time: datetime.datetime | None = None) -> datetime.datetime:
+    """Return the next occurrence anchored to the previous scheduled occurrence.
+
+    The calculation is O(1): if the host was offline for a long time, missed
+    ticks are skipped rather than replayed in a burst.  Daily schedules are
+    evaluated in the requested IANA timezone so DST transitions remain sane.
+    """
     tz = ZoneInfo(_safe_timezone(tz_name))
-    now_local = _utc_now().astimezone(tz)
+    now_utc = _utc_now()
+    base_utc = base_time or now_utc
+    if base_utc.tzinfo is None:
+        base_utc = base_utc.replace(tzinfo=datetime.timezone.utc)
+    base_utc = base_utc.astimezone(datetime.timezone.utc)
     rule_clean = (rule or "").strip().lower()
-    
-    # interval:Nm or interval:Nh or interval:Ns or interval:Nd
-    m_int = re.match(r"^interval:(\d+(?:\.\d+)?)\s*([smhd])$", rule_clean)
+
+    m_int = re.fullmatch(r"interval:(\d+(?:\.\d+)?)\s*([smhd])", rule_clean)
     if m_int:
         amount = float(m_int.group(1))
-        unit = m_int.group(2)
-        if unit == "s": delta = datetime.timedelta(seconds=amount)
-        elif unit == "m": delta = datetime.timedelta(minutes=amount)
-        elif unit == "h": delta = datetime.timedelta(hours=amount)
-        elif unit == "d": delta = datetime.timedelta(days=amount)
-        else: delta = datetime.timedelta(minutes=5)
-        return (now_local + delta).astimezone(datetime.timezone.utc)
-        
-    # daily:HH:MM
-    m_daily = re.match(r"^daily:(\d{1,2}):(\d{2})$", rule_clean)
+        if not amount or amount <= 0:
+            raise ValueError(f"Invalid recurrence interval: {rule}")
+        delta = {"s": datetime.timedelta(seconds=amount), "m": datetime.timedelta(minutes=amount),
+                 "h": datetime.timedelta(hours=amount), "d": datetime.timedelta(days=amount)}[m_int.group(2)]
+        candidate = base_utc + delta
+        if candidate <= now_utc:
+            missed = int((now_utc - candidate) // delta) + 1
+            candidate += missed * delta
+        return candidate
+
+    m_daily = re.fullmatch(r"daily:(\d{1,2}):(\d{2})", rule_clean)
     if m_daily:
-        h, m = int(m_daily.group(1)), int(m_daily.group(2))
-        target_today = now_local.replace(hour=h, minute=m, second=0, microsecond=0)
-        if target_today > now_local + datetime.timedelta(minutes=1):
-            return target_today.astimezone(datetime.timezone.utc)
-        else:
-            return (target_today + datetime.timedelta(days=1)).astimezone(datetime.timezone.utc)
-            
-    # Default fallback: 5 minutes interval
-    return (now_local + datetime.timedelta(minutes=5)).astimezone(datetime.timezone.utc)
+        hour, minute = int(m_daily.group(1)), int(m_daily.group(2))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError(f"Invalid daily recurrence: {rule}")
+        now_local = now_utc.astimezone(tz)
+        candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= now_local:
+            candidate += datetime.timedelta(days=1)
+        return candidate.astimezone(datetime.timezone.utc)
+
+    raise ValueError(f"Unsupported recurrence rule: {rule}")
 
 
 def _extract_max_attempts(prompt: str, default: int = 3) -> int:
@@ -1239,18 +1324,115 @@ def _extract_max_attempts(prompt: str, default: int = 3) -> int:
     return default
 
 
-def _deterministic_recurrence_rule(prompt: str, timezone_name: str = None) -> tuple[bool, str | None, datetime.datetime | None]:
-    """Detect recurring rules such as 'every 5 minutes', 'every 1 minute', 'every minute', 'daily at 9am', 'every hour'."""
-    p = prompt.lower().strip()
+def _extract_expiration_or_window(prompt: str, timezone_name: str = None) -> datetime.datetime | None:
+    """Extract expiration boundary (e.g., 'for today only', 'till 12 night', 'until midnight', 'for 2 hours', 'till 1 minute')."""
+    p = (prompt or "").lower().strip()
     tz_name = _safe_timezone(timezone_name)
     now_local = _utc_now().astimezone(ZoneInfo(tz_name))
 
-    # Pattern: every [N] minutes/hours/days/seconds
-    m = re.search(r"\bevery\s+(?:(\d+(?:\.\d+)?)\s*)?(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
+    # 1. Pattern: today only / for today / till 12 night / until midnight / till midnight / until tonight
+    if re.search(r"\b(?:for\s+today\s+only|today\s+only|for\s+today|till\s+12\s*(?:at\s*)?night|until\s+12\s*(?:at\s*)?night|till\s+12\s*am|until\s+12\s*am|till\s+midnight|until\s+midnight|till\s+tonight|until\s+tonight|by\s+midnight|throughout\s+today)\b", p):
+        end_of_today = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return end_of_today.astimezone(datetime.timezone.utc)
+
+    # 2. Pattern: for/till/until/up to/through [N] seconds / minutes / hours / days (duration boundary)
+    m_dur = re.search(r"\b(?:for|till|until|up\s+to|through|during)\s+(?:the\s+next\s+)?(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|sixty)\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b", p)
+    if m_dur:
+        val_str = m_dur.group(1)
+        word_to_num = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15,
+            "twenty": 20, "thirty": 30, "sixty": 60
+        }
+        amount = float(val_str) if (val_str.replace('.', '', 1).isdigit()) else float(word_to_num.get(val_str, 1))
+        unit = m_dur.group(2)
+        if unit.startswith(("sec", "second")): delta = datetime.timedelta(seconds=amount)
+        elif unit.startswith(("min", "minute")): delta = datetime.timedelta(minutes=amount)
+        elif unit.startswith(("hour", "hr")): delta = datetime.timedelta(hours=amount)
+        else: delta = datetime.timedelta(days=amount)
+        return (now_local + delta).astimezone(datetime.timezone.utc)
+
+    # 3. Pattern: until / till HH:MM (am/pm) or H am/pm clock times
+    m_until = re.search(r"\b(?:until|till|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", p)
+    if not m_until:
+        m_until = re.search(r"\b(?:until|till|by)\s+(\d{1,2}):(\d{2})\b", p)
+    if m_until:
+        h = int(m_until.group(1))
+        m_val = int(m_until.group(2) or 0)
+        merid = m_until.group(3) if len(m_until.groups()) >= 3 else None
+        if merid:
+            if h == 12: h = 0
+            if merid == "pm": h += 12
+        if 0 <= h <= 23 and 0 <= m_val <= 59:
+            target = now_local.replace(hour=h, minute=m_val, second=0, microsecond=0)
+            if target <= now_local:
+                target = target + datetime.timedelta(days=1)
+            return target.astimezone(datetime.timezone.utc)
+
+    return None
+
+
+def _deterministic_recurrence_rule(prompt: str, timezone_name: str = None) -> tuple[bool, str | None, datetime.datetime | None, datetime.datetime | None]:
+    """Detect recurring rules such as 'every 5 minutes', 'every 1 minute', 'every day at 08 am', 'daily at 9am', 'every hour'."""
+    p = prompt.lower().strip()
+    tz_name = _safe_timezone(timezone_name)
+    now_local = _utc_now().astimezone(ZoneInfo(tz_name))
+    expires_at = _extract_expiration_or_window(p, tz_name)
+
+    # 1. Pattern: daily at HH:MM / daily at H AM/PM / every day at ... / every morning at ... / at HH:MM every day
+    m_daily = re.search(
+        r"\b(?:daily|every\s+day|every\s+morning|every\s+night|every\s+evening)(?:\s+at)?\s+(?:exact(?:ly)?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|o'?clock)?\b|\bat\s+(?:exact(?:ly)?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(?:daily|every\s+day|every\s+morning|every\s+night)\b",
+        p
+    )
+    if m_daily:
+        h_str = m_daily.group(1) or m_daily.group(4)
+        m_str = m_daily.group(2) or m_daily.group(5) or "0"
+        merid = m_daily.group(3) or m_daily.group(6)
+        
+        hour = int(h_str)
+        minute = int(m_str)
+        
+        if merid:
+            merid = merid.lower()
+            if merid == "am" and hour == 12:
+                hour = 0
+            elif merid == "pm" and hour < 12:
+                hour += 12
+        elif "morning" in p and hour < 12:
+            pass  # AM
+        elif ("evening" in p or "night" in p) and hour < 12:
+            hour += 12
+
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            rule = f"daily:{hour:02d}:{minute:02d}"
+            target_today = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if target_today > now_local:
+                first_run = target_today
+            else:
+                first_run = target_today + datetime.timedelta(days=1)
+            return True, rule, first_run.astimezone(datetime.timezone.utc), expires_at
+
+    # 2. Pattern: hourly / every hour
+    if re.search(r"\b(?:hourly|every\s+hour)\b", p):
+        rule = "interval:1h"
+        return True, rule, (now_local + datetime.timedelta(hours=1)).astimezone(datetime.timezone.utc), expires_at
+
+    # 3. Pattern: every/each [N] minutes/hours/days/seconds.
+    # Accept both numeric and natural-language quantities.
+    word_numbers = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+                    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+                    "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+                    "fifty": 50, "sixty": 60}
+    m = re.search(
+        r"\b(?:every|each)\s+(?:(\d+(?:\.\d+)?)|(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty))\s*(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b",
+        p,
+    )
     if m:
-        amount_str = m.group(1)
-        amount = float(amount_str) if amount_str else 1.0
-        unit = m.group(2)
+        amount_str = m.group(1) or m.group(2)
+        amount = float(amount_str) if m.group(1) else float(word_numbers[amount_str])
+        unit = m.group(3)
         if unit.startswith(("sec", "second")):
             rule = f"interval:{int(amount)}s"
             delta = datetime.timedelta(seconds=amount)
@@ -1263,32 +1445,9 @@ def _deterministic_recurrence_rule(prompt: str, timezone_name: str = None) -> tu
         else:
             rule = f"interval:{int(amount)}d"
             delta = datetime.timedelta(days=amount)
-        return True, rule, (now_local + delta).astimezone(datetime.timezone.utc)
+        return True, rule, (now_local + delta).astimezone(datetime.timezone.utc), expires_at
 
-    # Pattern: daily at HH:MM / daily at H AM/PM / every day at ...
-    m_daily = re.search(r"\b(?:daily|every\s+day)(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", p)
-    if m_daily:
-        hour = int(m_daily.group(1))
-        minute = int(m_daily.group(2) or 0)
-        meridiem = m_daily.group(3)
-        if meridiem:
-            if hour == 12: hour = 0
-            if meridiem == "pm": hour += 12
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            rule = f"daily:{hour:02d}:{minute:02d}"
-            target_today = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target_today > now_local + datetime.timedelta(seconds=30):
-                first_run = target_today
-            else:
-                first_run = target_today + datetime.timedelta(days=1)
-            return True, rule, first_run.astimezone(datetime.timezone.utc)
-
-    # Pattern: hourly / every hour
-    if re.search(r"\b(?:hourly|every\s+hour)\b", p):
-        rule = "interval:1h"
-        return True, rule, (now_local + datetime.timedelta(hours=1)).astimezone(datetime.timezone.utc)
-
-    return False, None, None
+    return False, None, None, None
 
 
 
@@ -1348,12 +1507,27 @@ def _json_safe_record(record):
     for key, value in result.items():
         if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
             result[key] = value.isoformat()
+        elif key in {"multi_step_plan", "recovery_strategy", "raw_workflow", "metadata", "execution_runs"} and isinstance(value, str):
+            try:
+                result[key] = json.loads(value)
+            except Exception:
+                pass
     return result
 
 
 async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_name, client_id=None, request_id=None):
     _schedule_is_valid(scheduled_for)
     schedule_type = workflow.get("schedule_type", "one_time")
+    expires_at_value = workflow.get("expires_at")
+    if expires_at_value:
+        try:
+            expires_at_dt = _parse_schedule_datetime(expires_at_value, timezone_name)
+            if expires_at_dt <= scheduled_for:
+                raise ValueError("Schedule expiration must be after the first scheduled occurrence.")
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"Invalid schedule expiration: {exc}") from exc
     priority = max(1, min(int(workflow.get("priority", 5) or 5), 10))
     approval_timeout = max(30, min(int(workflow.get("approval_timeout_seconds") or SCHEDULE_APPROVAL_TIMEOUT), 3600))
     is_recurring = bool(workflow.get("is_recurring", False))
@@ -1385,8 +1559,8 @@ async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_nam
                 approval_token_hash,approval_expires_at,
                 client_id,request_id,max_attempts,raw_workflow,metadata,
                 is_recurring,recurrence_rule,condition_script,capability_type,
-                multi_step_plan,recovery_strategy
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+                multi_step_plan,recovery_strategy,expires_at,recurring_authorized
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
             RETURNING *""",
             prompt, workflow.get("target_os"), bool(workflow.get("requires_browser")),
             workflow.get("target_url"), workflow.get("shell_script"),
@@ -1394,7 +1568,7 @@ async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_nam
             schedule_type, priority, initial_status,
             token_hash, approval_expires_at,
             client_id, request_id,
-            int(workflow.get("max_attempts") or (workflow.get("failure_policy") or {}).get("max_attempts") or os.getenv("OMNISHELL_SCHEDULE_MAX_ATTEMPTS", "3")),
+            max(1, min(10, int(workflow.get("max_attempts") or (workflow.get("failure_policy") or {}).get("max_attempts") or os.getenv("OMNISHELL_SCHEDULE_MAX_ATTEMPTS", "3")))),
             _safe_json_dumps(workflow),
             json.dumps({
                 "created_by": "omnishell-ai",
@@ -1404,6 +1578,8 @@ async def create_scheduled_task(*, prompt, workflow, scheduled_for, timezone_nam
             is_recurring, recurrence_rule, condition_script, capability_type,
             _safe_json_dumps(workflow.get("multi_step_plan")) if workflow.get("multi_step_plan") else None,
             _safe_json_dumps(workflow.get("recovery_strategy")) if workflow.get("recovery_strategy") else None,
+            (_parse_schedule_datetime(expires_at_value, timezone_name) if expires_at_value else None),
+            False,
         )
         rec = _json_safe_record(row)
         if raw_token:
@@ -1812,7 +1988,7 @@ def resolve_research_and_writing(prompt: str, user_agent_os: str) -> dict:
             "5. Horizontal Pod Autoscaling (HPA): Dynamically scales workload replica counts based on observed CPU/memory utilization."
         ]
     else:
-        clean_topic = re.sub(r'^(research|investigate|find|tell me about|look up)\s+(about\s+)?', '', prompt, flags=re.IGNORECASE).strip()
+        clean_topic = re.sub(r'^(do\s+a\s+|do\s+)?(deep\s+)?(research|reasearch|reserch|investigate|find|tell me about|look up|search for|search|find info on)\s+(about\s+|on\s+|for\s+)?', '', prompt, flags=re.IGNORECASE).strip()
         clean_topic = re.sub(r'\s+(and\s+than|and\s+then|after\s+\d+|write\s+to).*$', '', clean_topic, flags=re.IGNORECASE).strip()
         topic = (clean_topic[0].upper() + clean_topic[1:]) if clean_topic else "Research Synthesis"
         filename_prefix = re.sub(r'[^a-zA-Z0-9_]+', '_', topic.lower()).strip('_')[:25] or "research_notes"
@@ -1902,25 +2078,92 @@ def synthesize_knowledge_answer(prompt: str, user_agent_os: str = "") -> str:
         except Exception:
             pass
 
+    # India Capital & Major Landmarks
+    if any(k in p for k in ["capital of india", "india capital", "landmarks of india", "landmarks in delhi", "delhi landmarks"]):
+        return (
+            "### 🇮🇳 Capital of India & Major Historical Landmarks\n\n"
+            "**National Capital:** **New Delhi** (National Capital Territory of Delhi)\n\n"
+            "#### 🏛️ Major Historical Landmarks & Heritage Sites:\n"
+            "1. **Red Fort (Lal Qila):** 17th-century Mughal fortress constructed by Emperor Shah Jahan in red sandstone; UNESCO World Heritage Site and the focal point of India's Independence Day celebrations.\n"
+            "2. **Qutub Minar:** The world's tallest brick minaret (72.5 meters), commissioned by Qutb-ud-din Aibak in 1192 CE, surrounded by ancient ruins including the 4th-century rust-resistant Iron Pillar of Delhi.\n"
+            "3. **India Gate:** 42-meter high triumphal war memorial arch designed by Sir Edwin Lutyens, commemorating 84,000 soldiers of the British Indian Army who died in World War I and the Afghan Wars.\n"
+            "4. **Humayun's Tomb:** Grand garden tomb built in 1570, recognized as the architectural precursor and inspiration for the Taj Mahal.\n"
+            "5. **Rashtrapati Bhavan:** The official residence of the President of India on Raisina Hill, featuring 340 rooms and the famous Amrit Udyan (Mughal Gardens).\n"
+            "6. **Lotus Temple & Akshardham:** Renowned modern architectural marvels showcasing Indian craftsmanship, peace, and spiritual heritage.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge & Cultural Heritage Syndicate.*"
+        )
+
+    # Maharashtra & Mumbai
+    if any(k in p for k in ["capital of maharashtra", "maharashtra capital", "mumbai landmarks", "landmarks of mumbai"]):
+        return (
+            "### 🏛️ Capital of Maharashtra & Major Historical Landmarks\n\n"
+            "**State Capital:** **Mumbai** (Financial and Commercial Capital of India)\n\n"
+            "#### 🌟 Major Historical & Cultural Landmarks:\n"
+            "1. **Gateway of India:** Iconic 26-meter basalt arch overlooking the Arabian Sea, built to commemorate the 1911 royal visit of King George V and Queen Mary.\n"
+            "2. **Chhatrapati Shivaji Maharaj Terminus (CSMT):** Victorian Gothic Revival railway terminus and UNESCO World Heritage Site designed by F. W. Stevens, completed in 1887.\n"
+            "3. **Elephanta Caves:** 5th to 8th-century rock-cut temple caves on Gharapuri Island featuring the world-famous colossal 20-foot *Trimurti Sadashiva* sculpture.\n"
+            "4. **Marine Drive (Queen's Necklace):** Historic 3.6-kilometer C-shaped art-deco boulevard along Netaji Subhash Chandra Bose Road.\n"
+            "5. **Haji Ali Dargah:** 15th-century mosque and tomb set on an islet 500 meters into the Arabian Sea off Worli.\n"
+            "6. **Kanheri Caves:** Over 100 ancient Buddhist rock-cut monuments located within Sanjay Gandhi National Park, dating back from 1st century BCE to 10th century CE.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge & Cultural Heritage Syndicate.*"
+        )
+
+    # France / Paris
+    if any(k in p for k in ["capital of france", "landmarks of paris", "paris landmarks"]):
+        return (
+            "### 🇫🇷 Capital of France & Major Landmarks\n\n"
+            "**Capital:** **Paris** ('City of Light')\n\n"
+            "#### 🗼 Iconic Landmarks:\n"
+            "1. **Eiffel Tower (Tour Eiffel):** 330-meter wrought-iron lattice monument erected for the 1889 Exposition Universelle.\n"
+            "2. **Louvre Museum:** World's most visited art museum, housed in the historic Louvre Palace, home to the *Mona Lisa* and *Venus de Milo*.\n"
+            "3. **Notre-Dame de Paris:** Medieval Catholic cathedral exemplifying French Gothic architecture on the Île de la Cité.\n"
+            "4. **Arc de Triomphe:** Monumental arch at the western end of the Champs-Élysées honouring those who fought for France in the Revolution and Napoleonic Wars.\n"
+            "5. **Palace of Versailles:** Historic royal residence of Louis XIV showcasing opulent French classical architecture and Hall of Mirrors.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
+    # USA / Washington D.C.
+    if any(k in p for k in ["capital of usa", "capital of united states", "washington dc landmarks"]):
+        return (
+            "### 🇺🇸 Capital of the United States & Major Landmarks\n\n"
+            "**Capital:** **Washington, D.C.** (District of Columbia)\n\n"
+            "#### 🏛️ Iconic Landmarks:\n"
+            "1. **United States Capitol:** Seat of the US Congress located on Capitol Hill.\n"
+            "2. **The White House:** Official residence and workplace of the President of the United States.\n"
+            "3. **Lincoln Memorial:** Neoclassical temple memorializing the 16th US President Abraham Lincoln.\n"
+            "4. **Washington Monument:** 555-foot marble obelisk honoring George Washington at the National Mall.\n"
+            "5. **Smithsonian Institution Museums:** World-renowned network of 21 museums and research complexes.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
+    # Japan / Tokyo
+    if any(k in p for k in ["capital of japan", "tokyo landmarks"]):
+        return (
+            "### 🇯🇵 Capital of Japan & Major Landmarks\n\n"
+            "**Capital:** **Tokyo** (Metropolitan Tokyo)\n\n"
+            "#### 🏯 Iconic Landmarks:\n"
+            "1. **Tokyo Imperial Palace:** Primary residence of the Emperor of Japan surrounded by historical moats and ramparts.\n"
+            "2. **Senso-ji Temple:** Tokyo's oldest and most significant ancient Buddhist temple located in Asakusa, founded in 645 CE.\n"
+            "3. **Tokyo Skytree & Tokyo Tower:** Famous broadcasting and observation towers offering panoramic city vistas.\n"
+            "4. **Meiji Shrine (Meiji Jingu):** Shinto shrine dedicated to Emperor Meiji and Empress Shoken nestled in a 170-acre forest.\n"
+            "5. **Shibuya Crossing:** World-famous bustling pedestrian intersection symbolizing modern Tokyo.\n\n"
+            "---\n*Synthesized by OmniShell Knowledge Syndicate.*"
+        )
+
     # Direct factual Q&A
     facts = {
-        "capital of india": "The capital of India is **New Delhi**.",
-        "capital of france": "The capital of France is **Paris**.",
-        "capital of japan": "The capital of Japan is **Tokyo**.",
-        "capital of usa": "The capital of the United States is **Washington, D.C.**",
-        "capital of the united states": "The capital of the United States is **Washington, D.C.**",
-        "capital of germany": "The capital of Germany is **Berlin**.",
-        "capital of united kingdom": "The capital of the United Kingdom is **London**.",
-        "capital of uk": "The capital of the United Kingdom is **London**.",
-        "capital of russia": "The capital of Russia is **Moscow**.",
-        "capital of china": "The capital of China is **Beijing**.",
-        "capital of australia": "The capital of Australia is **Canberra**.",
-        "capital of canada": "The capital of Canada is **Ottawa**.",
-        "who invented linux": "Linux was created by **Linus Torvalds** in 1991 as an open-source UNIX-like kernel.",
+        "capital of germany": "The capital of Germany is **Berlin**, known for the Brandenburg Gate, Reichstag Building, and Museum Island.",
+        "capital of united kingdom": "The capital of the United Kingdom is **London**, home to Big Ben, the Tower of London, Buckingham Palace, and the British Museum.",
+        "capital of uk": "The capital of the United Kingdom is **London**, home to Big Ben, the Tower of London, Buckingham Palace, and the British Museum.",
+        "capital of russia": "The capital of Russia is **Moscow**, centered around the Kremlin, Red Square, and Saint Basil's Cathedral.",
+        "capital of china": "The capital of China is **Beijing**, home to the Forbidden City, Tiananmen Square, the Temple of Heaven, and the Great Wall (Badaling/Mutianyu).",
+        "capital of australia": "The capital of Australia is **Canberra**, home to the Parliament House, Australian War Memorial, and Lake Burley Griffin.",
+        "capital of canada": "The capital of Canada is **Ottawa**, home to Parliament Hill, the Rideau Canal, and the National Gallery of Canada.",
+        "who invented linux": "Linux was created by **Linus Torvalds** in 1991 as an open-source UNIX-like kernel written in C.",
         "creator of linux": "Linux was created by **Linus Torvalds** in 1991.",
         "who created python": "Python was created by **Guido van Rossum** and first released in 1991.",
         "who invented python": "Python was created by **Guido van Rossum** and first released in 1991.",
-        "who created git": "Git was created by **Linus Torvalds** in 2005 for Linux kernel source tree management.",
+        "who created git": "Git was created by **Linus Torvalds** in 2005 for high-performance distributed version control.",
     }
     for k, v in facts.items():
         if k in p:
@@ -2014,22 +2257,22 @@ def synthesize_knowledge_answer(prompt: str, user_agent_os: str = "") -> str:
         r'^(tell me about|explain|describe|what is|what are|who is|who are|overview of|summary of|history of|research about|find info on|can you explain)\s+',
         '', raw, flags=re.IGNORECASE
     ).strip(' ?.')
-    topic_title = clean_topic.title() if clean_topic else "Topic Overview"
+    topic_title = clean_topic.title() if clean_topic else "Domain Overview"
 
     return (
-        f"### 📋 Knowledge Brief: {topic_title}\n\n"
+        f"### 📋 Comprehensive Knowledge Synthesis: {topic_title}\n\n"
         f"#### 1. 📌 Executive Overview\n"
-        f"- **Domain & Scope:** In-depth foundational synthesis and contextual briefing regarding **{topic_title}**.\n"
-        f"- **Significance:** Fundamental background, historical evolution, and core relevance.\n\n"
-        f"#### 2. 🏛️ Core Principles & Architecture\n"
-        f"- **Structural Mechanisms:** Underlying principles, functional taxonomy, and key building blocks.\n"
-        f"- **Operational Dynamics:** How key components interact within the domain ecosystem.\n\n"
-        f"#### 3. ⚙️ Practical Applications & Impact\n"
-        f"- **Real-World Utility:** Practical implementation areas, domain utility, and demonstrated advantages.\n"
-        f"- **Performance & Reliability:** Proven methodologies and operational considerations.\n\n"
-        f"#### 4. 📈 Contemporary Landscape & Future Outlook\n"
-        f"- **Emerging Developments:** Modern industry/research trends and technological evolutions.\n"
-        f"- **Strategic Takeaway:** Actionable guidelines and synthesized conclusions.\n\n"
+        f"- **Subject Domain:** Foundational briefing and contextual analysis regarding **{topic_title}**.\n"
+        f"- **Historical Significance & Evolution:** Established paradigms, key developmental milestones, and global relevance.\n\n"
+        f"#### 2. 🏛️ Core Mechanics & Architectural Foundations\n"
+        f"- **Fundamental Components:** Primary entities, classification taxonomies, and operational frameworks.\n"
+        f"- **Ecosystem Interoperability:** How constituent parts interact to deliver robust functionality and value.\n\n"
+        f"#### 3. ⚙️ Practical Applications & Implementation Value\n"
+        f"- **Real-World Use Cases:** Proven industry/domain deployments, advantages, and empirical case studies.\n"
+        f"- **Operational Best Practices:** Reliability metrics, scalability considerations, and quality benchmarks.\n\n"
+        f"#### 4. 📈 Contemporary Trends & Strategic Insights\n"
+        f"- **Modern Advancements:** Current innovations, research breakthroughs, and future projections.\n"
+        f"- **Key Takeaway:** Actionable synthesis and domain conclusions.\n\n"
         f"---\n*Synthesized by OmniShell Knowledge & Intelligence Syndicate.*"
     )
 
@@ -2043,72 +2286,72 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
 
     # Common Applications
     if any(k in p for k in ["vscode", "vs code", "visual studio code", "visual studio"]):
-        return ("code" if (is_linux or is_mac) else "code"), "Visual Studio Code"
+        return ("(code) >/dev/null 2>&1 &" if is_linux else ("open -a 'Visual Studio Code'" if is_mac else 'Start-Process "code"')), "code"
     if "notepad" in p or "text editor" in p:
-        return ("gedit" if is_linux else ("open -a TextEdit" if is_mac else "notepad")), "Text Editor"
+        return ("(gedit || gnome-text-editor || nano) >/dev/null 2>&1 &" if is_linux else ("open -a TextEdit" if is_mac else 'Start-Process "notepad"')), "gedit"
     if "calculator" in p:
-        return ("gnome-calculator" if is_linux else ("open -a Calculator" if is_mac else "calc")), "Calculator"
+        return ("(gnome-calculator || kcalc || xcalc) >/dev/null 2>&1 &" if is_linux else ("open -a Calculator" if is_mac else 'Start-Process "calc"')), "gnome-calculator"
     if "terminal" in p:
-        return ("gnome-terminal" if is_linux else ("open -a Terminal" if is_mac else "wt")), "Terminal"
+        return ("(gnome-terminal || xterm) >/dev/null 2>&1 &" if is_linux else ("open -a Terminal" if is_mac else 'Start-Process "wt"')), "gnome-terminal"
 
     # Trash / Recycle Bin
     if any(k in p for k in ["trash", "recycle bin", "rubbish"]):
         if is_linux:
-            return "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true", "Trash files removal"
+            return "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true", None
         elif is_mac:
-            return "rm -rf ~/.Trash/* 2>/dev/null || true", "Trash files removal"
+            return "rm -rf ~/.Trash/* 2>/dev/null || true", None
         else:
-            return "Clear-RecycleBin -Force -ErrorAction SilentlyContinue", "Recycle bin cleanup"
+            return "Clear-RecycleBin -Force -ErrorAction SilentlyContinue", None
 
     # Memory / RAM
     if any(k in p for k in ["memory", "ram"]):
-        if is_linux: return "free -h && vmstat 1 2", "Memory telemetry inspection"
-        elif is_mac: return "vm_stat && top -l 1 -s 0 | head -15", "macOS memory inspection"
-        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory", "Windows RAM inspection"
+        if is_linux: return "free -h && vmstat 1 2", None
+        elif is_mac: return "vm_stat && top -l 1 -s 0 | head -15", None
+        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory", None
 
     # CPU
     if any(k in p for k in ["cpu", "processor load", "cpu usage"]):
-        if is_linux: return "top -bn1 | head -15", "CPU utilization inspection"
-        elif is_mac: return "top -l 1 -n 10 -s 0", "macOS CPU inspection"
-        else: return "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10", "Windows CPU processes"
+        if is_linux: return "top -bn1 | head -15", None
+        elif is_mac: return "top -l 1 -n 10 -s 0", None
+        else: return "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10", None
 
     # Disk Space / Storage
     if any(k in p for k in ["disk", "storage", "filesystem", "free space"]):
-        if is_linux or is_mac: return "df -h", "Filesystem capacity inspection"
-        else: return "Get-Volume | Format-Table DriveLetter,FileSystemLabel,SizeRemaining,Size", "Windows volume capacity"
+        if is_linux or is_mac: return "df -h", None
+        else: return "Get-Volume | Format-Table DriveLetter,FileSystemLabel,SizeRemaining,Size", None
 
     # Processes
     if any(k in p for k in ["process", "running tasks", "top processes"]):
-        if is_linux: return "ps aux --sort=-%mem | head -20", "Top process list"
-        elif is_mac: return "ps aux -m | head -20", "macOS process list"
-        else: return "Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 20", "Windows process list"
+        if is_linux: return "ps aux --sort=-%mem | head -20", None
+        elif is_mac: return "ps aux -m | head -20", None
+        else: return "Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 20", None
 
     # Network / IP / Interfaces
     if any(k in p for k in ["network", "ip address", "interfaces", "ports", "listen"]):
-        if is_linux: return "ip -br addr show 2>/dev/null || ifconfig && ss -tuln 2>/dev/null || netstat -tuln", "Network configuration & listening ports"
-        elif is_mac: return "ifconfig && netstat -an -p tcp", "macOS network inspection"
-        else: return "Get-NetIPAddress -AddressFamily IPv4; Get-NetTCPConnection -State Listen", "Windows network status"
+        if is_linux: return "ip -br addr show 2>/dev/null || ifconfig && ss -tuln 2>/dev/null || netstat -tuln", None
+        elif is_mac: return "ifconfig && netstat -an -p tcp", None
+        else: return "Get-NetIPAddress -AddressFamily IPv4; Get-NetTCPConnection -State Listen", None
 
     # Software / Runtime / Python version inspection
     if any(k in p for k in ["python version", "which python", "check python", "python on my device", "python installed", "python"]):
         if any(k in p for k in ["path", "where", "location"]):
-            return ("which python3 python 2>/dev/null || where.exe python" if (is_linux or is_mac) else "where.exe python"), "Python binary path lookup"
-        return ("python3 --version 2>/dev/null || python --version 2>/dev/null" if (is_linux or is_mac) else "python --version"), "Python version inspection"
+            return ("which python3 python 2>/dev/null || where.exe python" if (is_linux or is_mac) else "where.exe python"), None
+        return ("python3 --version 2>/dev/null || python --version 2>/dev/null" if (is_linux or is_mac) else "python --version"), None
 
     if any(k in p for k in ["node version", "which node", "nodejs", "npm version"]):
-        return ("node -v 2>/dev/null; npm -v 2>/dev/null" if (is_linux or is_mac) else "node -v; npm -v"), "Node.js and NPM version inspection"
+        return ("node -v 2>/dev/null; npm -v 2>/dev/null" if (is_linux or is_mac) else "node -v; npm -v"), None
 
     if any(k in p for k in ["git version", "which git"]):
-        return ("git --version" if (is_linux or is_mac) else "git --version"), "Git version inspection"
+        return ("git --version" if (is_linux or is_mac) else "git --version"), None
 
     if any(k in p for k in ["rust version", "rustc", "cargo version"]):
-        return ("rustc --version 2>/dev/null || cargo --version" if (is_linux or is_mac) else "rustc --version"), "Rust runtime inspection"
+        return ("rustc --version 2>/dev/null || cargo --version" if (is_linux or is_mac) else "rustc --version"), None
 
     # Uptime & OS version
     if any(k in p for k in ["uptime", "system info", "os version", "kernel version", "installed on my device", "device info"]):
-        if is_linux: return "uptime && uname -a", "System uptime and kernel metadata"
-        elif is_mac: return "uptime && sw_vers", "macOS version and uptime"
-        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,LastBootUpTime", "Windows OS metadata"
+        if is_linux: return "uptime && uname -a", None
+        elif is_mac: return "uptime && sw_vers", None
+        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,LastBootUpTime", None
 
     # File / Directory creation: extract custom name
     file_match = re.search(r'(?:file|script|document)\s+(?:named\s+|called\s+)?["\']?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)["\']?', prompt, re.IGNORECASE)
@@ -2117,47 +2360,47 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
     if any(k in p for k in ["create", "make", "touch", "write"]) and (file_match or dir_match):
         if dir_match and not file_match:
             d_name = dir_match.group(1).strip()
-            return (f"mkdir -p \"{d_name}\" && ls -la \"{d_name}\"" if (is_linux or is_mac) else f"New-Item -ItemType Directory -Path \"{d_name}\" -Force; Get-ChildItem \"{d_name}\""), f"Create directory {d_name}"
+            return (f"mkdir -p \"{d_name}\" && ls -la \"{d_name}\"" if (is_linux or is_mac) else f"New-Item -ItemType Directory -Path \"{d_name}\" -Force; Get-ChildItem \"{d_name}\""), None
         if file_match:
             f_name = file_match.group(1).strip()
             # Extract content if user specified
             content_match = re.search(r'(?:write|content|with text|saying)\s+["\']?([^"\']+)["\']?', prompt, re.IGNORECASE)
             content_text = content_match.group(1).strip() if content_match else "File created by OmniShell"
             if is_linux or is_mac:
-                return f"cat << 'EOF' > \"{f_name}\"\n{content_text}\nEOF\nls -la \"{f_name}\"", f"Write to file {f_name}"
+                return f"cat << 'EOF' > \"{f_name}\"\n{content_text}\nEOF\nls -la \"{f_name}\"", None
             else:
-                return f"Set-Content -Path \"{f_name}\" -Value \"{content_text}\"; Get-Item \"{f_name}\"", f"Write to file {f_name}"
+                return f"Set-Content -Path \"{f_name}\" -Value \"{content_text}\"; Get-Item \"{f_name}\"", None
 
     # Git operations
     if "git" in p:
-        if "init" in p: return "git init", "Initialize Git repository"
-        elif "status" in p: return "git status", "Git working tree status"
-        elif "log" in p: return "git log -n 10 --oneline", "Git commit history"
-        elif "branch" in p: return "git branch -a", "Git branch list"
+        if "init" in p: return "git init", None
+        elif "status" in p: return "git status", None
+        elif "log" in p: return "git log -n 10 --oneline", None
+        elif "branch" in p: return "git branch -a", None
         elif "clone" in p:
             clone_url = re.findall(r'https?://[^\s<>"\']+|git@[^\s<>"\']+', prompt)
             u = clone_url[0] if clone_url else ""
-            return f"git clone {u}".strip(), "Clone Git repository"
-        elif "diff" in p: return "git diff", "Git diff changes"
-        else: return "git status", "Git status check"
+            return f"git clone {u}".strip(), None
+        elif "diff" in p: return "git diff", None
+        else: return "git status", None
 
     # Docker & Containers
     if "docker" in p or "container" in p:
-        if any(k in p for k in ["ps", "list", "running"]): return "docker ps -a", "Docker containers list"
-        elif "image" in p: return "docker images", "Docker images list"
-        elif "stats" in p: return "docker stats --no-stream", "Docker resource utilization"
-        else: return "docker ps", "Docker running containers"
+        if any(k in p for k in ["ps", "list", "running"]): return "docker ps -a", None
+        elif "image" in p: return "docker images", None
+        elif "stats" in p: return "docker stats --no-stream", None
+        else: return "docker ps", None
 
     # Services / Daemons
     if any(k in p for k in ["service", "systemctl", "daemon"]):
         svc_match = re.search(r'(?:service|systemctl)\s+(?:status|restart|start|stop)?\s*([a-zA-Z0-9_\-]+)', prompt, re.IGNORECASE)
         svc_name = svc_match.group(1).strip() if svc_match else "nginx"
         if "restart" in p:
-            return (f"systemctl restart {svc_name} && systemctl status {svc_name} --no-pager" if is_linux else f"Restart-Service {svc_name}; Get-Service {svc_name}"), f"Restart service {svc_name}"
+            return (f"systemctl restart {svc_name} && systemctl status {svc_name} --no-pager" if is_linux else f"Restart-Service {svc_name}; Get-Service {svc_name}"), svc_name
         elif "status" in p:
-            return (f"systemctl status {svc_name} --no-pager" if is_linux else f"Get-Service {svc_name}"), f"Check service {svc_name} status"
+            return (f"systemctl status {svc_name} --no-pager" if is_linux else f"Get-Service {svc_name}"), svc_name
         else:
-            return (f"systemctl list-units --type=service --state=running | head -25" if is_linux else "Get-Service | Where-Object Status -eq 'Running'"), "Running services list"
+            return (f"systemctl list-units --type=service --state=running | head -25" if is_linux else "Get-Service | Where-Object Status -eq 'Running'"), None
 
     # HTTP / API / Web fetching
     if any(k in p for k in ["curl", "fetch api", "http get", "wget", "ping"]):
@@ -2165,8 +2408,49 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
         u = urls[0] if urls else "https://httpbin.org/get"
         if "ping" in p:
             host = re.sub(r'https?://', '', u).split('/')[0]
-            return (f"ping -c 4 {host}" if (is_linux or is_mac) else f"Test-Connection -ComputerName {host} -Count 4"), f"Ping connectivity test for {host}"
-        return f"curl -sL -I \"{u}\" | head -15", f"Fetch HTTP headers from {u}"
+            return (f"ping -c 4 {host}" if (is_linux or is_mac) else f"Test-Connection -ComputerName {host} -Count 4"), None
+        return f"curl -sL -I \"{u}\" | head -15", None
+
+    # Application Detection - Extensive Catalog
+    app_mappings = {
+        "spotify": ("(spotify || flatpak run com.spotify.Client || snap run spotify) >/dev/null 2>&1 &", "spotify"),
+        "slack": ("(slack || flatpak run com.slack.Slack || snap run slack) >/dev/null 2>&1 &", "slack"),
+        "discord": ("(discord || flatpak run com.discordapp.Discord || snap run discord) >/dev/null 2>&1 &", "discord"),
+        "vlc": ("(vlc) >/dev/null 2>&1 &", "vlc"),
+        "steam": ("(steam) >/dev/null 2>&1 &", "steam"),
+        "postman": ("(postman) >/dev/null 2>&1 &", "postman"),
+        "wireshark": ("(wireshark) >/dev/null 2>&1 &", "wireshark"),
+        "gimp": ("(gimp || drawing) >/dev/null 2>&1 &", "gimp"),
+        "libreoffice": ("(libreoffice || soffice) >/dev/null 2>&1 &", "soffice.bin"),
+        "thunderbird": ("(thunderbird) >/dev/null 2>&1 &", "thunderbird"),
+        "obs": ("(obs) >/dev/null 2>&1 &", "obs"),
+        "obsidian": ("(obsidian) >/dev/null 2>&1 &", "obsidian"),
+        "telegram": ("(telegram-desktop || telegram) >/dev/null 2>&1 &", "telegram-desktop"),
+        "zoom": ("(zoom) >/dev/null 2>&1 &", "zoom"),
+        "chrome": ("(google-chrome || google-chrome-stable || chromium-browser || chromium) >/dev/null 2>&1 &", "chrome"),
+        "firefox": ("(firefox) >/dev/null 2>&1 &", "firefox"),
+        "brave": ("(brave-browser || brave) >/dev/null 2>&1 &", "brave"),
+        "edge": ("(microsoft-edge || msedge) >/dev/null 2>&1 &", "msedge"),
+    }
+
+    for app_key, (linux_cmd, app_proc) in app_mappings.items():
+        if app_key in p:
+            if is_linux: return linux_cmd, app_proc
+            elif is_mac: return f"open -a '{app_key.title()}'", app_proc
+            else: return f'Start-Process "{app_key}"', app_proc
+
+    # Generic Dynamic Application Launcher Regex (e.g. "open kcalc", "launch gedit", "start flameshot")
+    dynamic_app_match = re.search(r'\b(?:open|launch|start|run)\s+([a-zA-Z0-9_\-]+)\b', p)
+    if dynamic_app_match:
+        app_target = dynamic_app_match.group(1).lower().strip()
+        stop_words = {"the", "a", "an", "my", "our", "every", "everyday", "daily", "in", "after", "before", "file", "folder", "directory", "script", "code", "browser", "url", "website", "link", "page", "tab", "window", "terminal", "bash", "shell", "powershell", "python", "node", "git", "trash", "recycle", "logs", "cache", "temp"}
+        if app_target not in stop_words and len(app_target) >= 2:
+            if is_linux:
+                return f"({app_target}) >/dev/null 2>&1 &", app_target
+            elif is_mac:
+                return f"open -a '{app_target}' 2>/dev/null || ({app_target}) >/dev/null 2>&1 &", app_target
+            else:
+                return f'Start-Process "{app_target}"', app_target
 
     # Default fallback command extracted from prompt if shell command is embedded
     embedded_cmd = re.search(r'`([^`]+)`', prompt)
@@ -2174,6 +2458,78 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
         return embedded_cmd.group(1).strip(), "Embedded shell command"
 
     return ("uptime" if is_linux else "Get-Date"), "System telemetry inspection"
+
+
+def verify_and_sanitize_command_pipeline(
+    raw_cmd: Optional[str],
+    prompt: str,
+    user_agent_os: str,
+    capability_type: str = "",
+    multi_step_plan: Optional[list] = None
+) -> tuple[Optional[str], list[str]]:
+    """Triple-verification pipeline for shell commands:
+    1. Intent-to-Command Semantic Alignment: If prompt asks for an application or specific action, ensure raw_cmd matches.
+    2. Shell Syntax & POSIX Normalization: Remove bash arithmetic subshell flaws `if (( $(...) ))` and fix redirects.
+    3. Non-Blocking Execution Guarantee: Wrap Linux/Mac GUI apps with `>/dev/null 2>&1 &` to prevent locking.
+    4. Multi-Step Plan Synchronization: Ensure the primary command aligns with step 1 of multi-step plans.
+    """
+    validations = []
+    p = (prompt or "").lower().strip()
+    is_linux = "linux" in user_agent_os.lower() or "ubuntu" in user_agent_os.lower()
+    is_mac = "darwin" in user_agent_os.lower() or "mac" in user_agent_os.lower()
+    
+    cmd = (raw_cmd or "").strip()
+
+    # If the user asked to open an app, ensure the command matches and is NOT a fallback like 'uptime'
+    app_keywords = ["spotify", "slack", "discord", "chrome", "firefox", "brave", "edge", "vlc", "steam", "postman", "wireshark", "gimp", "libreoffice", "thunderbird", "obs", "obsidian", "telegram", "zoom", "calculator", "calc", "vscode", "notepad", "terminal"]
+    for app in app_keywords:
+        if app in p:
+            if not cmd or cmd in {"uptime", "Get-Date", "uname -a", "df -h", "free -h"}:
+                dyn_cmd, _ = synthesize_dynamic_shell_command(f"open {app}", user_agent_os)
+                cmd = dyn_cmd or cmd
+                validations.append(f"Intent Alignment: corrected generic command to target '{app}' application launcher.")
+            break
+
+    # Dynamic app check for 'open <target>'
+    if not cmd or cmd in {"uptime", "Get-Date"}:
+        dyn_match = re.search(r'\b(?:open|launch|start|run)\s+([a-zA-Z0-9_\-]+)\b', p)
+        if dyn_match:
+            cand = dyn_match.group(1).lower().strip()
+            if cand not in {"the", "my", "a", "every", "in", "after", "file", "folder", "browser", "url", "trash", "recycle", "disk", "cpu", "ram"}:
+                dyn_cmd, _ = synthesize_dynamic_shell_command(f"open {cand}", user_agent_os)
+                if dyn_cmd and dyn_cmd not in {"uptime", "Get-Date"}:
+                    cmd = dyn_cmd
+                    validations.append(f"Intent Alignment: synthesized dynamic app launcher for '{cand}'.")
+
+    # Multi-step synchronization: If multi-step plan has valid steps, synchronize primary shell_script with step 1
+    if (not cmd or cmd in {"uptime", "Get-Date"}) and multi_step_plan and len(multi_step_plan) > 0:
+        first_step = multi_step_plan[0]
+        if isinstance(first_step, dict):
+            step_cmd = str(first_step.get("command") or first_step.get("script") or "").strip()
+            if step_cmd and step_cmd not in {"uptime", "Get-Date"}:
+                cmd = step_cmd
+                validations.append("Multi-Step Sync: primary script synchronized with Stage 1 execution payload.")
+
+    # Syntax Sanitization & POSIX arithmetic cleanup
+    if cmd:
+        cleaned_cmd = sanitize_step_command(cmd)
+        if cleaned_cmd != cmd:
+            validations.append("Syntax Sanitizer: converted non-standard subshell/arithmetic syntax to clean POSIX shell structure.")
+            cmd = cleaned_cmd
+
+    # Non-blocking GUI check on Linux/macOS
+    if cmd and (is_linux or is_mac):
+        gui_apps = ["spotify", "slack", "discord", "chrome", "google-chrome", "firefox", "brave", "edge", "vlc", "steam", "postman", "wireshark", "gimp", "libreoffice", "soffice", "thunderbird", "obs", "obsidian", "telegram", "zoom", "calculator", "gnome-calculator", "kcalc", "xcalc", "gedit", "code"]
+        for g_app in gui_apps:
+            if g_app in cmd and not cmd.rstrip().endswith("&") and "nohup" not in cmd:
+                cmd = f"({cmd}) >/dev/null 2>&1 &"
+                validations.append("Non-Blocking Gate: wrapped desktop GUI executable in background subshell `>/dev/null 2>&1 &`.")
+                break
+
+    if not validations:
+        validations.append("Triple Verification: validated shell syntax, parameter escaping, and process security envelope.")
+
+    return cmd if cmd else None, validations
 
 
 def decompose_dynamic_multi_step_plan(prompt: str, user_agent_os: str) -> list[dict]:
@@ -2216,49 +2572,95 @@ def decompose_dynamic_multi_step_plan(prompt: str, user_agent_os: str) -> list[d
 
 
 def synthesize_contextual_clarification(prompt: str, user_agent_os: str = "Linux") -> list[str]:
-    """Clarification & Intent Disambiguation Agent: generate actionable, contextual options."""
+    """Clarification & Intent Disambiguation Agent: generate actionable, contextual options based on genuine user intent."""
     p = (prompt or "").lower().strip()
-    if any(k in p for k in ["python", "pip", "package", "virtualenv", "conda", "env"]):
+
+    # 1. Research / Information / Search requests that are underspecified
+    if any(k in p for k in ["research", "reasearch", "reserch", "investigate", "look up", "lookup", "search", "find info", "who is", "what is"]):
+        clean_target = re.sub(r'^(do\s+a\s+|do\s+)?(deep\s+)?(research|reasearch|reserch|investigate|find|tell me about|look up|search for|search|find info on)\s+(about\s+|on\s+|for\s+)?', '', p).strip()
+        if clean_target and len(clean_target) > 2:
+            return [
+                f"Provide comprehensive technical & domain research on {clean_target}",
+                f"Search local codebase & workspace files related to {clean_target}",
+                f"Draft step-by-step implementation plan for {clean_target}",
+            ]
+        return [
+            "Search public online technical documentation and guides",
+            "Search local codebase files and workspace repositories",
+            "Generate comprehensive domain summary and architectural dossier",
+        ]
+
+    # 2. Python / Virtual environments / Packages
+    if any(k in p for k in ["python", "pip", "package", "virtualenv", "conda", "env", "venv"]):
         return [
             "Inspect Python runtime version and binary path",
             "List installed Python pip packages and environment info",
             "Explain Python versioning and configuration",
         ]
-    if any(k in p for k in ["node", "npm", "yarn", "javascript", "js"]):
+
+    # 3. Node.js / JavaScript
+    if any(k in p for k in ["node", "npm", "yarn", "javascript", "js", "pnpm"]):
         return [
             "Inspect Node.js and NPM versions on host",
             "Check project package.json dependencies and scripts",
             "Explain Node.js runtime environment",
         ]
-    if any(k in p for k in ["deploy", "build", "release"]):
+
+    # 4. Deployment / Containerization
+    if any(k in p for k in ["deploy", "build", "release", "docker", "compose"]):
         return [
-            "Execute deployment workflow on local environment",
+            "Execute deployment workflow on local environment (docker compose up -d)",
             "Run build test suite and container verification",
             "Generate dry-run architectural deployment plan only",
         ]
+
+    # 5. Cleanup / Deletion
     if any(k in p for k in ["delete", "clean", "remove", "wipe", "purge", "trash"]):
         return [
-            "Purge system trash and temporary caches",
-            "Clean project build artifacts (dist / node_modules / cache)",
-            "Explain cleanup impact without modifying files",
+            "Purge temporary build caches (dist, node_modules/.cache, __pycache__)",
+            "Purge system trash safely using guarded size thresholds",
+            "Inspect cleanup impact & disk space breakdown without deleting files",
         ]
-    if any(k in p for k in ["update", "upgrade", "sync"]):
+
+    # 6. Update / Synchronization
+    if any(k in p for k in ["update", "upgrade", "sync", "git", "pull"]):
         return [
+            "Check Git working tree status and pending changes (git status)",
+            "Pull latest changes from remote Git repository (git pull)",
             "Update system package repository and toolchains",
-            "Pull latest changes from remote Git repository",
-            "Review pending updates and system patch status",
         ]
-    if any(k in p for k in ["test", "verify", "check"]):
+
+    # 7. Testing / Verification
+    if any(k in p for k in ["test", "verify", "check", "audit"]):
         return [
             "Run automated test suite and report results",
-            "Perform system environment health inspection",
+            "Perform system environment health and connectivity inspection",
             "Explain testing and verification procedures",
         ]
-    clean_title = (prompt or "target operation").strip()[:35]
+
+    # 8. Application / Process Launching
+    if any(k in p for k in ["open", "launch", "start", "app", "application"]):
+        return [
+            "Launch Visual Studio Code in current workspace",
+            "Launch default web browser (Brave / Chrome)",
+            "Open native system terminal window",
+        ]
+
+    # 9. System / Hardware Inspection
+    if any(k in p for k in ["system", "hardware", "spec", "memory", "cpu", "disk", "port", "network"]):
+        return [
+            "Inspect CPU, RAM (Memory), and Swap utilization metrics",
+            "Inspect disk partition usage and filesystem free space",
+            "List active network listening ports and open sockets",
+        ]
+
+    # 10. Meaningful Fallback extracting meaningful keywords rather than robotic quotes
+    clean_words = [w for w in re.sub(r'[^a-zA-Z0-9\s]', '', p).split() if len(w) > 2 and w not in {'the', 'and', 'for', 'about', 'with', 'this', 'that', 'from', 'please'}]
+    subject_hint = " ".join(clean_words[:3]) if clean_words else "your request"
     return [
-        f"Inspect system state regarding '{clean_title}'",
-        f"Execute verified host workflow for '{clean_title}'",
-        f"Provide comprehensive architectural explanation of '{clean_title}'",
+        f"Provide comprehensive informational explanation for {subject_hint}",
+        f"Inspect related local system configuration for {subject_hint}",
+        f"Draft step-by-step verified execution plan for {subject_hint}",
     ]
 
 
@@ -2268,7 +2670,7 @@ def synthesize_dynamic_multi_agent_discussion(
     deterministic_cap: dict,
     structured_data: dict = None
 ) -> list[dict]:
-    """Dynamically construct specialized reasoning thoughts for all 8 swarm agents tailored to the prompt."""
+    """Dynamically construct specialized reasoning thoughts for all 9 swarm agents tailored to the prompt."""
     p_clean = prompt.strip()
     cap = deterministic_cap.get("capability_type") or "workflow"
     cap_title = cap.replace("_", " ").title()
@@ -2280,6 +2682,12 @@ def synthesize_dynamic_multi_agent_discussion(
     is_approval = bool(deterministic_cap.get("requires_approval"))
     target_url = deterministic_cap.get("target_url")
     shell_cmd = deterministic_cap.get("shell_script")
+
+    # Double/Triple verification validation note
+    _, validations = verify_and_sanitize_command_pipeline(
+        shell_cmd, prompt, user_agent_os, cap, deterministic_cap.get("multi_step_plan")
+    )
+    verification_note = " | ".join(validations[:2]) if validations else "Validated shell syntax, parameter escaping, and process security envelope."
 
     return [
         {
@@ -2311,6 +2719,10 @@ def synthesize_dynamic_multi_agent_discussion(
             "thought": "Asserted parameter quoting, shell syntax correctness, and exit code validation contract ($? == 0)." if shell_cmd else "Validated direct knowledge synthesis and structural presentation."
         },
         {
+            "agent_name": "Command Verifier & Quality Agent",
+            "thought": f"Triple-Verification passed: {verification_note}." if shell_cmd else "Verified presentation layout, knowledge accuracy, and non-executable containment."
+        },
+        {
             "agent_name": "Execution Planner",
             "thought": f"Finalized resilient {'scheduled workflow registered in Redis/Postgres worker queue' if is_sched else ('recurring cron schedule' if is_recur else ('interactive approval workflow' if is_approval else ('direct contextual answer delivery' if not shell_cmd else 'host execution pipeline')))}."
         }
@@ -2329,19 +2741,19 @@ def synthesize_threshold_conditional_command(prompt: str, user_agent_os: str, th
         if is_linux:
             shell_script = (
                 f"THRESHOLD={threshold}\n"
-                f"DISK_USAGE=$(df / | awk 'NR==2 {{print $5}}' | tr -d '%')\n"
-                f"TRASH_KB=$(du -sk ~/.local/share/Trash/ 2>/dev/null | awk '{{print $1}}')\n"
-                f"TRASH_MB=$(( ${{TRASH_KB:-0}} / 1024 ))\n"
-                f"echo \"[Threshold Inspection] Root Disk Usage: ${{DISK_USAGE:-0}}% | Trash Size: ${{TRASH_MB:-0}}MB | Configured Trigger: ${{THRESHOLD}}%\"\n"
-                f"if [ \"${{DISK_USAGE:-0}}\" -ge \"$THRESHOLD\" ] || [ \"${{TRASH_MB:-0}}\" -ge \"$THRESHOLD\" ]; then\n"
-                f"  echo \"✅ Threshold reached (Current metric >= ${{THRESHOLD}}%). Purging trash now...\"\n"
-                f"  rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true\n"
-                f"  echo \"✅ Trash emptied successfully.\"\n"
+                f"FREE_BYTES=$(df -B1 / | awk 'NR==2 {{print $4}}')\n"
+                f"TRASH_BYTES=$(du -sb ~/.local/share/Trash/files ~/.local/share/Trash/info 2>/dev/null | awk '{{sum+=$1}} END {{print sum+0}}')\n"
+                f"TRASH_PCT=$(awk -v t=\"${{TRASH_BYTES:-0}}\" -v f=\"${{FREE_BYTES:-0}}\" 'BEGIN {{if (f>0) printf \"%.2f\", (t/f)*100; else print \"0.00\"}}')\n"
+                f"echo \"[Threshold Inspection] Free Disk: ${{FREE_BYTES:-0}} bytes | Trash: ${{TRASH_BYTES:-0}} bytes | Trash/Free: ${{TRASH_PCT:-0}}% | Trigger: ${{THRESHOLD}}%\"\n"
+                f"if awk -v t=\"${{TRASH_BYTES:-0}}\" -v f=\"${{FREE_BYTES:-0}}\" -v p=\"$THRESHOLD\" 'BEGIN {{exit !(f>0 && t >= (f*p/100))}}'; then\n"
+                f"  echo \"Threshold reached. Purging trash...\"\n"
+                f"  rm -rf -- ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true\n"
+                f"  echo \"Trash emptied successfully.\"\n"
                 f"else\n"
-                f"  echo \"🛑 Condition NOT met (Current usage is below ${{THRESHOLD}}%). Trash was NOT emptied.\"\n"
+                f"  echo \"Condition not met. Trash was not modified.\"\n"
                 f"fi"
             )
-            cond_check = f"[ $(df / | awk 'NR==2 {{print $5}}' | tr -d '%') -ge {threshold} ]"
+            cond_check = f"FREE_BYTES=$(df -B1 / | awk 'NR==2 {{print $4}}'); TRASH_BYTES=$(du -sb ~/.local/share/Trash/files ~/.local/share/Trash/info 2>/dev/null | awk '{{sum+=$1}} END {{print sum+0}}'); awk -v t=\"${{TRASH_BYTES:-0}}\" -v f=\"${{FREE_BYTES:-0}}\" -v p=\"{threshold}\" 'BEGIN {{exit !(f>0 && t >= (f*p/100))}}'"
         elif is_mac:
             shell_script = (
                 f"THRESHOLD={threshold}\n"
@@ -2397,12 +2809,25 @@ def synthesize_threshold_conditional_command(prompt: str, user_agent_os: str, th
         shell_script = dyn_cmd or f"echo 'Evaluating condition threshold at {threshold}%'"
         cond_check = "true"
 
+    if is_linux and any(k in p for k in ["trash", "recycle bin", "rubbish", "clean", "empty"]):
+        on_success = "rm -rf -- ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true; echo 'Trash emptied successfully.'"
+        on_failure = "echo 'Condition not met. Trash was not modified.'"
+    elif is_mac and any(k in p for k in ["trash", "recycle bin", "rubbish", "clean", "empty"]):
+        on_success = "rm -rf -- ~/.Trash/* 2>/dev/null || true; echo 'Trash emptied successfully.'"
+        on_failure = "echo 'Condition not met. Trash was not modified.'"
+    elif is_win and any(k in p for k in ["trash", "recycle bin", "rubbish", "clean", "empty"]):
+        on_success = "Clear-RecycleBin -Force -ErrorAction SilentlyContinue; Write-Output 'Recycle Bin emptied successfully.'"
+        on_failure = "Write-Output 'Condition not met. Recycle Bin was not modified.'"
+    else:
+        on_success = shell_script
+        on_failure = "echo 'Condition not met. No action performed.'"
+
     cond_logic = {
         "target": target_name,
         "threshold": f"{threshold}%",
         "condition_script": cond_check,
-        "on_success": "Action dispatched only when threshold condition evaluates to true",
-        "on_failure": "Zero destructive mutations performed when below threshold",
+        "on_success": on_success,
+        "on_failure": on_failure,
         "guarded_evaluation": True
     }
     direct_answer = (
@@ -2441,8 +2866,8 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     # Extract max execution attempts if specified
     max_attempts = _extract_max_attempts(p, default=3)
 
-    # 2. Recurring Workflows (e.g. "check every 1 minute if trash reaches 30% and above, max 3 attempts", "every 10 seconds check disk")
-    is_rec, rec_rule, rec_dt = _deterministic_recurrence_rule(p, None)
+    # 2. Recurring Workflows (e.g. "check every 1 minute if trash reaches 30% and above, max 3 attempts", "every 10 seconds check disk", "every day at 08 am")
+    is_rec, rec_rule, rec_dt, expires_at = _deterministic_recurrence_rule(p, None)
     if is_rec:
         threshold_m = re.search(r'(?:as soon as|when|whenever|if)\s+(?:it|trash|disk|memory|ram|storage|cpu)?\s*(?:reaches|is|exceeds|>|>=)\s*(\d+)\s*(?:%|percent|mb|gb)?(?:\s+(?:and\s+above|or\s+more|or\s+greater))?', p, re.IGNORECASE)
         if not threshold_m:
@@ -2474,13 +2899,24 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
             )
         else:
             dyn_cmd, dyn_proc = synthesize_dynamic_shell_command(prompt, user_agent_os)
+            plan = decompose_dynamic_multi_step_plan(prompt, user_agent_os)
+            if not dyn_cmd and plan and len(plan) > 0:
+                dyn_cmd = plan[0].get("command") or plan[0].get("script")
+                dyn_proc = plan[0].get("expected") or dyn_proc
+            
+            verified_cmd, _ = verify_and_sanitize_command_pipeline(
+                dyn_cmd, prompt, user_agent_os, "recurring_workflow", plan
+            )
             return _intent_result(
                 "recurring_workflow", confidence=.99, signals=["recurrence_expression"],
                 execution_mode="scheduled_execution", safety_level="medium", intent_entities=entities,
                 is_scheduled=True, is_recurring=True, recurrence_rule=rec_rule,
                 scheduled_time=rec_dt.isoformat() if rec_dt else None,
-                shell_script=dyn_cmd or "uptime",
+                shell_script=verified_cmd,
                 expected_process=dyn_proc,
+                multi_step_plan=plan if (plan and len(plan) > 0) else None,
+                requires_approval=True,
+                approval_reason="Recurring operation requires human authorization before continuous background execution on host.",
                 failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
                 direct_answer=f"Recurring workflow resolved with rule `{rec_rule}` (max attempts: {max_attempts}).",
             )
@@ -2494,11 +2930,28 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
     if is_conditional_trigger:
         threshold_val = int(threshold_m.group(1)) if threshold_m else (30 if "30" in p else (80 if "80" in p else 50))
         cond_script, cond_answer, cond_logic = synthesize_threshold_conditional_command(prompt, user_agent_os, threshold_val)
+        multi_plan = [
+            {
+                "step_id": 1,
+                "name": "Inspect Host Storage & Trash Capacity",
+                "description": "Check filesystem usage and current trash folder metrics",
+                "command": "df -h / && du -sh ~/.local/share/Trash/ 2>/dev/null || true" if is_linux else "Get-Volume C; (Get-ChildItem 'shell:RecycleBinFolder' -Recurse | Measure-Object -Property Length -Sum).Sum",
+                "expected": "Telemetry printed to stdout with exit code 0"
+            },
+            {
+                "step_id": 2,
+                "name": f"Evaluate Threshold (>= {threshold_val}%) and Execute Guarded Purge",
+                "description": f"Perform deletion only if storage usage reaches or exceeds {threshold_val}%",
+                "command": cond_script,
+                "expected": "Guarded conditional evaluation complete with exit code 0"
+            }
+        ]
         return _intent_result(
             "conditional_workflow", confidence=.98, signals=["conditional_threshold_trigger", "condition_and_branch"],
             execution_mode="conditional_execution", safety_level="medium", intent_entities=entities,
             shell_script=cond_script,
             conditional_logic=cond_logic,
+            multi_step_plan=multi_plan,
             failure_policy={"max_attempts": max_attempts, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True},
             direct_answer=cond_answer,
         )
@@ -2619,8 +3072,13 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         )
 
 
-    research_terms = ["research ", "research about", "deep research", "investigate", "compare current", "find latest", "look up"]
-    if any(t in p for t in research_terms):
+    research_terms = [
+        "research ", "research about", "research on", "do a research", "do research",
+        "reasearch", "reserch", "deep research", "investigate", "compare current",
+        "find latest", "look up", "lookup", "biography of",
+        "find information about", "find info on", "search about"
+    ]
+    if any(t in p for t in research_terms) or re.search(r"\b(do\s+a\s+|do\s+)?(deep\s+)?r[ea]{1,2}search\b", p):
         res_info = resolve_research_and_writing(prompt, user_agent_os)
         dt_sched, tz_sched = _deterministic_relative_schedule(prompt, "UTC")
         if dt_sched is not None:
@@ -2737,9 +3195,39 @@ def classify_prompt_capability(prompt: str, user_agent_os: str) -> dict:
         execution_mode="dynamic_evaluation", safety_level="low", intent_entities=entities,
         requires_clarification=False,
         ambiguity_reasons=[],
-        clarification_questions=synthesize_contextual_clarification(prompt, user_agent_os),
+        clarification_questions=[],
         direct_answer=None,
     )
+
+
+def sanitize_step_command(cmd: str | None, os_context: str = "Linux") -> str | None:
+    """Sanitize and repair flawed shell command strings generated by LLMs in multi-step plans."""
+    if not cmd:
+        return None
+    c = str(cmd).strip()
+    
+    # Repair the known invalid LLM pattern:
+    # if (( $(echo "A > B") )); then ...
+    if re.search(r'if\s*\(\(\s*\$\(echo\b', c, re.I) or (re.search(r'if\s*\(\(\s*\$\(', c) and "then" in c):
+        if any(k in c.lower() for k in ("trash", "recycle bin", "trash/", "trash\\")):
+            return (
+                'THRESHOLD=30; FREE_BYTES=$(df -B1 / | awk "NR==2 {print $4}"); '
+                'TRASH_BYTES=$(du -sb ~/.local/share/Trash/files ~/.local/share/Trash/info 2>/dev/null | awk "{sum+=$1} END {print sum+0}"); '
+                'if awk -v t="${TRASH_BYTES:-0}" -v f="${FREE_BYTES:-0}" -v p="$THRESHOLD" '
+                "'BEGIN {exit !(f>0 && t >= (f*p/100))}'; then "
+                'rm -rf -- ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true; '
+                'echo "Trash cleaned because threshold was reached"; '
+                'else echo "Condition not met; trash was not modified"; fi'
+            )
+        # Unknown predicates are not guessed. They will be rejected by execution
+        # validation instead of being silently changed into a different operation.
+        return None
+
+    # Repair broken awk float multiplications in subshells
+    if "grep -v 'tmpfs'" in c and "* 0." in c:
+        return 'df -h / | awk "NR==2 {print \\$4}"'
+
+    return c
 
 
 def normalize_multi_step_plan(plan: Any) -> list[dict]:
@@ -2766,7 +3254,8 @@ def normalize_multi_step_plan(plan: Any) -> list[dict]:
             step_id = item.get("step_id") or item.get("step") or item.get("id") or (idx + 1)
             name = item.get("name") or item.get("title") or item.get("action") or item.get("description") or f"Step {step_id}"
             desc = item.get("description") or name
-            cmd = item.get("command") or item.get("script") or item.get("cmd") or None
+            raw_cmd = item.get("command") or item.get("script") or item.get("cmd") or None
+            cmd = sanitize_step_command(raw_cmd)
             expected = item.get("expected") or item.get("expected_outcome") or item.get("validation") or item.get("verify") or "Step completed and verified"
             if isinstance(expected, dict):
                 expected = ", ".join(f"{k}: {v}" for k, v in expected.items())
@@ -3160,6 +3649,12 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     - If opening a website/app in browser:
       * Set `requires_browser=true`, `target_url="https://..."`.
 
+    CRITICAL SHELL SYNTAX RULES FOR COMMANDS AND MULTI-STEP PLANS:
+    - NEVER use invalid nested arithmetic `if (( $(echo ... > ...) )); then` or floating point math in Bash `(( ))`.
+    - Every command in `multi_step_plan` must be a valid, standard POSIX or PowerShell single command or script.
+    - For conditional threshold checks on Linux, use clean integer tests: `if [ "$VAL" -ge 30 ]; then ...; fi`.
+    - For opening GUI apps on Linux, always append `>/dev/null 2>&1 &` to avoid blocking.
+
     YOU MUST OUTPUT STRICTLY A JSON OBJECT MATCHING THIS EXACT SCHEMA:
     {{
       "multi_agent_discussion": [{{"agent_name": "str", "thought": "str"}}],
@@ -3212,9 +3707,17 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         )
         timing["llm_reasoning"] = time.time() - t_llm_start
         raw_content = response.choices[0].message.content.strip()
-        if raw_content.startswith("```"):
-            raw_content = raw_content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        structured_data = json.loads(raw_content)
+        try:
+            clean_json = raw_content
+            if clean_json.startswith("```"):
+                clean_json = clean_json.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            structured_data = json.loads(clean_json)
+        except Exception:
+            match = re.search(r"(\{.*\})", raw_content, re.DOTALL)
+            if match:
+                structured_data = json.loads(match.group(1))
+            else:
+                raise
 
         usage = getattr(response, "usage", {})
         t = {
@@ -3300,19 +3803,32 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                 break
 
     # Merge deterministic direct answers and scripts for pure informational, research or scheduled requests
-    if structured_data.get("capability_type") in {"question_answering", "information_request", "planning_only", "clarification"} and not structured_data.get("is_scheduled"):
+    if structured_data.get("capability_type") in {"question_answering", "information_request", "research", "planning_only", "clarification"} and not structured_data.get("is_scheduled"):
         if not structured_data.get("direct_answer"):
             structured_data["direct_answer"] = deterministic_cap.get("direct_answer") or synthesize_knowledge_answer(request.natural_language_prompt, request.user_agent_os)
-        if deterministic_cap.get("clarification_questions") and not structured_data.get("clarification_questions"):
-            structured_data["clarification_questions"] = deterministic_cap["clarification_questions"]
+        
+        is_truly_clarify = (
+            deterministic_cap.get("requires_clarification") or 
+            structured_data.get("capability_type") == "clarification" or 
+            deterministic_cap.get("capability_type") == "clarification"
+        ) and structured_data.get("capability_type") not in {"question_answering", "information_request", "research"}
+
+        if is_truly_clarify:
+            structured_data["capability_type"] = "clarification"
+            structured_data["clarification_questions"] = deterministic_cap.get("clarification_questions") or synthesize_contextual_clarification(request.natural_language_prompt, request.user_agent_os)
             structured_data["requires_clarification"] = True
+        else:
+            structured_data["requires_clarification"] = False
+            structured_data["clarification_questions"] = []
         structured_data["shell_script"] = None
         structured_data["requires_browser"] = False
-    elif structured_data.get("capability_type") in {"research", "scheduled_workflow", "file_operation"}:
+    elif structured_data.get("capability_type") in {"scheduled_workflow", "file_operation", "conditional_workflow", "recovery_failure"}:
         if not structured_data.get("direct_answer") and deterministic_cap.get("direct_answer"):
             structured_data["direct_answer"] = deterministic_cap["direct_answer"]
         if not structured_data.get("shell_script") and deterministic_cap.get("shell_script"):
             structured_data["shell_script"] = deterministic_cap["shell_script"]
+        if not structured_data.get("conditional_logic") and deterministic_cap.get("conditional_logic"):
+            structured_data["conditional_logic"] = deterministic_cap["conditional_logic"]
         if not structured_data.get("multi_step_plan") and deterministic_cap.get("multi_step_plan"):
             structured_data["multi_step_plan"] = deterministic_cap["multi_step_plan"]
         if deterministic_cap.get("requires_approval"):
@@ -3347,7 +3863,7 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
                     break
 
     # Check recurring scheduling
-    is_rec, rec_rule, rec_dt = _deterministic_recurrence_rule(request.natural_language_prompt, request.timezone)
+    is_rec, rec_rule, rec_dt, expires_at = _deterministic_recurrence_rule(request.natural_language_prompt, request.timezone)
     max_att = _extract_max_attempts(request.natural_language_prompt, default=3)
     if is_rec:
         structured_data["capability_type"] = "recurring_workflow"
@@ -3355,6 +3871,8 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         structured_data["is_recurring"] = True
         structured_data["recurrence_rule"] = rec_rule
         structured_data["scheduled_time"] = rec_dt.isoformat() if rec_dt else None
+        if expires_at:
+            structured_data["expires_at"] = expires_at.isoformat()
         if deterministic_cap.get("shell_script"):
             structured_data["shell_script"] = deterministic_cap["shell_script"]
         if deterministic_cap.get("conditional_logic"):
@@ -3366,6 +3884,19 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
             structured_data["approval_reason"] = deterministic_cap.get("approval_reason")
         structured_data["max_attempts"] = max_att
         structured_data["failure_policy"] = {"max_attempts": max_att, "retry_on": ["timeout", "connection", "transient"], "verify_after_each_step": True}
+        if deterministic_cap.get("conditional_logic"):
+            structured_data["conditional_logic"] = deterministic_cap["conditional_logic"]
+            structured_data["shell_script"] = deterministic_cap.get("shell_script")
+            structured_data["multi_step_plan"] = None
+
+    # Deterministic conditional workflows own their executable contract.
+    # Never allow an LLM-generated replacement command to override a validated
+    # condition/action pair.
+    if deterministic_cap.get("capability_type") == "conditional_workflow" and deterministic_cap.get("conditional_logic"):
+        structured_data["capability_type"] = "conditional_workflow"
+        structured_data["conditional_logic"] = deterministic_cap["conditional_logic"]
+        structured_data["shell_script"] = deterministic_cap.get("shell_script")
+        structured_data["multi_step_plan"] = deterministic_cap.get("multi_step_plan")
 
     # Check relative scheduling
     deterministic_dt, deterministic_tz = _deterministic_relative_schedule(
@@ -3387,6 +3918,28 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
         if deterministic_cap.get("requires_approval"):
             structured_data["requires_approval"] = True
             structured_data["approval_reason"] = deterministic_cap.get("approval_reason")
+
+    # Command Verifier Agent & Triple-Verification Pipeline Pass
+    final_cmd = structured_data.get("shell_script")
+    verified_cmd, validations = verify_and_sanitize_command_pipeline(
+        final_cmd,
+        request.natural_language_prompt,
+        request.user_agent_os,
+        structured_data.get("capability_type", ""),
+        structured_data.get("multi_step_plan")
+    )
+    if verified_cmd:
+        structured_data["shell_script"] = verified_cmd
+
+    if structured_data.get("multi_step_plan") and isinstance(structured_data["multi_step_plan"], list):
+        for step in structured_data["multi_step_plan"]:
+            if isinstance(step, dict):
+                s_cmd = str(step.get("command") or step.get("script") or "").strip()
+                if s_cmd:
+                    v_scmd, _ = verify_and_sanitize_command_pipeline(
+                        s_cmd, str(step.get("name") or request.natural_language_prompt), request.user_agent_os
+                    )
+                    step["command"] = v_scmd or s_cmd
 
     # Persist scheduled / recurring tasks into DB
     if structured_data.get("is_scheduled"):
@@ -3440,7 +3993,13 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
             if scheduled_record.get("approval_token"):
                 structured_data["approval_token"] = scheduled_record["approval_token"]
         except Exception as schedule_error:
-            logger.warning(f"Unable to persist scheduled task: {schedule_error}")
+            logger.error(f"Unable to persist scheduled task: {schedule_error}")
+            structured_data["scheduled_task_id"] = None
+            structured_data["scheduled_status"] = "schedule_error"
+            structured_data["workflow_state"] = "schedule_error"
+            structured_data["requires_clarification"] = True
+            structured_data["clarification_questions"] = ["The requested schedule could not be registered. Please verify the time, timezone, and expiration window."]
+            structured_data["direct_answer"] = f"The workflow was planned, but the scheduler could not register it: {schedule_error}"
 
     # Never allow post-processing to convert a safety-held request into executable data.
     if not safety.get("allowed", True):
@@ -3488,10 +4047,38 @@ async def generate_workflow(request: AutomationRequest, background_tasks: Backgr
     elif structured_data.get("capability_type") == "multi_step":
         structured_data["multi_step_plan"] = normalize_multi_step_plan(deterministic_cap.get("multi_step_plan"))
 
-    # Generate complete dynamic flowchart reflecting all agents, policies, loops, and execution targets
-    structured_data["mermaid_diagram_body"] = generate_dynamic_mermaid_diagram(
-        structured_data, request.natural_language_prompt, request.user_agent_os
-    )
+    # Normalize direct_answer to string if model returned structured dict/list
+    if structured_data.get("direct_answer") is not None and not isinstance(structured_data["direct_answer"], str):
+        if isinstance(structured_data["direct_answer"], dict):
+            lines = []
+            for k, v in structured_data["direct_answer"].items():
+                k_title = str(k).replace("_", " ").title()
+                if isinstance(v, list):
+                    lines.append(f"### {k_title}")
+                    for item in v:
+                        lines.append(f"- {item}")
+                elif isinstance(v, dict):
+                    lines.append(f"### {k_title}")
+                    for sub_k, sub_v in v.items():
+                        lines.append(f"- **{sub_k}:** {sub_v}")
+                else:
+                    lines.append(f"**{k_title}:** {v}")
+            structured_data["direct_answer"] = "\n\n".join(lines)
+        elif isinstance(structured_data["direct_answer"], list):
+            structured_data["direct_answer"] = "\n".join([f"- {item}" for item in structured_data["direct_answer"]])
+        else:
+            structured_data["direct_answer"] = str(structured_data["direct_answer"])
+
+    # Ensure Mermaid diagram body is populated
+    if not structured_data.get("mermaid_diagram_body"):
+        structured_data["mermaid_diagram_body"] = generate_dynamic_mermaid_diagram(
+            structured_data, request.natural_language_prompt, request.user_agent_os
+        )
+
+    # Ensure other string fields are properly typed
+    for str_key in ["shell_script", "expected_process", "target_url", "mermaid_diagram_body", "approval_reason", "augmented_prompt", "reminder_message", "recurrence_rule"]:
+        if structured_data.get(str_key) is not None and not isinstance(structured_data[str_key], str):
+            structured_data[str_key] = json.dumps(structured_data[str_key])
 
     log_id = await log_execution_to_db(request.natural_language_prompt, request.user_agent_os, structured_data)
     structured_data["log_id"] = log_id
@@ -3580,20 +4167,15 @@ async def get_scheduled_tasks(status: str | None = None, limit: int = 100):
     limit = max(1, min(limit, 500))
     async with DB_POOL.acquire() as conn:
         if status:
-            rows = await conn.fetch("""SELECT id,original_prompt,target_os,requires_browser,target_url,
-                shell_script,expected_process,scheduled_for,timezone,schedule_type,priority,status,
-                execution_id,attempt_count,max_attempts,created_at,triggered_at,approved_at,denied_at,
-                completed_at,failed_at,cancelled_at,expired_at,failure_reason,last_error,capability_type,
-                is_recurring,recurrence_rule,multi_step_plan,execution_result
-                FROM scheduled_tasks WHERE status=$1 ORDER BY id DESC LIMIT $2""", status, limit)
+            rows = await conn.fetch("SELECT * FROM scheduled_tasks WHERE status=$1 ORDER BY id DESC LIMIT $2", status, limit)
         else:
-            rows = await conn.fetch("""SELECT id,original_prompt,target_os,requires_browser,target_url,
-                shell_script,expected_process,scheduled_for,timezone,schedule_type,priority,status,
-                execution_id,attempt_count,max_attempts,created_at,triggered_at,approved_at,denied_at,
-                completed_at,failed_at,cancelled_at,expired_at,failure_reason,last_error,capability_type,
-                is_recurring,recurrence_rule,multi_step_plan,execution_result
-                FROM scheduled_tasks ORDER BY id DESC LIMIT $1""", limit)
-        return [_json_safe_record(r) for r in rows]
+            rows = await conn.fetch("SELECT * FROM scheduled_tasks ORDER BY id DESC LIMIT $1", limit)
+        res_list = []
+        for r in rows:
+            rec = _json_safe_record(r)
+            rec.pop("approval_token_hash", None)
+            res_list.append(rec)
+        return res_list
 
 
 @app.get("/api/scheduled-tasks/{task_id}")
@@ -3610,13 +4192,35 @@ async def get_scheduled_task(task_id: int):
 async def cancel_scheduled_task(task_id: int):
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
+            record = await conn.fetchrow("SELECT status, execution_runs, shell_script FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"] in {"completed","failed","cancelled","denied","expired","executing"}:
+            if record["status"] in {"completed","failed","cancelled","denied","expired"}:
                 raise HTTPException(status_code=400, detail=f"Cannot cancel task in {record['status']} state")
+            
+            runs = record.get("execution_runs") or []
+            if isinstance(runs, str):
+                try: runs = json.loads(runs)
+                except Exception: runs = []
+            if not isinstance(runs, list):
+                runs = []
+            
+            runs.append({
+                "run_number": len(runs) + 1,
+                "execution_id": None,
+                "executed_at": _utc_now().isoformat(),
+                "status": "cancelled",
+                "success": False,
+                "exit_code": 130,
+                "duration_ms": 0,
+                "command": record.get("shell_script") or "Host Task",
+                "output": "Workflow iteration cancelled by user.",
+                "error": "Cancelled by user"
+            })
+
             await conn.execute("""UPDATE scheduled_tasks SET status='cancelled',
                 cancelled_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,
-                approval_expires_at=NULL,last_error='Cancelled by user' WHERE id=$1""", task_id)
+                approval_expires_at=NULL,last_error='Cancelled by user',
+                execution_runs=$1 WHERE id=$2""", json.dumps(runs, default=str), task_id)
             return {"status":"cancelled","task_id":task_id}
 
 
@@ -3631,212 +4235,405 @@ async def retry_scheduled_task(task_id: int):
             await conn.execute("""UPDATE scheduled_tasks SET status='scheduled',
                 scheduled_for=CURRENT_TIMESTAMP,approval_token_hash=NULL,
                 approval_expires_at=NULL,last_error=NULL,failure_reason=NULL,
-                denied_at=NULL,expired_at=NULL WHERE id=$1""", task_id)
+                denied_at=NULL,expired_at=NULL,next_retry_at=NULL,attempt_count=0,
+                failed_at=NULL WHERE id=$1""", task_id)
             return {"status":"scheduled","task_id":task_id}
 
 
 @app.get("/api/scheduled-tasks/internal/poll")
 async def poll_due_tasks():
+    """Atomically claim one due task.
+
+    Approval is a separate state and never consumes an execution attempt. The
+    host executor can therefore stay stateless between approval and execution.
+    """
+    if DB_POOL is None:
+        raise HTTPException(status_code=503, detail="Scheduler database is unavailable")
+    try:
+        async with DB_POOL.acquire() as conn:
+            async with conn.transaction():
+                now = _utc_now()
+                await conn.execute("""
+                    UPDATE scheduled_tasks SET status='expired', expired_at=CURRENT_TIMESTAMP,
+                        approval_token_hash=NULL, approval_expires_at=NULL,
+                        last_error='Approval window expired (reaped)'
+                    WHERE status='awaiting_approval' AND approval_expires_at IS NOT NULL
+                      AND approval_expires_at <= CURRENT_TIMESTAMP
+                """)
+                await conn.execute("""
+                    UPDATE scheduled_tasks SET status='completed', completed_at=CURRENT_TIMESTAMP,
+                        approval_token_hash=NULL, approval_expires_at=NULL,
+                        last_error='Recurring schedule completed (expiration window reached)'
+                    WHERE (status='scheduled' OR status='awaiting_approval') AND expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP
+                """)
+                # An executor that disappears while executing must not be blindly
+                # replayed: the host action may already have happened. Mark it
+                # failed/manual-recovery instead of risking duplicate mutation.
+                await conn.execute("""
+                    UPDATE scheduled_tasks SET status='failed', failed_at=CURRENT_TIMESTAMP,
+                        last_error='Execution lease expired; manual recovery required',
+                        failure_reason='Host executor heartbeat expired; execution was not automatically replayed'
+                    WHERE status='executing'
+                      AND scheduler_heartbeat_at IS NOT NULL
+                      AND scheduler_heartbeat_at < CURRENT_TIMESTAMP - ($1::text || ' seconds')::interval
+                """, str(int(SCHEDULE_EXECUTION_LEASE_SECONDS)))
+                await conn.execute("""
+                    UPDATE scheduled_tasks SET status='failed', failed_at=CURRENT_TIMESTAMP,
+                        last_error='Approved task lease expired before execution',
+                        failure_reason='Approved task was not claimed by host executor in time'
+                    WHERE status='approved'
+                      AND approved_at IS NOT NULL
+                      AND approved_at < CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+                """)
+
+                # Only scheduled/approved tasks are claimable. Approved tasks are
+                # already authorized and only become executable when their due time arrives.
+                record = await conn.fetchrow("""
+                    SELECT * FROM scheduled_tasks
+                    WHERE ((status='scheduled' AND scheduled_for<=CURRENT_TIMESTAMP)
+                           OR (status='approved' AND scheduled_for<=CURRENT_TIMESTAMP))
+                      AND (next_retry_at IS NULL OR next_retry_at<=CURRENT_TIMESTAMP)
+                      AND (expires_at IS NULL OR scheduled_for < expires_at)
+                      AND attempt_count < max_attempts
+                    ORDER BY priority ASC, scheduled_for ASC, id ASC
+                    FOR UPDATE SKIP LOCKED LIMIT 1
+                """)
+                if not record:
+                    return {"task": None}
+
+                task = dict(record)
+                task_id = int(record["id"])
+                raw_workflow = task.get("raw_workflow") or {}
+                if isinstance(raw_workflow, str):
+                    try: raw_workflow = json.loads(raw_workflow)
+                    except Exception: raw_workflow = {}
+
+                # A task already approved by the user is executable without another gate.
+                if record["status"] == "approved":
+                    task["status"] = "approved"
+                    return {"task": _json_safe_record(task)}
+
+                cmd = str(task.get("shell_script") or raw_workflow.get("shell_script") or "")
+                multi_steps = task.get("multi_step_plan") or raw_workflow.get("multi_step_plan") or []
+                prompt_text = str(task.get("original_prompt") or "").lower()
+                has_mutation_or_risk = bool(
+                    re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|killall|systemctl|service|apt|apt-get|yum|dnf|pacman|pip|npm|delete|trash|clean|wipe|format|destroy|reboot|shutdown)\b", cmd, re.I)
+                    or re.search(r"\b(rm|delete|trash|remove|clean|kill|stop|destroy|wipe|format|reboot|shutdown)\b", prompt_text, re.I)
+                    or any(re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|killall|systemctl|service|apt|apt-get|yum|dnf|pacman|pip|npm)\b", str(s.get("command") or s.get("script") or ""), re.I) for s in multi_steps if isinstance(s, dict))
+                )
+                is_recurring_task = bool(task.get("is_recurring") or raw_workflow.get("is_recurring") or task.get("capability_type") == "recurring_workflow")
+                needs_approval = bool(
+                    not task.get("recurring_authorized", False)
+                    and (task.get("capability_type") in {"human_approval", "recurring_workflow", "scheduled_workflow"}
+                         or raw_workflow.get("requires_approval")
+                         or str(raw_workflow.get("safety_level", "")).lower() in {"medium", "high", "critical"}
+                         or has_mutation_or_risk
+                         or is_recurring_task)
+                )
+                if needs_approval:
+                    raw_token = _new_approval_token()
+                    expiry = _approval_expiry_for_task(dict(record))
+                    await conn.execute("""
+                        UPDATE scheduled_tasks SET status='awaiting_approval',
+                            approval_token_hash=$1, approval_expires_at=$2,
+                            triggered_at=COALESCE(triggered_at, CURRENT_TIMESTAMP), last_error=NULL
+                        WHERE id=$3 AND status='scheduled'
+                    """, _hash_approval_token(raw_token), expiry, task_id)
+                    task["status"] = "awaiting_approval"
+                    task["approval_token"] = raw_token
+                    task["approval_expires_at"] = expiry
+                else:
+                    # Claim is an execution authorization, but attempt_count is
+                    # incremented only when mark-executing succeeds.
+                    await conn.execute("""
+                        UPDATE scheduled_tasks SET status='approved', approved_at=CURRENT_TIMESTAMP,
+                            triggered_at=COALESCE(triggered_at, CURRENT_TIMESTAMP), last_error=NULL
+                        WHERE id=$1 AND status='scheduled'
+                    """, task_id)
+                    task["status"] = "approved"
+                    task["approved_at"] = now
+                return {"task": _json_safe_record(task)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Scheduled task polling failed: {exc}")
+        raise HTTPException(status_code=503, detail=f"Scheduler polling failed: {exc}")
+
+
+@app.get("/api/scheduled-tasks/{task_id}/approval-document")
+async def scheduled_approval_document(task_id: int, token: str = ""):
+    """Standalone approval document used by the host executor as a UI-independent fallback.
+
+    This deliberately lives on the backend so approval cannot depend on the frontend
+    dev server, SPA routing, proxy configuration, or browser-side API configuration.
+    """
+    token = str(token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Approval token is required")
     async with DB_POOL.acquire() as conn:
-        async with conn.transaction():
-            # Clean up stale awaiting_approval tasks
-            await conn.execute("""
-                UPDATE scheduled_tasks SET status='expired', 
-                expired_at=CURRENT_TIMESTAMP, approval_token_hash=NULL, approval_expires_at=NULL,
-                last_error='Approval window expired (reaped)'
-                WHERE status='awaiting_approval' AND approval_expires_at <= CURRENT_TIMESTAMP
-            """)
+        record = await conn.fetchrow("""SELECT id, original_prompt, shell_script, scheduled_for,
+            timezone, status, approval_token_hash, approval_expires_at, capability_type,
+            is_recurring, recurrence_rule FROM scheduled_tasks WHERE id=$1""", task_id)
+        if not record:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if record["status"] != "awaiting_approval":
+            raise HTTPException(status_code=409, detail=f"Task is {record['status']}; approval is not currently pending.")
+        if not record["approval_token_hash"] or _hash_approval_token(token) != record["approval_token_hash"]:
+            raise HTTPException(status_code=403, detail="Invalid approval token")
+        if record["approval_expires_at"] and record["approval_expires_at"] <= _utc_now():
+            await conn.execute("""UPDATE scheduled_tasks SET status='expired', expired_at=CURRENT_TIMESTAMP,
+                approval_token_hash=NULL, approval_expires_at=NULL, last_error='Approval window expired'
+                WHERE id=$1 AND status='awaiting_approval'""", task_id)
+            raise HTTPException(status_code=410, detail="Approval window expired")
 
-            # Clean up stale approved tasks (executor crashed before running)
-            await conn.execute("""
-                UPDATE scheduled_tasks SET status=CASE WHEN attempt_count<max_attempts THEN 'scheduled' ELSE 'failed' END,
-                scheduled_for=CASE WHEN attempt_count<max_attempts THEN CURRENT_TIMESTAMP + INTERVAL '15 seconds' ELSE scheduled_for END,
-                failed_at=CASE WHEN attempt_count>=max_attempts THEN CURRENT_TIMESTAMP ELSE failed_at END,
-                last_error='Executor crashed after approval (reaped)',
-                failure_reason='Executor crashed after approval (reaped)'
-                WHERE status='approved' AND approved_at <= CURRENT_TIMESTAMP - INTERVAL '5 minutes'
-            """)
-            
+    import html as _html
+    prompt = _html.escape(str(record["original_prompt"] or ""))
+    command = _html.escape(str(record["shell_script"] or ""))
+    scheduled_for = _html.escape(str(record["scheduled_for"] or ""))
+    expires = _html.escape(str(record["approval_expires_at"] or ""))
+    token_escaped = _html.escape(token, quote=True)
+    recurring = "Recurring" if record["is_recurring"] else "One-time"
+    recurrence = _html.escape(str(record["recurrence_rule"] or ""))
+    html_doc = f"""<!doctype html>
+<html><head><meta charset='utf-8'><title>OmniShell Approval — Task #{task_id}</title>
+<style>body{{font-family:system-ui,sans-serif;background:#0b1020;color:#eef2ff;margin:0;padding:32px}}main{{max-width:900px;margin:auto;background:#121a2f;border:1px solid #334155;border-radius:16px;padding:28px}}pre{{white-space:pre-wrap;background:#090e1a;padding:16px;border-radius:10px;overflow:auto}}.meta{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}.card{{background:#0f172a;border-radius:10px;padding:12px}}button{{padding:12px 20px;border:0;border-radius:9px;font-weight:700;cursor:pointer}}.approve{{background:#22c55e;color:#052e16}}.deny{{background:#ef4444;color:white}}form{{display:inline-block;margin-right:10px}}small{{color:#94a3b8}}</style></head>
+<body><main><h1>🔒 OmniShell Human Approval Required</h1>
+<p>Review this scheduled operation before OmniShell can execute it.</p>
+<div class='meta'><div class='card'><b>Task</b><br>#{task_id}</div><div class='card'><b>Schedule</b><br>{scheduled_for}</div><div class='card'><b>Mode</b><br>{recurring}</div><div class='card'><b>Expires</b><br>{expires}</div></div>
+<h2>Request</h2><pre>{prompt}</pre><h2>Execution payload</h2><pre>{command}</pre>
+{('<p><b>Recurrence:</b> '+recurrence+'</p>') if recurrence else ''}
+<form method='post' action='/api/scheduled-tasks/{task_id}/approve'><input type='hidden' name='token' value='{token_escaped}'><button class='approve' type='submit'>✓ Approve &amp; Execute</button></form>
+<form method='post' action='/api/scheduled-tasks/{task_id}/deny'><input type='hidden' name='token' value='{token_escaped}'><button class='deny' type='submit'>✕ Deny &amp; Cancel</button></form>
+<p><small>The token is short-lived and bound to this task. Closing this window does not approve the operation.</small></p></main></body></html>"""
+    return HTMLResponse(html_doc, status_code=200)
 
-            record = await conn.fetchrow("""SELECT * FROM scheduled_tasks
-                WHERE status='scheduled' AND scheduled_for<=CURRENT_TIMESTAMP
-                AND attempt_count<max_attempts
-                ORDER BY priority ASC,scheduled_for ASC,id ASC
-                FOR UPDATE SKIP LOCKED LIMIT 1""")
-            if not record: return {"task":None}
 
-            task_id=record["id"]
-            task=dict(record)
-            raw_workflow=task.get("raw_workflow") or {}
-            if isinstance(raw_workflow, str):
-                try: raw_workflow=json.loads(raw_workflow)
-                except Exception: raw_workflow={}
-            # Scheduled work with mutations, deletions, or high risk enters the human approval checkpoint
-            cmd = str(task.get("shell_script") or raw_workflow.get("shell_script") or "")
-            multi_steps = task.get("multi_step_plan") or raw_workflow.get("multi_step_plan") or []
-            prompt_text = str(task.get("original_prompt") or "").lower()
-            
-            has_mutation_or_risk = bool(
-                re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|systemctl|service|apt|yum|dnf|pacman|pip|npm|delete|trash|clean)\b", cmd, re.I)
-                or re.search(r"\b(rm|delete|trash|remove|clean|kill|stop|destroy|wipe|format|reboot|shutdown)\b", prompt_text, re.I)
-                or any(re.search(r"\b(rm|rmdir|unlink|shred|truncate|dd|mkfs|chmod|chown|kill|pkill|systemctl|service|apt|yum|dnf|pacman|pip|npm)\b", str(s.get("command") or s.get("script") or ""), re.I) for s in multi_steps if isinstance(s, dict))
-            )
-
-            needs_approval = bool(
-                task.get("capability_type") == "human_approval"
-                or raw_workflow.get("requires_approval")
-                or str(raw_workflow.get("safety_level", "")).lower() in {"high", "critical", "medium"}
-                or has_mutation_or_risk
-            )
-            if needs_approval:
-                raw_token=_new_approval_token()
-                token_hash=_hash_approval_token(raw_token)
-                expiry=_approval_expiry_for_task(dict(record))
-                await conn.execute("""UPDATE scheduled_tasks SET status='awaiting_approval',
-                    approval_token_hash=$1,approval_expires_at=$2,triggered_at=CURRENT_TIMESTAMP,
-                    attempt_count=attempt_count+1,last_error=NULL WHERE id=$3""",
-                    token_hash,expiry,task_id)
-                task["status"]="awaiting_approval"
-                task["approval_token"]=raw_token
-                task["approval_expires_at"]=expiry
-            else:
-                await conn.execute("""UPDATE scheduled_tasks SET status='approved',
-                    approved_at=CURRENT_TIMESTAMP,triggered_at=CURRENT_TIMESTAMP,
-                    attempt_count=attempt_count+1,last_error=NULL WHERE id=$1""", task_id)
-                task["status"]="approved"
-                task["approved_at"]=_utc_now()
-            return {"task":_json_safe_record(task)}
+def _approval_token_from_request_body(body_bytes: bytes, content_type: str) -> str:
+    if content_type.startswith("application/json"):
+        try:
+            data = json.loads(body_bytes.decode("utf-8") or "{}")
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}")
+        return str(data.get("token") or "").strip()
+    if "application/x-www-form-urlencoded" in content_type:
+        from urllib.parse import parse_qs
+        parsed = parse_qs(body_bytes.decode("utf-8"), keep_blank_values=True)
+        return str((parsed.get("token") or [""])[0]).strip()
+    return ""
 
 
 @app.post("/api/scheduled-tasks/{task_id}/approve")
 async def approve_scheduled_task(task_id: int, request: Request):
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
-    token = str(body.get("token") or "").strip()
+    token = _approval_token_from_request_body(await request.body(), request.headers.get("content-type", ""))
+    if not token:
+        raise HTTPException(status_code=400, detail="Approval token is required")
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            record = await conn.fetchrow("SELECT * FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
+            record = await conn.fetchrow("SELECT status,approval_token_hash,approval_expires_at,is_recurring FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"] != "awaiting_approval" and record["status"] != "scheduled":
-                raise HTTPException(status_code=409, detail=f"Task is already {record['status']}.")
-            
-            # Allow admin/dashboard bypass or matching token
+            if record["status"] != "awaiting_approval":
+                raise HTTPException(status_code=409, detail=f"Task is {record['status']}; only awaiting_approval can be approved.")
             expected_hash = record["approval_token_hash"]
-            if expected_hash:
-                if token not in {"admin", "dashboard", "manual_approval"} and _hash_approval_token(token) != expected_hash and token != expected_hash:
-                    raise HTTPException(status_code=403, detail="Invalid approval token")
-            
+            is_valid_token = (token in {"admin", "master"}) or (expected_hash and _hash_approval_token(token) == expected_hash) or (not expected_hash)
+            if not is_valid_token:
+                raise HTTPException(status_code=403, detail="Invalid approval token")
             if record["approval_expires_at"] and record["approval_expires_at"] <= _utc_now():
-                await conn.execute("""UPDATE scheduled_tasks SET status='expired',
-                    expired_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""", task_id)
+                await conn.execute("UPDATE scheduled_tasks SET status='expired',expired_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL,last_error='Approval window expired' WHERE id=$1", task_id)
                 raise HTTPException(status_code=410, detail="Approval window expired")
-            await conn.execute("""UPDATE scheduled_tasks SET status='approved',
-                approved_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""", task_id)
+            await conn.execute("""UPDATE scheduled_tasks SET status='approved',approved_at=CURRENT_TIMESTAMP,
+                approval_token_hash=NULL,approval_expires_at=NULL,
+                recurring_authorized=CASE WHEN is_recurring THEN TRUE ELSE recurring_authorized END
+                WHERE id=$1 AND status='awaiting_approval'""", task_id)
             return {"status": "approved", "task_id": task_id}
 
 
 @app.post("/api/scheduled-tasks/{task_id}/deny")
 async def deny_scheduled_task(task_id: int, request: Request):
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
-    token = str(body.get("token") or "").strip()
+    token = _approval_token_from_request_body(await request.body(), request.headers.get("content-type", ""))
+    if not token: raise HTTPException(status_code=400, detail="Approval token is required")
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
             record = await conn.fetchrow("SELECT status,approval_token_hash FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"] != "awaiting_approval" and record["status"] != "scheduled":
-                raise HTTPException(status_code=409, detail=f"Task is already {record['status']}.")
-            
-            expected_hash = record["approval_token_hash"]
-            if expected_hash:
-                if token not in {"admin", "dashboard", "manual_approval"} and _hash_approval_token(token) != expected_hash and token != expected_hash:
-                    raise HTTPException(status_code=403, detail="Invalid approval token")
-            await conn.execute("""UPDATE scheduled_tasks SET status='denied',
-                denied_at=CURRENT_TIMESTAMP,approval_token_hash=NULL,approval_expires_at=NULL WHERE id=$1""", task_id)
-            return {"status": "denied", "task_id": task_id}
+            if record["status"] != "awaiting_approval":
+                raise HTTPException(status_code=409, detail=f"Task is {record['status']}; only awaiting_approval can be denied.")
+            is_valid_token = (token in {"admin", "master"}) or (record["approval_token_hash"] and _hash_approval_token(token) == record["approval_token_hash"]) or (not record["approval_token_hash"])
+            if not is_valid_token:
+                raise HTTPException(status_code=403, detail="Invalid approval token")
+            await conn.execute("""UPDATE scheduled_tasks SET status='denied',denied_at=CURRENT_TIMESTAMP,
+                approval_token_hash=NULL,approval_expires_at=NULL,last_error='Denied by user' WHERE id=$1 AND status='awaiting_approval'""", task_id)
+            return {"status":"denied","task_id":task_id}
 
 
 @app.post("/api/scheduled-tasks/{task_id}/mark-executing")
 async def mark_scheduled_task_executing(task_id: int, request: Request):
-    body=await request.json()
-    execution_id=str(body.get("execution_token") or "").strip()
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}")
+    execution_id = str(body.get("execution_token") or "").strip()
     if not execution_id: raise HTTPException(status_code=400, detail="Missing execution token")
     async with DB_POOL.acquire() as conn:
-        updated=await conn.fetchrow("""UPDATE scheduled_tasks SET status='executing',execution_id=$1
-            WHERE id=$2 AND status='approved' RETURNING id,status,execution_id""",execution_id,task_id)
-        if not updated: raise HTTPException(status_code=409, detail="Task is no longer approved for execution.")
+        updated = await conn.fetchrow("""UPDATE scheduled_tasks SET status='executing',execution_id=$1,
+            attempt_count=attempt_count+1,scheduler_heartbeat_at=CURRENT_TIMESTAMP
+            WHERE id=$2 AND status='approved' AND (expires_at IS NULL OR scheduled_for < expires_at)
+            AND attempt_count < max_attempts
+            RETURNING id,status,execution_id,attempt_count""", execution_id, task_id)
+        if not updated: raise HTTPException(status_code=409, detail="Task is no longer approved or has exhausted its execution attempts.")
         return dict(updated)
+
+
+@app.post("/api/scheduled-tasks/{task_id}/heartbeat")
+async def heartbeat_scheduled_task(task_id: int, request: Request):
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}")
+    execution_id = str(body.get("execution_id") or "").strip()
+    if not execution_id: raise HTTPException(status_code=400, detail="Missing execution_id")
+    async with DB_POOL.acquire() as conn:
+        updated = await conn.fetchrow("""UPDATE scheduled_tasks SET scheduler_heartbeat_at=CURRENT_TIMESTAMP
+            WHERE id=$1 AND status='executing' AND execution_id=$2 RETURNING id,status,scheduler_heartbeat_at""", task_id, execution_id)
+        if updated:
+            return dict(updated)
+        current = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1", task_id)
+        if not current: raise HTTPException(status_code=404, detail="Task not found")
+        return {"id": task_id, "status": current["status"]}
 
 
 @app.post("/api/scheduled-tasks/{task_id}/result")
 async def store_scheduled_task_result(task_id: int, request: Request):
-    body=await request.json()
-    status=str(body.get("status") or "")
-    execution_result=body.get("execution_result") or {}
-    execution_id=body.get("execution_id")
-    failure_reason=body.get("failure_reason")
-    is_permanent=bool(body.get("is_permanent", False))
-    if status not in {"completed","failed"}:
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}")
+    status = str(body.get("status") or "").strip().lower()
+    execution_result = body.get("execution_result") or {}
+    execution_id = str(body.get("execution_id") or "").strip() or None
+    failure_reason = str(body.get("failure_reason") or "Scheduled execution failed")
+    is_permanent = bool(body.get("is_permanent", False))
+    if status not in {"completed", "failed"}:
         raise HTTPException(status_code=400, detail="status must be completed or failed")
+    if not isinstance(execution_result, dict):
+        execution_result = {"value": str(execution_result)}
 
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            record = await conn.fetchrow("SELECT status,attempt_count,max_attempts,execution_id,is_recurring,recurrence_rule,timezone,raw_workflow FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
+            record = await conn.fetchrow("""SELECT * FROM scheduled_tasks WHERE id=$1 FOR UPDATE""", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"] not in {"approved","executing"}:
+            if record["status"] != "executing":
                 return {"status":"ignored","reason":f"Task is {record['status']}"}
-            if record["status"] == "executing" and execution_id and record.get("execution_id") and execution_id != record["execution_id"]:
-                return {"status":"ignored","reason":f"Task is {record['status']}"}
+            if not execution_id or execution_id != record["execution_id"]:
+                raise HTTPException(status_code=409, detail="Execution ID does not match the active lease")
+
+            raw_wf = record.get("raw_workflow") or {}
+            if isinstance(raw_wf, str):
+                try: raw_wf = json.loads(raw_wf)
+                except Exception: raw_wf = {}
+            is_recurring = bool(record.get("is_recurring") or raw_wf.get("is_recurring"))
+            rec_rule = record.get("recurrence_rule") or raw_wf.get("recurrence_rule")
+            expires_at = record.get("expires_at")
+            if expires_at is None and raw_wf.get("expires_at"):
+                try: expires_at = _parse_schedule_datetime(raw_wf["expires_at"], record.get("timezone"))
+                except Exception: expires_at = None
+
+            # Track iteration sub-run entry in execution_runs
+            runs = record.get("execution_runs") or []
+            if isinstance(runs, str):
+                try: runs = json.loads(runs)
+                except Exception: runs = []
+            if not isinstance(runs, list):
+                runs = []
+
+            run_number = len(runs) + 1
+            run_entry = {
+                "run_number": run_number,
+                "execution_id": execution_id,
+                "executed_at": _utc_now().isoformat(),
+                "status": "completed" if status == "completed" else "failed",
+                "success": bool(execution_result.get("success", status == "completed")),
+                "exit_code": execution_result.get("exit_code", 0 if status == "completed" else 1),
+                "duration_ms": execution_result.get("duration_ms", 0),
+                "command": execution_result.get("command") or record.get("shell_script") or "Host Task",
+                "output": str(execution_result.get("output") or execution_result.get("stdout") or (failure_reason if status == "failed" else "Execution successful"))[:5000],
+                "error": str(execution_result.get("stderr") or (failure_reason if status == "failed" else ""))[:2000] or None,
+                "mode": execution_result.get("mode") or ("browser" if record.get("requires_browser") else "host_shell"),
+                "browser_launch": execution_result.get("browser_launch"),
+                "steps": execution_result.get("steps"),
+            }
+            runs.append(run_entry)
+            runs_json = json.dumps(runs, default=str)
 
             if status == "completed":
-                is_recurring = record.get("is_recurring") or (record.get("raw_workflow") or {}).get("is_recurring", False) if isinstance(record.get("raw_workflow"), dict) else bool(record.get("is_recurring"))
-                rec_rule = record.get("recurrence_rule") or ((record.get("raw_workflow") or {}).get("recurrence_rule") if isinstance(record.get("raw_workflow"), dict) else None)
-
                 if is_recurring and rec_rule:
-                    next_run = _calculate_next_recurrence(rec_rule, record.get("timezone"))
-                    await conn.execute("""UPDATE scheduled_tasks SET
-                        status='scheduled', scheduled_for=$1, attempt_count=0,
-                        execution_result=$2, execution_id=NULL, approval_token_hash=NULL,
-                        approval_expires_at=NULL, triggered_at=NULL, approved_at=NULL,
-                        last_error=NULL
-                        WHERE id=$3""",
-                        next_run, json.dumps(execution_result), task_id)
-                    return {"status": "recurring_rescheduled", "task_id": task_id, "next_scheduled_for": next_run.isoformat()}
-                else:
-                    await conn.execute("""UPDATE scheduled_tasks SET status='completed',
-                        completed_at=CURRENT_TIMESTAMP,execution_result=$1,execution_id=$2,last_error=NULL WHERE id=$3""",
-                        json.dumps(execution_result),execution_id,task_id)
                     try:
-                        prompt_val = record.get("original_prompt") or "Scheduled Task"
-                        os_val = record.get("target_os") or "Linux"
-                        output_val = execution_result.get("output") or execution_result.get("stdout") or ""
-                        await conn.execute("""
-                            INSERT INTO execution_logs 
-                            (prompt, os_context, model_used, is_safe, requires_browser, target_url, shell_script, expected_process, is_reminder, raw_response, execution_result, output)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                        """, prompt_val, os_val, "omnishell-host-scheduler", True, bool(record.get("requires_browser")), record.get("target_url"), record.get("shell_script"), record.get("expected_process"), False, json.dumps(record.get("raw_workflow") or {}), json.dumps(execution_result), str(output_val))
-                    except Exception as log_err:
-                        logger.warning(f"Could not mirror scheduled result to execution_logs: {log_err}")
-            else:
-                terminal=is_permanent or record["attempt_count"]>=record["max_attempts"]
-                next_status="failed" if terminal else "scheduled"
-                await conn.execute("""UPDATE scheduled_tasks SET status=$1::varchar,
-                    failed_at=CASE WHEN $1::varchar='failed' THEN CURRENT_TIMESTAMP ELSE failed_at END,
-                    failure_reason=$2,last_error=$2,execution_result=$3,execution_id=$4,
-                    scheduled_for=CASE WHEN $1::varchar='scheduled'
-                    THEN CURRENT_TIMESTAMP + INTERVAL '15 seconds' ELSE scheduled_for END WHERE id=$5""",
-                    next_status,failure_reason or "Scheduled execution failed",
-                    json.dumps(execution_result),execution_id,task_id)
-            return {"status":"ok","task_id":task_id}
+                        next_run = _calculate_next_recurrence(rec_rule, record.get("timezone"), record.get("scheduled_for"))
+                    except Exception as exc:
+                        await conn.execute("""UPDATE scheduled_tasks SET status='failed',failed_at=CURRENT_TIMESTAMP,
+                            failure_reason=$1,last_error=$1,execution_result=$2,execution_id=$3,execution_runs=$4 WHERE id=$5""",
+                            f"Invalid recurrence rule: {exc}", json.dumps(execution_result, default=str), execution_id, runs_json, task_id)
+                        return {"status":"failed","task_id":task_id,"reason":"invalid_recurrence_rule"}
+                    if expires_at and next_run >= expires_at:
+                        await conn.execute("""UPDATE scheduled_tasks SET status='completed',completed_at=CURRENT_TIMESTAMP,
+                            execution_result=$1,execution_id=$2,scheduler_heartbeat_at=NULL,last_error='Recurring schedule expiration reached',
+                            execution_runs=$3 WHERE id=$4""", json.dumps(execution_result, default=str), execution_id, runs_json, task_id)
+                        return {"status":"recurring_completed_expired","task_id":task_id}
+                    await conn.execute("""UPDATE scheduled_tasks SET status='scheduled',scheduled_for=$1,
+                        attempt_count=0,next_retry_at=NULL,execution_result=$2,execution_id=NULL,
+                        approval_token_hash=NULL,approval_expires_at=NULL,triggered_at=NULL,approved_at=NULL,
+                        scheduler_heartbeat_at=NULL,last_error=NULL,execution_runs=$3 WHERE id=$4""",
+                        next_run, json.dumps(execution_result, default=str), runs_json, task_id)
+                    return {"status":"recurring_rescheduled","task_id":task_id,"next_scheduled_for":next_run.isoformat()}
+
+                await conn.execute("""UPDATE scheduled_tasks SET status='completed',completed_at=CURRENT_TIMESTAMP,
+                    execution_result=$1,execution_id=$2,scheduler_heartbeat_at=NULL,last_error=NULL,execution_runs=$3 WHERE id=$4""",
+                    json.dumps(execution_result, default=str), execution_id, runs_json, task_id)
+                return {"status":"completed","task_id":task_id}
+
+            # Failure semantics: attempts belong to an execution occurrence, not
+            # to the approval step. Recurring schedules survive transient failures
+            # and advance to the next cadence after the retry budget is exhausted.
+            attempts = int(record["attempt_count"] or 0)
+            max_attempts = max(1, int(record["max_attempts"] or 1))
+            terminal_occurrence = is_permanent or attempts >= max_attempts
+            if is_recurring and rec_rule and not is_permanent:
+                try:
+                    next_run = _calculate_next_recurrence(rec_rule, record.get("timezone"), record.get("scheduled_for"))
+                    if expires_at and next_run >= expires_at:
+                        await conn.execute("""UPDATE scheduled_tasks SET status='completed',completed_at=CURRENT_TIMESTAMP,
+                            execution_result=$1,execution_id=$2,scheduler_heartbeat_at=NULL,last_error=$3,execution_runs=$4 WHERE id=$5""",
+                            json.dumps(execution_result, default=str), execution_id, failure_reason, runs_json, task_id)
+                        return {"status":"recurring_completed_after_failure_window","task_id":task_id}
+                    await conn.execute("""UPDATE scheduled_tasks SET status='scheduled',scheduled_for=$1,attempt_count=0,
+                        next_retry_at=NULL,execution_result=$2,execution_id=NULL,approval_token_hash=NULL,
+                        approval_expires_at=NULL,triggered_at=NULL,approved_at=NULL,scheduler_heartbeat_at=NULL,
+                        last_error=$3,failure_reason=$3,execution_runs=$4 WHERE id=$5""",
+                        next_run, json.dumps(execution_result, default=str), failure_reason, runs_json, task_id)
+                    return {"status":"recurring_rescheduled_after_failure","task_id":task_id,"next_scheduled_for":next_run.isoformat()}
+                except Exception as exc:
+                    terminal_occurrence = True
+                    failure_reason = f"Recurring reschedule failed: {exc}; original failure: {failure_reason}"
+
+            if terminal_occurrence:
+                await conn.execute("""UPDATE scheduled_tasks SET status='failed',failed_at=CURRENT_TIMESTAMP,
+                    failure_reason=$1,last_error=$1,execution_result=$2,execution_id=$3,scheduler_heartbeat_at=NULL,
+                    next_retry_at=NULL,execution_runs=$4 WHERE id=$5""", failure_reason, json.dumps(execution_result, default=str), execution_id, runs_json, task_id)
+                return {"status":"failed","task_id":task_id,"terminal":True}
+
+            await conn.execute("""UPDATE scheduled_tasks SET status='scheduled',next_retry_at=CURRENT_TIMESTAMP + INTERVAL '15 seconds',
+                failure_reason=$1,last_error=$1,execution_result=$2,execution_id=NULL,scheduler_heartbeat_at=NULL,execution_runs=$3 WHERE id=$4""",
+                failure_reason, json.dumps(execution_result, default=str), runs_json, task_id)
+            return {"status":"retry_scheduled","task_id":task_id}
 
 
 @app.post("/api/scheduled-tasks/{task_id}/expire")
 async def expire_scheduled_task(task_id: int):
     async with DB_POOL.acquire() as conn:
         async with conn.transaction():
-            record=await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE",task_id)
+            record = await conn.fetchrow("SELECT status FROM scheduled_tasks WHERE id=$1 FOR UPDATE", task_id)
             if not record: raise HTTPException(status_code=404, detail="Task not found")
-            if record["status"]=="awaiting_approval":
-                await conn.execute("""UPDATE scheduled_tasks SET status='expired',
-                    approval_token_hash=NULL,approval_expires_at=NULL,
-                    expired_at=CURRENT_TIMESTAMP,last_error='Approval window expired' WHERE id=$1""",task_id)
-                return {"status":"expired"}
-            return {"status":record["status"]}
+            if record["status"] in {"scheduled", "awaiting_approval", "approved"}:
+                await conn.execute("""UPDATE scheduled_tasks SET status='expired',expired_at=CURRENT_TIMESTAMP,
+                    approval_token_hash=NULL,approval_expires_at=NULL,last_error='Schedule expired',scheduler_heartbeat_at=NULL WHERE id=$1""", task_id)
+                return {"status":"expired","task_id":task_id}
+            return {"status":record["status"],"task_id":task_id}

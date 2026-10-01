@@ -438,6 +438,66 @@
 
                             </div>
 
+                            ${(Array.isArray(t.execution_runs) && t.execution_runs.length > 0) ? `
+                                <!-- Sub-Runs & Recurring Iteration Execution History -->
+                                <div class="rounded-2xl p-4 bg-slate-900/90 border border-indigo-500/30 space-y-3">
+                                    <div class="flex items-center justify-between flex-wrap gap-2">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-bold text-indigo-300 flex items-center gap-1.5 font-mono">
+                                                <span>🔁</span> Iteration Sub-Runs & Execution History (${t.execution_runs.length} recorded)
+                                            </span>
+                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                                                ${t.is_recurring ? (t.recurrence_rule || 'recurring') : 'iteration history'}
+                                            </span>
+                                        </div>
+                                        <div class="text-[11px] font-mono text-slate-400">
+                                            Expires: <span class="text-slate-200">${t.expires_at ? new Date(t.expires_at).toLocaleTimeString() : 'No expiry'}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-2.5 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+                                        ${t.execution_runs.map((run, idx) => {
+                                            const runSuccess = run.success || run.status === 'completed' || run.exit_code === 0;
+                                            const runStatusBadge = badge(run.status || (runSuccess ? 'completed' : 'failed'));
+                                            const runTime = run.executed_at ? new Date(run.executed_at).toLocaleTimeString() : '—';
+                                            const runDuration = run.duration_ms ? `${(run.duration_ms / 1000).toFixed(2)}s` : '';
+                                            return `
+                                            <div class="p-3.5 rounded-xl bg-slate-950/80 border ${runSuccess ? 'border-slate-800 hover:border-emerald-500/40' : 'border-rose-900/40 hover:border-rose-500/50'} transition space-y-2">
+                                                <div class="flex items-center justify-between flex-wrap gap-2">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-2 py-0.5 rounded-md">
+                                                            Run #${run.run_number || (idx + 1)}
+                                                        </span>
+                                                        ${runStatusBadge}
+                                                        <span class="text-[11px] text-slate-400 font-mono">${runTime}</span>
+                                                        ${runDuration ? `<span class="text-[10px] font-mono text-slate-500">• ${runDuration}</span>` : ''}
+                                                    </div>
+                                                    <div class="flex items-center gap-2 text-[11px] font-mono">
+                                                        ${run.exit_code !== undefined && run.exit_code !== null ? `
+                                                            <span class="px-2 py-0.5 rounded ${run.exit_code === 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
+                                                                exit: ${run.exit_code}
+                                                            </span>
+                                                        ` : ''}
+                                                        ${run.execution_id ? `<span class="text-slate-500 text-[10px] truncate max-w-[140px]">${esc(run.execution_id)}</span>` : ''}
+                                                    </div>
+                                                </div>
+
+                                                ${run.command ? `
+                                                    <div class="text-[11px] font-mono text-slate-400">
+                                                        <span class="text-slate-500">$</span> <span class="text-emerald-400/90">${esc(run.command)}</span>
+                                                    </div>
+                                                ` : ''}
+
+                                                ${(run.output || run.error) ? `
+                                                    <pre class="p-2.5 bg-black/70 rounded-lg font-mono text-[11px] ${runSuccess ? 'text-slate-300' : 'text-rose-300'} overflow-x-auto whitespace-pre-wrap max-h-40 border border-slate-900">${esc(run.output || run.error || '')}</pre>
+                                                ` : ''}
+                                            </div>
+                                            `;
+                                        }).reverse().join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+
                         </td>
                     </tr>
                     `;

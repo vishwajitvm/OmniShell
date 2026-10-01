@@ -147,7 +147,7 @@
             OmniShell Universal Autonomous Syndicate
         </div>
         <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight mb-3 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400">
-            Intelligent Multi-Agent OS & Knowledge Copilot
+            Multi-Agent OS & Knowledge Copilot
         </h1>
         <p class="text-slate-400 text-base max-w-3xl mx-auto mb-4 leading-relaxed">
             Instant Q&A, system inspection, multi-step automation, scheduled & recurring workflows, and guarded execution on your native host machine.
@@ -164,6 +164,55 @@
             <span class="px-2.5 py-1 bg-slate-800/80 rounded-lg border border-slate-700/60 hover:border-indigo-500/50 cursor-pointer transition" onclick="setQuickPrompt('Plan how to migrate this application without making changes')">📝 Plan Only</span>
             <span class="px-2.5 py-1 bg-slate-800/80 rounded-lg border border-slate-700/60 hover:border-indigo-500/50 cursor-pointer transition" onclick="setQuickPrompt('If the service is down, diagnose it and recover it safely')">🛡️ Recovery</span>
             <span class="px-2.5 py-1 bg-slate-800/80 rounded-lg border border-slate-700/60 hover:border-indigo-500/50 cursor-pointer transition" onclick="setQuickPrompt('Research the current project and give me a concise implementation plan')">🔬 Research</span>
+        </div>
+
+        <!-- Prompt Presets Library Trigger Bar -->
+        <div class="mt-4 flex items-center justify-center gap-3">
+            <button id="toggle-prompt-library-btn" onclick="togglePromptLibrary()" class="group inline-flex items-center gap-2.5 px-5 py-2.5 bg-gradient-to-r from-indigo-950/90 via-slate-800/90 to-purple-950/90 hover:from-indigo-900 hover:to-purple-900 text-indigo-300 hover:text-white rounded-full border border-indigo-500/40 hover:border-indigo-400 transition-all shadow-xl hover:shadow-indigo-500/25 text-xs font-semibold cursor-pointer">
+                <span class="text-sm group-hover:scale-110 transition-transform">✨</span>
+                <span>Preset Prompts Catalog & Library</span>
+                <span class="px-2 py-0.5 bg-indigo-500/25 text-indigo-200 rounded-full text-[10px] font-mono font-bold border border-indigo-500/40">300+ Prompts</span>
+                <svg id="library-chevron" class="w-4 h-4 transform transition-transform duration-200 text-indigo-400 group-hover:text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+        </div>
+
+        <!-- Collapsible Prompt Presets Catalog Drawer -->
+        <div id="prompt-library-drawer" class="hidden max-w-5xl mx-auto mt-4 text-left bg-slate-900/95 border border-slate-800/90 rounded-3xl p-5 shadow-2xl backdrop-blur-2xl transition-all duration-300">
+            <!-- Header & Search -->
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-extrabold text-white flex items-center gap-1.5">
+                            <span>📚</span> <span>Curated Multi-Agent Task Library</span>
+                        </span>
+                        <span id="prompt-library-total-badge" class="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 rounded-full text-[10px] font-mono font-bold">300 Available</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Click <b class="text-indigo-300">✏️ Insert</b> to edit in the prompt input, or <b class="text-emerald-300">⚡ Run</b> to execute directly.</p>
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <div class="relative flex-1 sm:w-64">
+                        <input id="prompt-search-input" type="text" oninput="filterPromptLibrary()" placeholder="🔍 Search prompts (e.g. trash, brave, ram)..." class="w-full bg-slate-950/90 text-xs text-white px-3.5 py-2 rounded-xl border border-slate-700 focus:outline-none focus:border-indigo-500 placeholder-slate-500" />
+                        <button id="clear-search-btn" onclick="clearPromptSearch()" class="hidden absolute right-2.5 top-2 text-slate-400 hover:text-white text-xs">✕</button>
+                    </div>
+                    <button onclick="togglePromptLibrary()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-xs font-semibold transition border border-slate-700/60">Close ✕</button>
+                </div>
+            </div>
+
+            <!-- Category Filter Pills -->
+            <div id="prompt-category-pills" class="flex flex-wrap gap-1.5 py-3 border-b border-slate-800/60 text-xs">
+                <!-- Rendered Dynamically -->
+            </div>
+
+            <!-- Prompts Counter Bar -->
+            <div class="flex items-center justify-between py-2 text-[11px] text-slate-400">
+                <span id="prompt-counter-text">Showing 300 prompts</span>
+                <span class="text-[10px] text-slate-500">Categorized by 19 Autonomous Capabilities</span>
+            </div>
+
+            <!-- Cards Grid -->
+            <div id="prompt-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
+                <!-- Rendered Dynamically -->
+            </div>
         </div>
     </div>
 
@@ -441,6 +490,515 @@
         function setQuickPrompt(text) {
             document.getElementById('prompt-input').value = text;
             document.getElementById('prompt-input').focus();
+        }
+
+        const PROMPT_LIBRARY = [
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of India and its major historical landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Maharashtra and its major historical landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of France and its most famous monuments?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Japan and its major cultural heritage sites?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of the United States and its major landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Germany and its historical landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of the United Kingdom and its iconic monuments?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Italy and its famous ancient landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Australia and its government institutions?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Canada and its prominent cultural sites?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Karnataka and why is it known as the Silicon Valley of India?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Tamil Nadu and its famous Dravidian architectural landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Gujarat and its major historical monuments?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of Rajasthan and its famous royal palaces?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the capital of West Bengal and its colonial heritage landmarks?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain how Docker containers work and the difference between images and containers' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What are the ACID properties in database management systems and why are they important?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain the difference between Kubernetes Deployment, StatefulSet, and DaemonSet' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'How does the Linux Completely Fair Scheduler (CFS) allocate CPU runtime?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the difference between REST, GraphQL, and gRPC APIs?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain the TCP 3-way handshake and 4-way termination process' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the difference between synchronous and asynchronous I/O in Node.js?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain how Git stores objects internally using blobs, trees, and commits' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What are JWT tokens, how do they work, and what are their security vulnerabilities?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain Kafka architecture, topics, partitions, and consumer groups' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Calculate compound interest on $10,000 at 8% annual return compounded annually over 5 years' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Calculate the monthly payment on a $300,000 mortgage at 6.5% interest over 30 years' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What is the difference between Process and Thread in operating systems?' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'Explain how Redis achieves sub-millisecond latency and in-memory persistence' },
+            { category: 'Q&A & Knowledge', icon: '💬', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', text: 'What are the differences between symmetric and asymmetric encryption?' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect current system memory, RAM distribution, and CPU load utilization' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect all listening TCP/UDP ports and active network socket connections' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check disk space usage, root partition capacity, and filesystem mount points' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'List top 10 memory-consuming processes sorted by resident memory size' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'List top 10 CPU-consuming processes sorted by processor utilization' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect system uptime, OS kernel release version, and host hostname' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect network interfaces, assigned IP addresses, and routing table' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check swap memory allocation, active swap partitions, and swap usage' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect hardware CPU model, core count, thread count, and cache sizes' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check available disk inodes and usage across all mounted filesystems' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect active systemd service units and check for any failed services' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect system thermal zones and CPU temperature sensors' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check battery status, charging level, and power draw metrics' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect currently logged-in users and recent system login history' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect open file descriptors and system-wide file handle limits' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check DNS resolver configuration in /etc/resolv.conf and ping gateway' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect kernel ring buffer logs for critical hardware or driver errors' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check status and resource consumption of local Docker containers' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect local firewall rules and open iptables/ufw filter chains' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect shared memory segments and IPC message queues' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check disk I/O performance and read/write throughput statistics' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect PCI bus devices, graphics controller, and NVMe drives' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect USB connected peripherals and bus device hierarchy' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check current system timezone, local time, and NTP sync status' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect available virtual memory and dirty page writeback statistics' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check zombie and defunct processes count in current process tree' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect system limits for maximum user processes and open files' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check system load average over 1, 5, and 15 minute windows' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Inspect host architecture, glibc version, and default system shell' },
+            { category: 'System Diagnostics', icon: '🔍', badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/30', text: 'Check network socket connection states: ESTABLISHED, TIME_WAIT, LISTEN' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'open gmail on brave browser and draft an email to wolverinevm001@gmail.com with subject Internal Call with Team and body I cannot be able to join meeting today' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://github.com/vishwajitvm' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search for latest AI agent frameworks on Google' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open YouTube Music on Brave browser and search for Lo-Fi Beats' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Google Chrome and search for Kubernetes production best practices' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Firefox and navigate to https://news.ycombinator.com' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and navigate to https://hub.docker.com' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Chrome browser to https://developer.mozilla.org/en-US/docs/Web/JavaScript' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Python official documentation at https://docs.python.org/3/' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to FastAPI documentation at https://fastapi.tiangolo.com' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Next.js documentation at https://nextjs.org/docs' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search on GitHub for open source LLM orchestration tools' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and open speedtest at https://fast.com' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://stackoverflow.com/questions' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search for NestJS microservices architecture' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Tailwind CSS documentation at https://tailwindcss.com/docs' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to PostgreSQL official documentation at https://www.postgresql.org/docs/' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Redis documentation at https://redis.io/docs/' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and navigate to https://arxiv.org/list/cs.AI/recent' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://www.kernel.org' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search YouTube for Docker Compose multi-container tutorial' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search Google for Linux performance tuning with sysctl' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to TypeScript Handbook at https://www.typescriptlang.org/docs/' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://dev.to for trending software engineering articles' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://crates.io for Rust package registry' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://pypi.org for Python Package Index' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to https://www.npmjs.com for Node.js package search' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser and search Google for Vite React Tailwind CSS setup guide' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Grafana documentation at https://grafana.com/docs/' },
+            { category: 'Browser & Web', icon: '🌐', badgeClass: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30', text: 'Open Brave browser to Prometheus monitoring docs at https://prometheus.io/docs/' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open Visual Studio Code in current project directory' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open native calculator application on host machine' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open text editor and create a new scratchpad document' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open terminal window on host machine' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open file manager application in current working folder' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Open system performance monitor on host machine' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Docker service daemon is currently running on the host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check which Python and Node.js versions are installed on my host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect installed Git version and configured global git user email' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Rust compiler rustc and Cargo package manager are installed' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Go programming language compiler is installed on host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect installed GCC and G++ compiler toolchain versions' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Nginx web server binary is available on host machine' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if PostgreSQL client psql binary is available in PATH' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Redis CLI tool redis-cli is installed and accessible' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if JQ JSON command-line processor is installed on host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if cURL and Wget HTTP utility binaries are installed' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect active shell environment variables in current user session' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect user identity, UID, GID, and assigned secondary groups' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check default desktop environment and window manager on Linux host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect current user home directory path and available quota' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check all installed package managers (apt, snap, flatpak, pip, npm)' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if OpenSSH client and SSH agent daemon are currently running' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect available locales and language encoding configuration' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check system hostname resolution and localhost alias entries' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Tmux or Screen terminal multiplexers are installed' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if Make and CMake build utilities are installed on host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Inspect user process ulimit settings and resource constraints' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check available fonts and fontconfig cache status on Linux host' },
+            { category: 'App & Host Operations', icon: '🚀', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', text: 'Check if FFmpeg media processing tool is available in host PATH' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a new file named project_notes.txt with content \'OmniShell architecture validation passed successfully\'' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create directory structure named build_artifacts and check its contents' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'List all files in current directory with human-readable permissions and file sizes' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all Python script files larger than 10KB in current directory' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Count total lines of code across all Python files in the repository' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Search for the string \'TODO\' across all source code files in the directory' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Calculate SHA256 checksum hash of package.json file' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all files modified in the last 24 hours in the project folder' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Archive current project directory into a compressed tar.gz backup file' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a JSON configuration file named config.dev.json with sample API keys' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find and display all hidden dotfiles and configuration directories in home folder' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all empty directories in current workspace and list them' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Display disk usage breakdown of the top 5 largest directories in project' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Check file permissions and octal mode for all shell script (.sh) files' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all broken symbolic links in the current workspace directory' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a new markdown file named CHANGELOG.md with initial v1.0.0 release notes' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Count the number of TypeScript (.ts) and Handlebars (.hbs) files in frontend' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Extract text between specific headers from README.md file' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all log files ending with .log and calculate their total combined size' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Replace all occurrences of localhost:8000 with api.omnishell.internal in env file' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a secure directory with restricted 700 permissions for private keys' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Search for all JSON files containing the key \'version\' in the project' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a backup copy of .env file named .env.backup with timestamp' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Inspect the last 50 lines of the latest backend application log file' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find duplicate filenames across multiple nested project subdirectories' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Check word count and character count in project documentation markdown files' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Format JSON files in the workspace with 2-space indentation' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Find all files owned by root in the current non-root workspace' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Create a symbolic link from docs/README.md to root README.md' },
+            { category: 'File Operations', icon: '📁', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'List all files sorted chronologically by last modification timestamp' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'First check disk space, then inspect memory usage, and finally list running docker containers' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check git status; Step 2: run tests; Step 3: check build directory' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Check network connectivity, inspect DNS resolution, and verify ping to 8.8.8.8' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'First inspect system load, then list top 5 CPU processes, and finally check free RAM' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Create backup directory, copy config files to backup, and verify backup file sizes' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: pull latest git changes, Step 2: install dependencies, Step 3: build project' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: inspect open ports, Step 2: find process using port 8000, Step 3: verify health' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Initialize new Node.js package, create index.js entrypoint, and run syntax check' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Create Python virtual environment .venv, activate it, and install pytest' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Inspect Docker container status, check container logs, and inspect CPU usage' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Create release directory, generate build artifact tarball, and compute SHA256 checksum' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: clean build cache, Step 2: compile TypeScript files, Step 3: check exit code' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Test HTTP server endpoint, measure response latency, and check HTTP status code 200' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: inspect system swap, Step 2: sync filesystem buffers, Step 3: drop caches' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Create git feature branch, stage modified files, and verify git diff status' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Check database connection, inspect schema tables count, and check active queries' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Verify SSL certificate validity, inspect certificate expiry date, and test TLS handshake' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check nginx configuration syntax, Step 2: test port 80 binding, Step 3: reload' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: verify disk read speed, Step 2: verify disk write speed, Step 3: report IOPS' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: fetch remote git tags, Step 2: create new semantic tag v1.2.0, Step 3: verify log' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: inspect Redis ping, Step 2: check memory used by Redis, Step 3: count total keys' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check Docker disk usage, Step 2: prune dangling builder cache, Step 3: verify space' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: lint source code, Step 2: run unit test suite, Step 3: generate coverage report' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: export database schema dump, Step 2: compress SQL file, Step 3: verify size' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check firewall status, Step 2: list active rules, Step 3: test allowed port 443' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: scan local subnet, Step 2: identify active host IPs, Step 3: resolve hostnames' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: inspect systemd journal size, Step 2: vacuum journal logs older than 7 days, Step 3: verify' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: verify Python dependencies, Step 2: check for outdated packages, Step 3: report vulnerabilities' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check battery level, Step 2: check AC power adapter, Step 3: report estimated battery life' },
+            { category: 'Multi-Step Pipelines', icon: '📋', badgeClass: 'bg-violet-500/10 text-violet-300 border-violet-500/30', text: 'Step 1: check CPU frequency governor, Step 2: inspect core clock speeds, Step 3: report thermal status' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open Spotify in the browser after 10 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule a system memory and disk diagnostic tomorrow at 10:00 AM' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule host backup and log archive in 15 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule health check and service report in 30 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Run system inspection report in 5 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule database backup and compression snapshot in 2 hours' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open Google Meet in browser in 20 minutes for team sync' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule disk space alert check after 45 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Run automated test suite execution in 1 hour' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule Docker container resource audit in 10 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open GitHub pull requests dashboard in browser in 15 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule temporary file cleanup in 30 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule network latency and packet loss test in 25 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open Brave browser to news.ycombinator.com in 5 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule system uptime and load average snapshot tomorrow at 8:00 AM' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule log rotation and archive in 4 hours' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule Redis memory usage inspection in 15 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open AWS CloudWatch or Grafana dashboard in browser in 10 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule Git repository remote synchronization in 35 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Run security vulnerability dependency scan in 50 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule web service endpoint health check in 8 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule system reboot notification banner in 3 hours' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open documentation portal in browser in 12 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule CPU throttling and temperature check in 18 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule disk I/O performance benchmark in 1 hour' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Open YouTube Music playlist in browser in 3 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule cache invalidation and warm-up script in 40 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule database connection pool status check in 20 minutes' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Run file integrity and checksum verification in 2 hours' },
+            { category: 'Scheduled Tasks', icon: '⏰', badgeClass: 'bg-blue-500/10 text-blue-300 border-blue-500/30', text: 'Schedule system diagnostic summary broadcast in 30 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check disk free space every 10 seconds and report' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check system uptime every day at 09:00' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check system memory and CPU utilization every 5 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Inspect docker container health and running status every hour' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Monitor network socket connection count every 30 seconds' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check database connection pool metrics every 15 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Poll API endpoint health status every 2 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Inspect system load average and active processes every 1 minute' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check CPU temperature and thermal zone throttling every 3 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Run automated backup archive verification every night at midnight' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Audit failed SSH login attempts in auth.log every 10 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check free RAM and swap memory usage every 5 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check available disk inodes across all mounts every 30 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Monitor Redis memory consumption and key count every 10 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check Nginx access log request rate and 5xx errors every 5 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Scan for zombie or defunct processes every 15 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check SSL certificate expiration date every day at 08:00' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Verify DNS resolution response times every 10 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check PostgreSQL active transactions and lock contention every 5 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Clean old temporary build cache files every Sunday at 02:00' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check Docker daemon disk and volume usage every 6 hours' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Monitor network interface bandwidth traffic every 1 minute' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check for available operating system package updates every day at 12:00' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Audit systemd unit service statuses every 20 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check Git repository for new remote commits every 15 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Inspect open file descriptors count against system limits every 5 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Monitor background job queue latency and backlog every 2 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check system battery health and power consumption every 10 minutes' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Audit filesystem permissions on sensitive configuration files every day at 03:00' },
+            { category: 'Recurring & Cron', icon: '🔁', badgeClass: 'bg-teal-500/10 text-teal-300 border-teal-500/30', text: 'Check kernel error messages in dmesg every 30 minutes' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'empty my trash as soon as it reaches 30% and above' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'schedule and check every 1 minutes for that max attemt still be three' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If memory usage is greater than 90% then alert me and clean temporary cache' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If disk usage is greater than 85% then purge old temporary log files' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If Docker service is not running then alert me with system diagnosis' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If CPU load average exceeds 4.0 then list top 10 CPU consuming processes' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If free disk space falls below 10GB then send emergency notification' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If swap usage is greater than 50% then inspect memory allocation' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If CPU temperature exceeds 80 degrees Celsius then trigger fan cooling alert' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If system RAM usage is greater than 80% then drop page caches' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If web port 8000 is not responding then check service status and logs' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If total process count exceeds 300 then inspect for fork bomb or runaway threads' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If database connection count reaches 90% of pool limit then alert admin' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If battery level drops below 20% then enable power saving recommendations' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If network ping packet loss to 8.8.8.8 exceeds 20% then diagnose network interface' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If /tmp partition usage exceeds 75% then clean temporary session files' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If zombie processes count is greater than 5 then identify parent PIDs' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If open file descriptors reach 80% of max limit then report leaking processes' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If Nginx error log contains 502 Bad Gateway then test backend upstream' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If Docker container exits with non-zero code then display last 50 lines of logs' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If disk write I/O latency exceeds 50ms then inspect disk queue length' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If system uptime exceeds 30 days then schedule maintenance review' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If available swap is zero then trigger high memory alert immediately' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If Redis memory usage exceeds 1GB then inspect largest memory keys' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If DNS query resolution fails then switch to backup DNS resolver 1.1.1.1' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If file transfer speeds drop below 1MB/s then diagnose network link quality' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If system load average exceeds number of CPU cores then log process snapshot' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If SSL certificate expires in less than 14 days then trigger renewal alert' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If unmerged git branches count exceeds 10 then generate branch report' },
+            { category: 'Conditional & Thresholds', icon: '🔀', badgeClass: 'bg-rose-500/10 text-rose-300 border-rose-500/30', text: 'If background queue backlog exceeds 500 items then scale worker processes' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'clean my trash' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Delete all temporary cache files and empty trash files immediately' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Purge old temporary build artifacts in /tmp directory' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Stop and remove all exited Docker containers on host machine' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Restart the web service with automatic rollback on error if it fails' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Restart Nginx web server and retry up to 3 times with diagnostic check if it fails' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Run deployment script with auto-heal and fallback to previous stable release on error' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Execute database migration with automatic rollback if any SQL constraint fails' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Kill zombie and stuck processes listening on port 8000 after human confirmation' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Prune all unused Docker images, containers, and build cache with docker system prune -a' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Drop temporary database tables created during test run after approval' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Purge old Linux kernel headers and clean apt package cache after confirmation' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Reset local firewall rules to default policy with safety authorization' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Truncate oversized application debug log files larger than 500MB' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Flush local DNS cache and restart systemd-resolved service with auto-recovery' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Release stuck dpkg lock files and repair interrupted package installations' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Restore corrupted configuration files from the latest verified backup archive' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Reset network interface controller and renew DHCP lease with rollback on disconnect' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Kill runaway memory-leaking process and restart service with auto-healing' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Rebuild corrupted local Git index and verify repository object integrity' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Clean NPM global cache and repair broken node_modules dependencies' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Prune all dangling Docker volumes consuming disk space after confirmation' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Reset Redis database keys matching prefix \'temp:*\' after human review' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Re-index corrupted SQLite database file with automatic transaction rollback' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Purge cached thumbnail images in user directory to recover disk storage' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Restart crashed PostgreSQL service and execute WAL recovery check' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Recover unsaved editor swap files and restore latest edit buffers' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Rollback recent Git commit and reset working directory to clean HEAD state' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Purge outdated pip cache and re-verify installed package requirements' },
+            { category: 'Recovery & Human Approval', icon: '🛡️', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/30', text: 'Execute system recovery plan: clear temp, kill stale workers, and restart daemons' },
+        ];
+
+        let activePromptCategory = 'ALL';
+        let promptSearchTerm = '';
+        let isPromptLibraryInitialized = false;
+
+        function showLibraryToast(msg) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = "bg-slate-900/95 border border-indigo-500/50 text-indigo-200 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-2xl flex items-center gap-2 transform transition-all duration-300 translate-y-2 opacity-0";
+            toast.innerHTML = `<span>✨</span><span>${msg}</span>`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        }
+
+        function closePromptLibrary() {
+            const drawer = document.getElementById('prompt-library-drawer');
+            const chevron = document.getElementById('library-chevron');
+            if (!drawer) return;
+            if (!drawer.classList.contains('hidden')) {
+                drawer.classList.add('hidden');
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function togglePromptLibrary() {
+            const drawer = document.getElementById('prompt-library-drawer');
+            const chevron = document.getElementById('library-chevron');
+            if (!drawer) return;
+
+            const isHidden = drawer.classList.contains('hidden');
+            if (isHidden) {
+                drawer.classList.remove('hidden');
+                if (chevron) chevron.style.transform = 'rotate(180deg)';
+                if (!isPromptLibraryInitialized) {
+                    initPromptLibrary();
+                    isPromptLibraryInitialized = true;
+                }
+                drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                closePromptLibrary();
+            }
+        }
+
+        function initPromptLibrary() {
+            renderCategoryPills();
+            renderPromptCards();
+        }
+
+        function renderCategoryPills() {
+            const container = document.getElementById('prompt-category-pills');
+            if (!container) return;
+
+            const categories = ['ALL', ...new Set(PROMPT_LIBRARY.map(p => p.category))];
+            
+            container.innerHTML = categories.map(cat => {
+                const count = cat === 'ALL' ? PROMPT_LIBRARY.length : PROMPT_LIBRARY.filter(p => p.category === cat).length;
+                const isActive = activePromptCategory === cat;
+                const activeClass = isActive 
+                    ? 'bg-indigo-600 text-white font-bold border-indigo-400 shadow-md shadow-indigo-600/30' 
+                    : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700/70 hover:border-indigo-500/40';
+                
+                const label = cat === 'ALL' ? '🌟 All Presets' : cat;
+                return `
+                    <button onclick="filterPromptCategory('${cat}')" class="px-3 py-1.5 rounded-xl border transition-all text-xs flex items-center gap-1.5 cursor-pointer ${activeClass}">
+                        <span>${label}</span>
+                        <span class="px-1.5 py-0.2 bg-black/25 rounded-md text-[10px] font-mono opacity-80">${count}</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function filterPromptCategory(category) {
+            activePromptCategory = category;
+            renderCategoryPills();
+            renderPromptCards();
+        }
+
+        function filterPromptLibrary() {
+            const input = document.getElementById('prompt-search-input');
+            const clearBtn = document.getElementById('clear-search-btn');
+            promptSearchTerm = (input ? input.value : '').toLowerCase().trim();
+            if (clearBtn) {
+                if (promptSearchTerm) clearBtn.classList.remove('hidden');
+                else clearBtn.classList.add('hidden');
+            }
+            renderPromptCards();
+        }
+
+        function clearPromptSearch() {
+            const input = document.getElementById('prompt-search-input');
+            if (input) input.value = '';
+            filterPromptLibrary();
+        }
+
+        function populatePrompt(text, autoRun = false) {
+            const input = document.getElementById('prompt-input');
+            if (!input) return;
+            input.value = text;
+            input.focus();
+            
+            // Auto collapse prompt library drawer on click / run
+            closePromptLibrary();
+
+            // Highlight input with a subtle pulse glow
+            input.parentElement.classList.add('ring-2', 'ring-indigo-500');
+            setTimeout(() => {
+                input.parentElement.classList.remove('ring-2', 'ring-indigo-500');
+            }, 1200);
+
+            // Smooth scroll to input
+            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            if (autoRun) {
+                showLibraryToast(`⚡ Executing prompt: "${text.substring(0, 32)}..."`);
+                const generateBtn = document.getElementById('generate-btn');
+                if (generateBtn) setTimeout(() => generateBtn.click(), 150);
+            } else {
+                showLibraryToast(`✏️ Loaded into input. Edit parameters or press Enter to run!`);
+            }
+        }
+
+        function copyPromptText(text, btnElement) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showLibraryToast(`📋 Copied to clipboard!`);
+                    if (btnElement) {
+                        const origText = btnElement.innerHTML;
+                        btnElement.innerHTML = `✅ Copied`;
+                        setTimeout(() => { btnElement.innerHTML = origText; }, 1800);
+                    }
+                }).catch(() => {
+                    setQuickPrompt(text);
+                });
+            } else {
+                setQuickPrompt(text);
+            }
+        }
+
+        function renderPromptCards() {
+            const grid = document.getElementById('prompt-cards-grid');
+            const counterText = document.getElementById('prompt-counter-text');
+            if (!grid) return;
+
+            let filtered = PROMPT_LIBRARY;
+            if (activePromptCategory !== 'ALL') {
+                filtered = filtered.filter(p => p.category === activePromptCategory);
+            }
+            if (promptSearchTerm) {
+                filtered = filtered.filter(p => 
+                    p.text.toLowerCase().includes(promptSearchTerm) || 
+                    p.category.toLowerCase().includes(promptSearchTerm)
+                );
+            }
+
+            if (counterText) {
+                counterText.innerText = `Showing ${filtered.length} of ${PROMPT_LIBRARY.length} prompts`;
+            }
+
+            if (filtered.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full py-12 text-center text-slate-500">
+                        <div class="text-2xl mb-2">🔍</div>
+                        <div class="text-sm font-semibold text-slate-400">No matching prompts found</div>
+                        <div class="text-xs text-slate-500 mt-1">Try another search keyword or clear filters</div>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = filtered.map((p, idx) => {
+                const escapedText = escHtml(p.text);
+                const jsEscaped = p.text.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                return `
+                    <div class="group relative bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-3.5 transition-all duration-200 flex flex-col justify-between shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-0.5">
+                        <div>
+                            <div class="flex items-center justify-between gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${p.badgeClass} flex items-center gap-1">
+                                    <span>${p.icon}</span> <span>${p.category}</span>
+                                </span>
+                                <button onclick="copyPromptText('${jsEscaped}', this)" title="Copy prompt to clipboard" class="text-[10px] text-slate-500 hover:text-slate-300 px-1.5 py-0.5 rounded hover:bg-slate-800 transition">
+                                    📋 Copy
+                                </button>
+                            </div>
+                            <p class="text-xs text-slate-200 font-medium leading-snug cursor-pointer hover:text-indigo-300 transition" onclick="populatePrompt('${jsEscaped}', false)">
+                                "${escapedText}"
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80 text-[11px]">
+                            <button onclick="populatePrompt('${jsEscaped}', false)" class="flex-1 py-1 px-2 bg-slate-800/90 hover:bg-indigo-600/30 text-slate-300 hover:text-indigo-200 rounded-lg border border-slate-700/70 hover:border-indigo-500/40 font-semibold transition text-center flex items-center justify-center gap-1">
+                                <span>✏️</span> <span>Insert & Edit</span>
+                            </button>
+                            <button onclick="populatePrompt('${jsEscaped}', true)" class="py-1 px-3 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-lg font-bold shadow-md shadow-indigo-600/20 transition flex items-center justify-center gap-1">
+                                <span>⚡</span> <span>Run</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         const CAPABILITY_ICONS = {
@@ -851,8 +1409,18 @@
             }
         }
 
+        // Enter Key Listener on Input
+        document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                closePromptLibrary();
+                document.getElementById('generate-btn').click();
+            }
+        });
+
         // Main Execution Trigger
         document.getElementById('generate-btn').addEventListener('click', async () => {
+            closePromptLibrary();
             const prompt = document.getElementById('prompt-input').value;
             if (!prompt.trim()) return;
             
@@ -1050,11 +1618,14 @@
                                 runBtn.innerText = '⏳ Launching...';
                                 try {
                                     const osIsLinux = (data.target_os || '').toLowerCase().includes('linux');
-                                    let script = osIsLinux ? `xdg-open "${data.target_url}" &` : `Start-Process "${data.target_url}"`;
+                                    const osIsMac = (data.target_os || '').toLowerCase().includes('darwin') || (data.target_os || '').toLowerCase().includes('mac');
+                                    let script = data.shell_script 
+                                        ? (osIsLinux ? `(${data.shell_script}) >/dev/null 2>&1 &` : data.shell_script) 
+                                        : (osIsLinux ? `(brave-browser "${data.target_url}" || firefox "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` : (osIsMac ? `open "${data.target_url}"` : `Start-Process "${data.target_url}"`));
                                     await fetch('http://localhost:8003/execute', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ script, approved: true })
+                                        body: JSON.stringify({ script, prompt, approved: true })
                                     });
                                     runBtn.innerText = '✅ Launched!';
                                     updateLifecycle(
@@ -1068,7 +1639,7 @@
                                         }
                                     );
                                 } catch(e) {
-                                    runBtn.innerText = '❌ Failed';
+                                    runBtn.innerText = '❌ Failed (Executor Offline)';
                                 }
                             };
                         }
@@ -1087,6 +1658,7 @@
                                         body: JSON.stringify({
                                             script: data.shell_script,
                                             expected_process: data.expected_process,
+                                            prompt,
                                             approved: true
                                         })
                                     });
@@ -1201,15 +1773,38 @@
                             
                             if (isConfirmed) {
                                 statusSpan.innerText = `🚀 Launching ${selectedBrowser || 'Browser'}...`;
-                                const osIsLinux = data.target_os.toLowerCase().includes('linux');
-                                let script = osIsLinux ? `xdg-open "${data.target_url}" &` : `Start-Process "${data.target_url}"`;
+                                const osIsLinux = (data.target_os || '').toLowerCase().includes('linux');
+                                const osIsMac = (data.target_os || '').toLowerCase().includes('darwin') || (data.target_os || '').toLowerCase().includes('mac');
+                                let script = "";
+                                
+                                if (selectedBrowser === 'Brave') {
+                                    script = osIsLinux 
+                                        ? `(brave-browser "${data.target_url}" || brave "${data.target_url}" || firefox "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` 
+                                        : (osIsMac ? `open -a "Brave Browser" "${data.target_url}"` : `Start-Process brave -ArgumentList "${data.target_url}" -ErrorAction SilentlyContinue; if (!$?) { Start-Process "${data.target_url}" }`);
+                                } else if (selectedBrowser === 'Firefox') {
+                                    script = osIsLinux 
+                                        ? `(firefox "${data.target_url}" || brave-browser "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` 
+                                        : (osIsMac ? `open -a "Firefox" "${data.target_url}"` : `Start-Process firefox -ArgumentList "${data.target_url}" -ErrorAction SilentlyContinue; if (!$?) { Start-Process "${data.target_url}" }`);
+                                } else if (selectedBrowser === 'Chrome' || selectedBrowser === 'Google Chrome') {
+                                    script = osIsLinux 
+                                        ? `(google-chrome "${data.target_url}" || google-chrome-stable "${data.target_url}" || chromium-browser "${data.target_url}" || brave-browser "${data.target_url}" || firefox "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` 
+                                        : (osIsMac ? `open -a "Google Chrome" "${data.target_url}"` : `Start-Process chrome -ArgumentList "${data.target_url}" -ErrorAction SilentlyContinue; if (!$?) { Start-Process "${data.target_url}" }`);
+                                } else if (selectedBrowser === 'Chromium') {
+                                    script = osIsLinux 
+                                        ? `(chromium-browser "${data.target_url}" || chromium "${data.target_url}" || brave-browser "${data.target_url}" || firefox "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` 
+                                        : (osIsMac ? `open -a "Chromium" "${data.target_url}"` : `Start-Process chromium -ArgumentList "${data.target_url}" -ErrorAction SilentlyContinue; if (!$?) { Start-Process "${data.target_url}" }`);
+                                } else {
+                                    script = data.shell_script 
+                                        ? (osIsLinux ? `(${data.shell_script}) >/dev/null 2>&1 &` : data.shell_script) 
+                                        : (osIsLinux ? `(brave-browser "${data.target_url}" || firefox "${data.target_url}" || xdg-open "${data.target_url}") >/dev/null 2>&1 &` : (osIsMac ? `open "${data.target_url}"` : `Start-Process "${data.target_url}"`));
+                                }
                                 
                                 updateLifecycle({ Intent: 'completed', Policy: 'completed', Plan: 'completed', Execute: 'active', Verify: 'pending' });
 
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ script, approved: true })
+                                    body: JSON.stringify({ script, prompt, approved: true })
                                 });
                                 const execData = await execRes.json();
                                 statusSpan.className = "ml-2 text-emerald-400 font-bold text-xs";
@@ -1262,6 +1857,7 @@
                                     body: JSON.stringify({
                                         script: data.shell_script,
                                         expected_process: data.expected_process,
+                                        prompt,
                                         approved: true
                                     })
                                 });
@@ -1391,18 +1987,37 @@
                 const res = await fetch('http://localhost:8003/execute/multi-step', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ steps })
+                    body: JSON.stringify({ steps, prompt: document.getElementById('prompt-input')?.value || '', approved: true })
                 });
                 const data = await res.json();
+                const isOverallSuccess = data.success === true || (data.status === 'completed' && data.success !== false);
                 runMultiBtn.disabled = false;
-                runMultiBtn.innerText = data.overall_success ? "✅ All Steps Passed" : "❌ Step Failed";
+                runMultiBtn.innerText = isOverallSuccess ? "✅ All Steps Passed" : "❌ Step Failed";
                 
                 const existingBoxes = document.querySelectorAll('.multistep-terminal-output');
                 existingBoxes.forEach(b => b.remove());
 
                 const outputDiv = document.createElement('div');
-                outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-72 shadow-2xl";
-                outputDiv.innerText = JSON.stringify(data.results || data, null, 2);
+                outputDiv.className = "multistep-terminal-output terminal-output-box mt-4 p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl border border-sky-900/60 overflow-auto whitespace-pre-wrap w-full max-h-80 shadow-2xl space-y-3";
+                
+                if (Array.isArray(data.step_results) && data.step_results.length > 0) {
+                    outputDiv.innerHTML = data.step_results.map((s, idx) => {
+                        const stepSuccess = s.success !== false && s.exit_code === 0;
+                        const outContent = s.output || s.stdout || s.stderr || (stepSuccess ? 'Step executed successfully (exit code 0)' : 'Execution error');
+                        return `
+                            <div class="p-3 bg-slate-900/80 rounded-xl border ${stepSuccess ? 'border-emerald-500/30' : 'border-rose-500/30'}">
+                                <div class="flex items-center justify-between text-xs font-semibold mb-1">
+                                    <span class="${stepSuccess ? 'text-emerald-400' : 'text-rose-400'}">${stepSuccess ? '✅' : '❌'} Step ${s.step_id || (idx + 1)}: ${escHtml(s.name || 'Step')}</span>
+                                    <span class="text-[10px] text-slate-400">${s.duration_ms ? s.duration_ms + 'ms' : ''} | exit: ${s.exit_code ?? 0}</span>
+                                </div>
+                                <pre class="text-[11px] text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap mt-1 leading-relaxed">${escHtml(outContent.trim())}</pre>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    outputDiv.innerText = data.output || JSON.stringify(data, null, 2);
+                }
+                
                 document.getElementById('multistep-card').appendChild(outputDiv);
 
                 updateLifecycle(
@@ -1410,14 +2025,14 @@
                         Intent: 'completed',
                         Policy: 'completed',
                         Plan: 'completed',
-                        Execute: data.overall_success ? 'completed' : 'failed',
-                        Verify: data.overall_success ? 'completed' : 'failed'
+                        Execute: isOverallSuccess ? 'completed' : 'failed',
+                        Verify: isOverallSuccess ? 'completed' : 'failed'
                     },
-                    data.overall_success ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
+                    isOverallSuccess ? '✅ EXECUTED & VERIFIED' : '❌ EXECUTION FAILED',
                     {
-                        risk: data.overall_success ? '✅ VERIFIED SAFE' : '⚠️ FAILED',
-                        safetySummary: data.overall_success ? 'Multi-Step Plan Executed' : 'Step Execution Failed',
-                        safetyDetail: data.overall_success ? 'All steps completed successfully on host.' : 'One or more steps failed during execution.',
+                        risk: isOverallSuccess ? '✅ VERIFIED SAFE' : '⚠️ FAILED',
+                        safetySummary: isOverallSuccess ? 'Multi-Step Plan Executed' : 'Step Execution Failed',
+                        safetyDetail: isOverallSuccess ? 'All steps completed successfully on host.' : 'One or more steps failed during execution.',
                         executionMode: '⚡ MULTI-STEP HOST EXECUTION (COMPLETED)'
                     }
                 );
