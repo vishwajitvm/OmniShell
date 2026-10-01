@@ -243,7 +243,9 @@ class ConsoleLogger:
             ts = cls.timestamp()
             w = 80
             success = bool(getattr(res, "success", False) or (isinstance(res, dict) and res.get("success")))
-            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            start_badge = f"{cls.BG_GREEN} ▶ START {cls.RESET}" if success else f"{cls.BG_RED} ▶ START {cls.RESET}"
+            status_badge = f"{cls.PILL_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.PILL_RED} ✕ FAILED {cls.RESET}"
+            end_badge = f"{cls.BG_GREEN} ◀ END {cls.RESET}" if success else f"{cls.BG_RED} ◀ END {cls.RESET}"
             border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
 
             cmd = getattr(res, "command", "") if hasattr(res, "command") else (res.get("command", "") if isinstance(res, dict) else "")
@@ -270,16 +272,16 @@ class ConsoleLogger:
                 risk_badge = f"{cls.PILL_RED} Risk: {risk_level.upper()} {cls.RESET}"
 
             divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
-            blank_line = f"{border_color}│{cls.RESET}"
+            top_bar = "─" * max(2, w - 50)
+            bot_bar = "─" * max(2, w - 54)
 
             print()
-            print(f"{border_color}┌─ ⚡ HOST COMMAND EXECUTION {status_badge} {border_color}{'─' * max(2, w - 40)}┐{cls.RESET}")
-            print(blank_line)
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {time_badge}  {cls.GRAY}│{cls.RESET}  {exit_badge}  {cls.GRAY}│{cls.RESET}  {risk_badge}")
-
-            id_str = str(exec_id)[:16] + "..." if len(str(exec_id)) > 16 else str(exec_id)
-            pid_str = f"  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} PID: {process_pid} {cls.RESET}" if process_pid else ""
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Execution ID:{cls.RESET} {cls.DIM}{id_str}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Shell: {shell_name} {cls.RESET}{pid_str}")
+            print(f"{border_color}┌───► {start_badge} {cls.BOLD}{cls.BRIGHT_WHITE}HOST COMMAND EXECUTION{cls.RESET}  {status_badge} {border_color}{top_bar}{cls.RESET}")
+            pid_str = f"  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} {shell_name} (PID: {process_pid}) {cls.RESET}" if process_pid else f"  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} {shell_name} {cls.RESET}"
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {time_badge}  {cls.GRAY}│{cls.RESET}  {exit_badge}  {cls.GRAY}│{cls.RESET}  {risk_badge}{pid_str}")
+            if exec_id:
+                id_str = str(exec_id)[:24] + "..." if len(str(exec_id)) > 24 else str(exec_id)
+                print(f"{border_color}│{cls.RESET}  {cls.GRAY}ID:{cls.RESET} {cls.DIM}{id_str}{cls.RESET}")
 
             prompt = getattr(res, "prompt", None) if hasattr(res, "prompt") else (res.get("prompt") if isinstance(res, dict) else None)
             if not prompt:
@@ -288,55 +290,30 @@ class ConsoleLogger:
                 prompt = getattr(res, "original_prompt", None) if hasattr(res, "original_prompt") else (res.get("original_prompt") if isinstance(res, dict) else None)
 
             if prompt:
-                print(blank_line)
                 print(divider)
-                print(blank_line)
-                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
                 p_clean = str(prompt).strip()
-                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
-                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{p_clean}\"{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}\"{p_clean}\"{cls.RESET}")
 
-            print(blank_line)
             print(divider)
-            print(blank_line)
-
-            # Print Full Command (multiline supported)
-            cmd_badge = f"{cls.PILL_CYAN} ⚡ COMMAND EXECUTED {cls.RESET}"
-            print(f"{border_color}│{cls.RESET}  {cmd_badge}")
-            cmd_lines = str(cmd).strip().splitlines()
-            for c_idx, cl in enumerate(cmd_lines):
-                prefix = "$ " if c_idx == 0 else "  "
-                print(f"{border_color}│{cls.RESET}    {cls.DIM}{prefix}{cls.RESET}{cls.BRIGHT_YELLOW}{cl}{cls.RESET}")
-
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} ⚡ COMMAND {cls.RESET}  {cls.BRIGHT_YELLOW}$ {str(cmd).strip()}{cls.RESET}")
             if work_dir:
-                print(blank_line)
                 print(f"{border_color}│{cls.RESET}  {cls.GRAY}📂 Directory:{cls.RESET} {cls.DIM}{work_dir}{cls.RESET}")
 
             out_sample = str(output_text or "").strip()
             if out_sample:
-                print(blank_line)
                 print(divider)
-                print(blank_line)
                 lines = out_sample.splitlines()
                 byte_count = len(out_sample.encode("utf-8"))
                 size_str = f"{byte_count} B" if byte_count < 1024 else f"{byte_count/1024:.1f} KB"
-                out_badge = f"{cls.PILL_DARK} 📋 TERMINAL OUTPUT ({len(lines)} lines, {size_str}) {cls.RESET}"
-                print(f"{border_color}│{cls.RESET}  {out_badge}")
-                print(blank_line)
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_DARK} 📋 TERMINAL OUTPUT ({len(lines)} lines, {size_str}) {cls.RESET}")
                 preview_lines = lines[:6]
                 for p_idx, pl in enumerate(preview_lines):
-                    pl_clean = pl[:70]
+                    pl_clean = pl[:75]
                     print(f"{border_color}│{cls.RESET}    {cls.DIM}{p_idx+1:02d} │{cls.RESET} {cls.WHITE}{pl_clean}{cls.RESET}")
                 if len(lines) > 6:
                     print(f"{border_color}│{cls.RESET}    {cls.DIM}   └── ... ({len(lines) - 6} more lines captured){cls.RESET}")
-            else:
-                print(blank_line)
-                print(divider)
-                print(blank_line)
-                print(f"{border_color}│{cls.RESET}  {cls.DIM}📋 Terminal Output: [No stdout/stderr recorded]{cls.RESET}")
 
-            print(blank_line)
-            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print(f"{border_color}└───◄ {end_badge} {cls.BOLD}{cls.BRIGHT_WHITE}EXECUTION FINISHED{cls.RESET}  {time_badge} {exit_badge} {border_color}{bot_bar}{cls.RESET}")
             print()
 
     @classmethod
@@ -345,8 +322,11 @@ class ConsoleLogger:
             w = 80
             ts = cls.timestamp()
             success = bool(res.get("success", False))
-            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            start_badge = f"{cls.BG_GREEN} ▶ START {cls.RESET}" if success else f"{cls.BG_RED} ▶ START {cls.RESET}"
+            status_badge = f"{cls.PILL_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            end_badge = f"{cls.BG_GREEN} ◀ END {cls.RESET}" if success else f"{cls.BG_RED} ◀ END {cls.RESET}"
             border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
+
             step_list = res.get("step_results") or res.get("steps") or []
             total_steps = res.get("total_steps") or len(step_list)
             completed_steps = sum(1 for s in step_list if s.get("success"))
@@ -356,28 +336,20 @@ class ConsoleLogger:
             time_badge = f"{cls.PILL_CYAN} ⏱️  {dur}ms ({dur_seconds:.2f}s) {cls.RESET}" if dur else ""
 
             divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
-            blank_line = f"{border_color}│{cls.RESET}"
+            top_bar = "─" * max(2, w - 48)
+            bot_bar = "─" * max(2, w - 50)
 
             print()
-            print(f"{border_color}┌─ 📋 MULTI-STEP WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
-            print(blank_line)
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Total Steps: {total_steps} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_GREEN if completed_steps == total_steps else cls.PILL_YELLOW} Completed: {completed_steps}/{total_steps} {cls.RESET}  {time_badge}")
+            print(f"{border_color}┌───► {start_badge} {cls.BOLD}{cls.BRIGHT_WHITE}MULTI-STEP WORKFLOW{cls.RESET}  {status_badge} {border_color}{top_bar}{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Steps: {total_steps} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_GREEN if completed_steps == total_steps else cls.PILL_YELLOW} Completed: {completed_steps}/{total_steps} {cls.RESET}  {time_badge}")
 
             prompt = res.get("prompt") or res.get("natural_language_prompt") or res.get("original_prompt")
             if prompt:
-                print(blank_line)
                 print(divider)
-                print(blank_line)
-                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
-                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
-                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
 
-            print(blank_line)
             print(divider)
-            print(blank_line)
-            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} 📋 STEP-BY-STEP EXECUTION RESULTS {cls.RESET}")
-            print(blank_line)
-
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} 📋 STEP-BY-STEP EXECUTION {cls.RESET}")
             for idx, st in enumerate(step_list):
                 s_ok = st.get("success", False)
                 s_badge = f"{cls.PILL_GREEN} ✓ DONE {cls.RESET}" if s_ok else f"{cls.PILL_RED} ✕ FAILED {cls.RESET}"
@@ -388,11 +360,8 @@ class ConsoleLogger:
                 print(f"{border_color}│{cls.RESET}    {s_badge} {cls.BOLD}Step {idx + 1}:{cls.RESET} {cls.WHITE}{s_desc}{cls.RESET}{exit_str}")
                 if s_cmd:
                     print(f"{border_color}│{cls.RESET}       {cls.DIM}${cls.RESET} {cls.BRIGHT_YELLOW}{s_cmd}{cls.RESET}")
-                if idx < len(step_list) - 1:
-                    print(blank_line)
 
-            print(blank_line)
-            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print(f"{border_color}└───◄ {end_badge} {cls.BOLD}{cls.BRIGHT_WHITE}WORKFLOW FINISHED{cls.RESET}  {time_badge} {border_color}{bot_bar}{cls.RESET}")
             print()
 
     @classmethod
@@ -401,15 +370,17 @@ class ConsoleLogger:
             w = 80
             ts = cls.timestamp()
             success = res.get("success", False)
-            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            start_badge = f"{cls.BG_GREEN} ▶ START {cls.RESET}" if success else f"{cls.BG_RED} ▶ START {cls.RESET}"
+            status_badge = f"{cls.PILL_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            end_badge = f"{cls.BG_GREEN} ◀ END {cls.RESET}" if success else f"{cls.BG_RED} ◀ END {cls.RESET}"
             border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
 
             divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
-            blank_line = f"{border_color}│{cls.RESET}"
+            top_bar = "─" * max(2, w - 50)
+            bot_bar = "─" * max(2, w - 52)
 
             print()
-            print(f"{border_color}┌─ 🔀 CONDITIONAL WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 40)}┐{cls.RESET}")
-            print(blank_line)
+            print(f"{border_color}┌───► {start_badge} {cls.BOLD}{cls.BRIGHT_WHITE}CONDITIONAL WORKFLOW{cls.RESET}  {status_badge} {border_color}{top_bar}{cls.RESET}")
             branch = str(res.get('branch_taken', 'unknown')).upper()
             branch_pill = f"{cls.PILL_CYAN} Branch: {branch} {cls.RESET}"
             cond_exit = res.get('condition_exit_code')
@@ -417,34 +388,21 @@ class ConsoleLogger:
 
             prompt = res.get("prompt") or res.get("natural_language_prompt") or res.get("original_prompt")
             if prompt:
-                print(blank_line)
                 print(divider)
-                print(blank_line)
-                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
-                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
-                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
 
-            print(blank_line)
             print(divider)
-            print(blank_line)
-
             cond_res = res.get("condition_result", {})
             cond_cmd = str(cond_res.get("command") or "")
             if cond_cmd:
-                cond_badge = f"{cls.PILL_YELLOW} 🔍 EVALUATED CONDITION {cls.RESET}"
-                print(f"{border_color}│{cls.RESET}  {cond_badge}")
-                print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.YELLOW}{cond_cmd}{cls.RESET}")
-                print(blank_line)
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_YELLOW} 🔍 CONDITION {cls.RESET}  {cls.YELLOW}$ {cond_cmd}{cls.RESET}")
 
             branch_res = res.get("branch_result", {})
             branch_cmd = str(branch_res.get("command") or "")
             if branch_cmd:
-                act_badge = f"{cls.PILL_CYAN} ⚡ EXECUTED BRANCH ACTION {cls.RESET}"
-                print(f"{border_color}│{cls.RESET}  {act_badge}")
-                print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_WHITE}{branch_cmd}{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} ⚡ ACTION {cls.RESET}  {cls.BRIGHT_WHITE}$ {branch_cmd}{cls.RESET}")
 
-            print(blank_line)
-            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print(f"{border_color}└───◄ {end_badge} {cls.BOLD}{cls.BRIGHT_WHITE}CONDITIONAL FINISHED{cls.RESET}  {border_color}{bot_bar}{cls.RESET}")
             print()
 
     @classmethod
@@ -453,34 +411,27 @@ class ConsoleLogger:
             w = 80
             ts = cls.timestamp()
             border_color = cls.BRIGHT_YELLOW
+            start_badge = f"{cls.BG_YELLOW} ▶ START {cls.RESET}"
+            end_badge = f"{cls.BG_YELLOW} ◀ END {cls.RESET}"
             divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
-            blank_line = f"{border_color}│{cls.RESET}"
+            top_bar = "─" * max(2, w - 54)
+            bot_bar = "─" * max(2, w - 50)
 
             print()
-            print(f"{border_color}┌─ 🔒 HUMAN-IN-THE-LOOP APPROVAL REQUIRED {cls.BG_YELLOW} ACTION REQUIRED {cls.RESET} {border_color}{'─' * max(2, w - 62)}┐{cls.RESET}")
-            print(blank_line)
+            print(f"{border_color}┌───► {start_badge} {cls.BOLD}{cls.BRIGHT_WHITE}HUMAN APPROVAL REQUIRED{cls.RESET}  {cls.BG_YELLOW} ACTION REQ {cls.RESET} {border_color}{top_bar}{cls.RESET}")
             print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_PURPLE} Task ID: #{task_id} {cls.RESET}")
-            print(blank_line)
             print(divider)
-            print(blank_line)
-
-            prompt_badge = f"{cls.PILL_PURPLE} 💬 REQUEST PROMPT {cls.RESET}"
-            print(f"{border_color}│{cls.RESET}  {prompt_badge}")
-            print(f"{border_color}│{cls.RESET}    \"{cls.BOLD}{cls.BRIGHT_WHITE}{prompt}{cls.RESET}\"")
-            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_PURPLE} 💬 REQUEST PROMPT {cls.RESET}  \"{cls.BOLD}{cls.BRIGHT_WHITE}{prompt}{cls.RESET}\"")
             print(divider)
-            print(blank_line)
 
             browser_name = result.get("browser", "default-browser")
             method = result.get("method", "native-new-window")
             url = result.get("url", "")
             print(f"{border_color}│{cls.RESET}  {cls.BOLD}Browser Launched:{cls.RESET} {cls.PILL_GREEN} {browser_name} ({method}) {cls.RESET}")
             if url:
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Approval Document:{cls.RESET} {cls.UNDERLINE}{cls.BRIGHT_CYAN}{url}{cls.RESET}")
-            print(blank_line)
-            print(f"{border_color}│{cls.RESET}  {cls.DIM}⏳ Waiting for human confirmation in the opened browser window...{cls.RESET}")
-            print(blank_line)
-            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Approval URL:{cls.RESET} {cls.UNDERLINE}{cls.BRIGHT_CYAN}{url}{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.DIM}⏳ Waiting for human confirmation in browser...{cls.RESET}")
+            print(f"{border_color}└───◄ {end_badge} {cls.BOLD}{cls.BRIGHT_WHITE}WAITING APPROVAL{cls.RESET} {border_color}{bot_bar}{cls.RESET}")
             print()
 
     @classmethod
@@ -489,9 +440,11 @@ class ConsoleLogger:
             w = 80
             ts = cls.timestamp()
             success = result.get("success", False)
-            badge_text = f"{cls.BG_GREEN} ✓ SUCCESS {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            start_badge = f"{cls.BG_GREEN} ▶ START {cls.RESET}" if success else f"{cls.BG_RED} ▶ START {cls.RESET}"
+            status_badge = f"{cls.PILL_GREEN} ✓ SUCCESS {cls.RESET}" if success else f"{cls.PILL_RED} ✕ FAILED {cls.RESET}"
+            end_badge = f"{cls.BG_GREEN} ◀ END {cls.RESET}" if success else f"{cls.BG_RED} ◀ END {cls.RESET}"
             border_color = cls.BRIGHT_MAGENTA if is_recurring else cls.BRIGHT_BLUE
-            title = f"🔁 RECURRING WORKFLOW ITERATION {badge_text}" if is_recurring else f"⏰ SCHEDULED TASK EXECUTION {badge_text}"
+            title = "RECURRING WORKFLOW" if is_recurring else "SCHEDULED TASK"
 
             exit_code = result.get("exit_code")
             dur = result.get("duration_ms", 0)
@@ -500,23 +453,18 @@ class ConsoleLogger:
             exit_badge = f"{cls.PILL_GREEN} Exit: 0 {cls.RESET}" if exit_code == 0 else f"{cls.PILL_RED} Exit: {exit_code} {cls.RESET}"
 
             divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
-            blank_line = f"{border_color}│{cls.RESET}"
+            top_bar = "─" * max(2, w - 50)
+            bot_bar = "─" * max(2, w - 52)
 
             print()
-            print(f"{border_color}┌─ {title} {border_color}{'─' * max(2, w - 46)}┐{cls.RESET}")
-            print(blank_line)
+            print(f"{border_color}┌───► {start_badge} {cls.BOLD}{cls.BRIGHT_WHITE}{title}{cls.RESET}  {status_badge} {border_color}{top_bar}{cls.RESET}")
             print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_PURPLE} Task ID: #{task_id} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_YELLOW} Rule: {rule or 'one-time'} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {time_badge}  {cls.GRAY}│{cls.RESET}  {exit_badge}")
-            print(blank_line)
             print(divider)
-            print(blank_line)
-            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} ⚡ ACTION EXECUTED {cls.RESET}")
-            print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_WHITE}{command}{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} ⚡ ACTION {cls.RESET}  {cls.BRIGHT_WHITE}$ {command}{cls.RESET}")
             if result.get("browser_launch"):
                 bl = result["browser_launch"]
-                print(blank_line)
                 print(f"{border_color}│{cls.RESET}  {cls.GRAY}🌐 Browser Target:{cls.RESET} {cls.CYAN}{bl.get('url')}{cls.RESET} ({bl.get('browser')})")
-            print(blank_line)
-            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print(f"{border_color}└───◄ {end_badge} {cls.BOLD}{cls.BRIGHT_WHITE}ITERATION COMPLETE{cls.RESET}  {time_badge} {border_color}{bot_bar}{cls.RESET}")
             print()
 
     @classmethod
