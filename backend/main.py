@@ -2280,72 +2280,72 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
 
     # Common Applications
     if any(k in p for k in ["vscode", "vs code", "visual studio code", "visual studio"]):
-        return ("(code) >/dev/null 2>&1 &" if is_linux else ("open -a 'Visual Studio Code'" if is_mac else 'Start-Process "code"')), "Visual Studio Code"
+        return ("(code) >/dev/null 2>&1 &" if is_linux else ("open -a 'Visual Studio Code'" if is_mac else 'Start-Process "code"')), "code"
     if "notepad" in p or "text editor" in p:
-        return ("(gedit || gnome-text-editor || nano) >/dev/null 2>&1 &" if is_linux else ("open -a TextEdit" if is_mac else 'Start-Process "notepad"')), "Text Editor"
+        return ("(gedit || gnome-text-editor || nano) >/dev/null 2>&1 &" if is_linux else ("open -a TextEdit" if is_mac else 'Start-Process "notepad"')), "gedit"
     if "calculator" in p:
-        return ("(gnome-calculator || kcalc || xcalc) >/dev/null 2>&1 &" if is_linux else ("open -a Calculator" if is_mac else 'Start-Process "calc"')), "Calculator"
+        return ("(gnome-calculator || kcalc || xcalc) >/dev/null 2>&1 &" if is_linux else ("open -a Calculator" if is_mac else 'Start-Process "calc"')), "gnome-calculator"
     if "terminal" in p:
-        return ("(gnome-terminal || xterm) >/dev/null 2>&1 &" if is_linux else ("open -a Terminal" if is_mac else 'Start-Process "wt"')), "Terminal"
+        return ("(gnome-terminal || xterm) >/dev/null 2>&1 &" if is_linux else ("open -a Terminal" if is_mac else 'Start-Process "wt"')), "gnome-terminal"
 
     # Trash / Recycle Bin
     if any(k in p for k in ["trash", "recycle bin", "rubbish"]):
         if is_linux:
-            return "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true", "Trash files removal"
+            return "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null || true", None
         elif is_mac:
-            return "rm -rf ~/.Trash/* 2>/dev/null || true", "Trash files removal"
+            return "rm -rf ~/.Trash/* 2>/dev/null || true", None
         else:
-            return "Clear-RecycleBin -Force -ErrorAction SilentlyContinue", "Recycle bin cleanup"
+            return "Clear-RecycleBin -Force -ErrorAction SilentlyContinue", None
 
     # Memory / RAM
     if any(k in p for k in ["memory", "ram"]):
-        if is_linux: return "free -h && vmstat 1 2", "Memory telemetry inspection"
-        elif is_mac: return "vm_stat && top -l 1 -s 0 | head -15", "macOS memory inspection"
-        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory", "Windows RAM inspection"
+        if is_linux: return "free -h && vmstat 1 2", None
+        elif is_mac: return "vm_stat && top -l 1 -s 0 | head -15", None
+        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory", None
 
     # CPU
     if any(k in p for k in ["cpu", "processor load", "cpu usage"]):
-        if is_linux: return "top -bn1 | head -15", "CPU utilization inspection"
-        elif is_mac: return "top -l 1 -n 10 -s 0", "macOS CPU inspection"
-        else: return "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10", "Windows CPU processes"
+        if is_linux: return "top -bn1 | head -15", None
+        elif is_mac: return "top -l 1 -n 10 -s 0", None
+        else: return "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10", None
 
     # Disk Space / Storage
     if any(k in p for k in ["disk", "storage", "filesystem", "free space"]):
-        if is_linux or is_mac: return "df -h", "Filesystem capacity inspection"
-        else: return "Get-Volume | Format-Table DriveLetter,FileSystemLabel,SizeRemaining,Size", "Windows volume capacity"
+        if is_linux or is_mac: return "df -h", None
+        else: return "Get-Volume | Format-Table DriveLetter,FileSystemLabel,SizeRemaining,Size", None
 
     # Processes
     if any(k in p for k in ["process", "running tasks", "top processes"]):
-        if is_linux: return "ps aux --sort=-%mem | head -20", "Top process list"
-        elif is_mac: return "ps aux -m | head -20", "macOS process list"
-        else: return "Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 20", "Windows process list"
+        if is_linux: return "ps aux --sort=-%mem | head -20", None
+        elif is_mac: return "ps aux -m | head -20", None
+        else: return "Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 20", None
 
     # Network / IP / Interfaces
     if any(k in p for k in ["network", "ip address", "interfaces", "ports", "listen"]):
-        if is_linux: return "ip -br addr show 2>/dev/null || ifconfig && ss -tuln 2>/dev/null || netstat -tuln", "Network configuration & listening ports"
-        elif is_mac: return "ifconfig && netstat -an -p tcp", "macOS network inspection"
-        else: return "Get-NetIPAddress -AddressFamily IPv4; Get-NetTCPConnection -State Listen", "Windows network status"
+        if is_linux: return "ip -br addr show 2>/dev/null || ifconfig && ss -tuln 2>/dev/null || netstat -tuln", None
+        elif is_mac: return "ifconfig && netstat -an -p tcp", None
+        else: return "Get-NetIPAddress -AddressFamily IPv4; Get-NetTCPConnection -State Listen", None
 
     # Software / Runtime / Python version inspection
     if any(k in p for k in ["python version", "which python", "check python", "python on my device", "python installed", "python"]):
         if any(k in p for k in ["path", "where", "location"]):
-            return ("which python3 python 2>/dev/null || where.exe python" if (is_linux or is_mac) else "where.exe python"), "Python binary path lookup"
-        return ("python3 --version 2>/dev/null || python --version 2>/dev/null" if (is_linux or is_mac) else "python --version"), "Python version inspection"
+            return ("which python3 python 2>/dev/null || where.exe python" if (is_linux or is_mac) else "where.exe python"), None
+        return ("python3 --version 2>/dev/null || python --version 2>/dev/null" if (is_linux or is_mac) else "python --version"), None
 
     if any(k in p for k in ["node version", "which node", "nodejs", "npm version"]):
-        return ("node -v 2>/dev/null; npm -v 2>/dev/null" if (is_linux or is_mac) else "node -v; npm -v"), "Node.js and NPM version inspection"
+        return ("node -v 2>/dev/null; npm -v 2>/dev/null" if (is_linux or is_mac) else "node -v; npm -v"), None
 
     if any(k in p for k in ["git version", "which git"]):
-        return ("git --version" if (is_linux or is_mac) else "git --version"), "Git version inspection"
+        return ("git --version" if (is_linux or is_mac) else "git --version"), None
 
     if any(k in p for k in ["rust version", "rustc", "cargo version"]):
-        return ("rustc --version 2>/dev/null || cargo --version" if (is_linux or is_mac) else "rustc --version"), "Rust runtime inspection"
+        return ("rustc --version 2>/dev/null || cargo --version" if (is_linux or is_mac) else "rustc --version"), None
 
     # Uptime & OS version
     if any(k in p for k in ["uptime", "system info", "os version", "kernel version", "installed on my device", "device info"]):
-        if is_linux: return "uptime && uname -a", "System uptime and kernel metadata"
-        elif is_mac: return "uptime && sw_vers", "macOS version and uptime"
-        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,LastBootUpTime", "Windows OS metadata"
+        if is_linux: return "uptime && uname -a", None
+        elif is_mac: return "uptime && sw_vers", None
+        else: return "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,LastBootUpTime", None
 
     # File / Directory creation: extract custom name
     file_match = re.search(r'(?:file|script|document)\s+(?:named\s+|called\s+)?["\']?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)["\']?', prompt, re.IGNORECASE)
@@ -2354,47 +2354,47 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
     if any(k in p for k in ["create", "make", "touch", "write"]) and (file_match or dir_match):
         if dir_match and not file_match:
             d_name = dir_match.group(1).strip()
-            return (f"mkdir -p \"{d_name}\" && ls -la \"{d_name}\"" if (is_linux or is_mac) else f"New-Item -ItemType Directory -Path \"{d_name}\" -Force; Get-ChildItem \"{d_name}\""), f"Create directory {d_name}"
+            return (f"mkdir -p \"{d_name}\" && ls -la \"{d_name}\"" if (is_linux or is_mac) else f"New-Item -ItemType Directory -Path \"{d_name}\" -Force; Get-ChildItem \"{d_name}\""), None
         if file_match:
             f_name = file_match.group(1).strip()
             # Extract content if user specified
             content_match = re.search(r'(?:write|content|with text|saying)\s+["\']?([^"\']+)["\']?', prompt, re.IGNORECASE)
             content_text = content_match.group(1).strip() if content_match else "File created by OmniShell"
             if is_linux or is_mac:
-                return f"cat << 'EOF' > \"{f_name}\"\n{content_text}\nEOF\nls -la \"{f_name}\"", f"Write to file {f_name}"
+                return f"cat << 'EOF' > \"{f_name}\"\n{content_text}\nEOF\nls -la \"{f_name}\"", None
             else:
-                return f"Set-Content -Path \"{f_name}\" -Value \"{content_text}\"; Get-Item \"{f_name}\"", f"Write to file {f_name}"
+                return f"Set-Content -Path \"{f_name}\" -Value \"{content_text}\"; Get-Item \"{f_name}\"", None
 
     # Git operations
     if "git" in p:
-        if "init" in p: return "git init", "Initialize Git repository"
-        elif "status" in p: return "git status", "Git working tree status"
-        elif "log" in p: return "git log -n 10 --oneline", "Git commit history"
-        elif "branch" in p: return "git branch -a", "Git branch list"
+        if "init" in p: return "git init", None
+        elif "status" in p: return "git status", None
+        elif "log" in p: return "git log -n 10 --oneline", None
+        elif "branch" in p: return "git branch -a", None
         elif "clone" in p:
             clone_url = re.findall(r'https?://[^\s<>"\']+|git@[^\s<>"\']+', prompt)
             u = clone_url[0] if clone_url else ""
-            return f"git clone {u}".strip(), "Clone Git repository"
-        elif "diff" in p: return "git diff", "Git diff changes"
-        else: return "git status", "Git status check"
+            return f"git clone {u}".strip(), None
+        elif "diff" in p: return "git diff", None
+        else: return "git status", None
 
     # Docker & Containers
     if "docker" in p or "container" in p:
-        if any(k in p for k in ["ps", "list", "running"]): return "docker ps -a", "Docker containers list"
-        elif "image" in p: return "docker images", "Docker images list"
-        elif "stats" in p: return "docker stats --no-stream", "Docker resource utilization"
-        else: return "docker ps", "Docker running containers"
+        if any(k in p for k in ["ps", "list", "running"]): return "docker ps -a", None
+        elif "image" in p: return "docker images", None
+        elif "stats" in p: return "docker stats --no-stream", None
+        else: return "docker ps", None
 
     # Services / Daemons
     if any(k in p for k in ["service", "systemctl", "daemon"]):
         svc_match = re.search(r'(?:service|systemctl)\s+(?:status|restart|start|stop)?\s*([a-zA-Z0-9_\-]+)', prompt, re.IGNORECASE)
         svc_name = svc_match.group(1).strip() if svc_match else "nginx"
         if "restart" in p:
-            return (f"systemctl restart {svc_name} && systemctl status {svc_name} --no-pager" if is_linux else f"Restart-Service {svc_name}; Get-Service {svc_name}"), f"Restart service {svc_name}"
+            return (f"systemctl restart {svc_name} && systemctl status {svc_name} --no-pager" if is_linux else f"Restart-Service {svc_name}; Get-Service {svc_name}"), svc_name
         elif "status" in p:
-            return (f"systemctl status {svc_name} --no-pager" if is_linux else f"Get-Service {svc_name}"), f"Check service {svc_name} status"
+            return (f"systemctl status {svc_name} --no-pager" if is_linux else f"Get-Service {svc_name}"), svc_name
         else:
-            return (f"systemctl list-units --type=service --state=running | head -25" if is_linux else "Get-Service | Where-Object Status -eq 'Running'"), "Running services list"
+            return (f"systemctl list-units --type=service --state=running | head -25" if is_linux else "Get-Service | Where-Object Status -eq 'Running'"), None
 
     # HTTP / API / Web fetching
     if any(k in p for k in ["curl", "fetch api", "http get", "wget", "ping"]):
@@ -2402,36 +2402,36 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
         u = urls[0] if urls else "https://httpbin.org/get"
         if "ping" in p:
             host = re.sub(r'https?://', '', u).split('/')[0]
-            return (f"ping -c 4 {host}" if (is_linux or is_mac) else f"Test-Connection -ComputerName {host} -Count 4"), f"Ping connectivity test for {host}"
-        return f"curl -sL -I \"{u}\" | head -15", f"Fetch HTTP headers from {u}"
+            return (f"ping -c 4 {host}" if (is_linux or is_mac) else f"Test-Connection -ComputerName {host} -Count 4"), None
+        return f"curl -sL -I \"{u}\" | head -15", None
 
     # Application Detection - Extensive Catalog
     app_mappings = {
-        "spotify": ("(spotify || flatpak run com.spotify.Client || snap run spotify) >/dev/null 2>&1 &", "Spotify music player"),
-        "slack": ("(slack || flatpak run com.slack.Slack || snap run slack) >/dev/null 2>&1 &", "Slack application"),
-        "discord": ("(discord || flatpak run com.discordapp.Discord || snap run discord) >/dev/null 2>&1 &", "Discord application"),
-        "vlc": ("(vlc) >/dev/null 2>&1 &", "VLC Media Player"),
-        "steam": ("(steam) >/dev/null 2>&1 &", "Steam Client"),
-        "postman": ("(postman) >/dev/null 2>&1 &", "Postman API Client"),
-        "wireshark": ("(wireshark) >/dev/null 2>&1 &", "Wireshark Packet Analyzer"),
-        "gimp": ("(gimp || drawing) >/dev/null 2>&1 &", "GIMP Image Editor"),
-        "libreoffice": ("(libreoffice || soffice) >/dev/null 2>&1 &", "LibreOffice Suite"),
-        "thunderbird": ("(thunderbird) >/dev/null 2>&1 &", "Mozilla Thunderbird"),
-        "obs": ("(obs) >/dev/null 2>&1 &", "OBS Studio"),
-        "obsidian": ("(obsidian) >/dev/null 2>&1 &", "Obsidian Notes"),
-        "telegram": ("(telegram-desktop || telegram) >/dev/null 2>&1 &", "Telegram Desktop"),
-        "zoom": ("(zoom) >/dev/null 2>&1 &", "Zoom Client"),
-        "chrome": ("(google-chrome || google-chrome-stable || chromium-browser || chromium) >/dev/null 2>&1 &", "Google Chrome"),
-        "firefox": ("(firefox) >/dev/null 2>&1 &", "Mozilla Firefox"),
-        "brave": ("(brave-browser || brave) >/dev/null 2>&1 &", "Brave Browser"),
-        "edge": ("(microsoft-edge || msedge) >/dev/null 2>&1 &", "Microsoft Edge"),
+        "spotify": ("(spotify || flatpak run com.spotify.Client || snap run spotify) >/dev/null 2>&1 &", "spotify"),
+        "slack": ("(slack || flatpak run com.slack.Slack || snap run slack) >/dev/null 2>&1 &", "slack"),
+        "discord": ("(discord || flatpak run com.discordapp.Discord || snap run discord) >/dev/null 2>&1 &", "discord"),
+        "vlc": ("(vlc) >/dev/null 2>&1 &", "vlc"),
+        "steam": ("(steam) >/dev/null 2>&1 &", "steam"),
+        "postman": ("(postman) >/dev/null 2>&1 &", "postman"),
+        "wireshark": ("(wireshark) >/dev/null 2>&1 &", "wireshark"),
+        "gimp": ("(gimp || drawing) >/dev/null 2>&1 &", "gimp"),
+        "libreoffice": ("(libreoffice || soffice) >/dev/null 2>&1 &", "soffice.bin"),
+        "thunderbird": ("(thunderbird) >/dev/null 2>&1 &", "thunderbird"),
+        "obs": ("(obs) >/dev/null 2>&1 &", "obs"),
+        "obsidian": ("(obsidian) >/dev/null 2>&1 &", "obsidian"),
+        "telegram": ("(telegram-desktop || telegram) >/dev/null 2>&1 &", "telegram-desktop"),
+        "zoom": ("(zoom) >/dev/null 2>&1 &", "zoom"),
+        "chrome": ("(google-chrome || google-chrome-stable || chromium-browser || chromium) >/dev/null 2>&1 &", "chrome"),
+        "firefox": ("(firefox) >/dev/null 2>&1 &", "firefox"),
+        "brave": ("(brave-browser || brave) >/dev/null 2>&1 &", "brave"),
+        "edge": ("(microsoft-edge || msedge) >/dev/null 2>&1 &", "msedge"),
     }
 
-    for app_key, (linux_cmd, app_desc) in app_mappings.items():
+    for app_key, (linux_cmd, app_proc) in app_mappings.items():
         if app_key in p:
-            if is_linux: return linux_cmd, app_desc
-            elif is_mac: return f"open -a '{app_key.title()}'", app_desc
-            else: return f'Start-Process "{app_key}"', app_desc
+            if is_linux: return linux_cmd, app_proc
+            elif is_mac: return f"open -a '{app_key.title()}'", app_proc
+            else: return f'Start-Process "{app_key}"', app_proc
 
     # Generic Dynamic Application Launcher Regex (e.g. "open kcalc", "launch gedit", "start flameshot")
     dynamic_app_match = re.search(r'\b(?:open|launch|start|run)\s+([a-zA-Z0-9_\-]+)\b', p)
@@ -2440,11 +2440,11 @@ def synthesize_dynamic_shell_command(prompt: str, user_agent_os: str) -> tuple[O
         stop_words = {"the", "a", "an", "my", "our", "every", "everyday", "daily", "in", "after", "before", "file", "folder", "directory", "script", "code", "browser", "url", "website", "link", "page", "tab", "window", "terminal", "bash", "shell", "powershell", "python", "node", "git", "trash", "recycle", "logs", "cache", "temp"}
         if app_target not in stop_words and len(app_target) >= 2:
             if is_linux:
-                return f"({app_target}) >/dev/null 2>&1 &", f"Launch {app_target} application"
+                return f"({app_target}) >/dev/null 2>&1 &", app_target
             elif is_mac:
-                return f"open -a '{app_target}' 2>/dev/null || ({app_target}) >/dev/null 2>&1 &", f"Launch {app_target} application"
+                return f"open -a '{app_target}' 2>/dev/null || ({app_target}) >/dev/null 2>&1 &", app_target
             else:
-                return f'Start-Process "{app_target}"', f"Launch {app_target} application"
+                return f'Start-Process "{app_target}"', app_target
 
     # Default fallback command extracted from prompt if shell command is embedded
     embedded_cmd = re.search(r'`([^`]+)`', prompt)

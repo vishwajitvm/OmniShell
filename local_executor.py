@@ -136,12 +136,21 @@ class ConsoleLogger:
     BRIGHT_CYAN = "\033[96m"
     BRIGHT_WHITE = "\033[97m"
 
-    BG_GREEN = "\033[42m\033[30m"
-    BG_RED = "\033[41m\033[37m"
-    BG_YELLOW = "\033[43m\033[30m"
-    BG_BLUE = "\033[44m\033[37m"
-    BG_MAGENTA = "\033[45m\033[37m"
-    BG_CYAN = "\033[46m\033[30m"
+    # Rich Background Badges
+    BG_GREEN = "\033[42;1m\033[30m"
+    BG_RED = "\033[41;1m\033[97m"
+    BG_YELLOW = "\033[43;1m\033[30m"
+    BG_BLUE = "\033[44;1m\033[97m"
+    BG_MAGENTA = "\033[45;1m\033[97m"
+    BG_CYAN = "\033[46;1m\033[30m"
+
+    # Dark background pills
+    PILL_DARK = "\033[48;5;236m\033[37m"
+    PILL_CYAN = "\033[48;5;24m\033[96m\033[1m"
+    PILL_GREEN = "\033[48;5;22m\033[92m\033[1m"
+    PILL_YELLOW = "\033[48;5;58m\033[93m\033[1m"
+    PILL_RED = "\033[48;5;52m\033[91m\033[1m"
+    PILL_PURPLE = "\033[48;5;54m\033[95m\033[1m"
 
     _lock = threading.Lock()
 
@@ -150,39 +159,58 @@ class ConsoleLogger:
         return time.strftime("%H:%M:%S")
 
     @classmethod
+    def _clean_len(cls, text: str) -> int:
+        return len(re.sub(r'\033\[[0-9;]*m', '', text))
+
+    @classmethod
     def banner(cls, info: dict[str, Any]):
         with cls._lock:
-            w = 72
+            w = 76
             print()
             print(f"{cls.BRIGHT_CYAN}╔{'═' * (w - 2)}╗{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.BOLD}{cls.BRIGHT_WHITE}{'OMNISHELL HOST EXECUTION ENGINE V4':^{w - 2}}{cls.RESET}{cls.BRIGHT_CYAN}║{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.DIM}{cls.BRIGHT_BLUE}{'Intelligent Autonomous Host Bridge & Guarded Execution':^{w - 2}}{cls.RESET}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            title = f"{cls.BOLD}{cls.BRIGHT_WHITE}OMNISHELL HOST EXECUTION ENGINE V4{cls.RESET}"
+            title_clean = "OMNISHELL HOST EXECUTION ENGINE V4"
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}{' ' * ((w - 2 - len(title_clean)) // 2)}{title}{' ' * (w - 2 - len(title_clean) - (w - 2 - len(title_clean)) // 2)}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            sub = f"{cls.DIM}{cls.BRIGHT_BLUE}Intelligent Autonomous Host Bridge & Guarded Execution{cls.RESET}"
+            sub_clean = "Intelligent Autonomous Host Bridge & Guarded Execution"
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}{' ' * ((w - 2 - len(sub_clean)) // 2)}{sub}{' ' * (w - 2 - len(sub_clean) - (w - 2 - len(sub_clean)) // 2)}{cls.BRIGHT_CYAN}║{cls.RESET}")
             print(f"{cls.BRIGHT_CYAN}╠{'═' * (w - 2)}╣{cls.RESET}")
 
-            def row(k1, v1, k2, v2):
-                col1 = f"  {cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k1}:{cls.RESET} {v1}"
-                col2 = f"{cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k2}:{cls.RESET} {v2}"
-                strip_ansi = lambda s: re.sub(r'\033\[[0-9;]*m', '', s)
-                s1 = strip_ansi(col1)
-                s2 = strip_ansi(col2)
-                pad = w - 4 - len(s1) - len(s2)
-                if pad < 2: pad = 2
-                line = f"║{col1}{' ' * pad}{col2} ║"
-                print(line)
+            def row(k1, v1_colored, v1_clean, k2, v2_colored, v2_clean):
+                col1 = f"  {cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k1}:{cls.RESET} {v1_colored}"
+                col2 = f"{cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k2}:{cls.RESET} {v2_colored}"
+                c1_len = 4 + len(k1) + 2 + len(v1_clean)
+                c2_len = 2 + len(k2) + 2 + len(v2_clean)
+                pad = max(2, w - 2 - c1_len - c2_len)
+                print(f"{cls.BRIGHT_CYAN}║{cls.RESET}{col1}{' ' * pad}{col2} {cls.BRIGHT_CYAN}║{cls.RESET}")
 
-            policy_str = f"{cls.BRIGHT_GREEN}PERMISSIVE (Guarded){cls.RESET}" if not ENFORCE_POLICY else f"{cls.BRIGHT_YELLOW}ENFORCED{cls.RESET}"
-            sched_str = f"{cls.BRIGHT_GREEN}ACTIVE (Poll: {SCHEDULER_INTERVAL}s){cls.RESET}" if SCHEDULER_ENABLED else f"{cls.GRAY}DISABLED{cls.RESET}"
+            policy_colored = f"{cls.PILL_GREEN} PERMISSIVE (Guarded) {cls.RESET}" if not ENFORCE_POLICY else f"{cls.PILL_YELLOW} ENFORCED {cls.RESET}"
+            policy_clean = " PERMISSIVE (Guarded) " if not ENFORCE_POLICY else " ENFORCED "
 
-            row("OS", f"{info.get('os')} ({info.get('arch')})", "Shell", f"{info.get('shell')}")
-            row("Host", f"http://{info.get('host')}:{info.get('port')}", "Backend", f"{info.get('backend')}")
-            row("Policy", policy_str, "Terminal", f"{info.get('terminal') or 'none'}")
-            row("Scheduler", sched_str, "Pool", f"{SCHEDULER_MAX_WORKERS} Workers")
+            sched_colored = f"{cls.PILL_GREEN} ACTIVE (Poll: {SCHEDULER_INTERVAL}s) {cls.RESET}" if SCHEDULER_ENABLED else f"{cls.PILL_DARK} DISABLED {cls.RESET}"
+            sched_clean = f" ACTIVE (Poll: {SCHEDULER_INTERVAL}s) " if SCHEDULER_ENABLED else " DISABLED "
+
+            os_clean = f"{info.get('os')} ({info.get('arch')})"
+            row("OS", f"{cls.WHITE}{os_clean}{cls.RESET}", os_clean, "Shell", f"{cls.WHITE}{info.get('shell')}{cls.RESET}", str(info.get('shell')))
+            host_clean = f"http://{info.get('host')}:{info.get('port')}"
+            backend_clean = str(info.get('backend'))
+            row("Host", f"{cls.CYAN}{host_clean}{cls.RESET}", host_clean, "Backend", f"{cls.CYAN}{backend_clean}{cls.RESET}", backend_clean)
+            term_clean = str(info.get('terminal') or 'none')
+            row("Policy", policy_colored, policy_clean, "Terminal", f"{cls.WHITE}{term_clean}{cls.RESET}", term_clean)
+            row("Scheduler", sched_colored, sched_clean, "Workers", f"{cls.PILL_CYAN} {SCHEDULER_MAX_WORKERS} Threads {cls.RESET}", f" {SCHEDULER_MAX_WORKERS} Threads ")
 
             print(f"{cls.BRIGHT_CYAN}╠{'═' * (w - 2)}╣{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}Available System Endpoints:{cls.RESET}{' ' * (w - 31)}{cls.BRIGHT_CYAN}║{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} Health:     {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/health{cls.RESET}{' ' * max(2, w - 43 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} System:     {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/system{cls.RESET}{' ' * max(2, w - 43 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
-            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} Executions: {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/executions{cls.RESET}{' ' * max(2, w - 47 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            head_title = "Available System Endpoints:"
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}{head_title}{cls.RESET}{' ' * (w - 4 - len(head_title))}{cls.BRIGHT_CYAN}║{cls.RESET}")
+
+            def endpoint_row(name, url):
+                clean_line = f"   ➜ {name}: {url}"
+                pad = max(2, w - 2 - len(clean_line))
+                print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} {cls.BOLD}{name}:{cls.RESET} {cls.UNDERLINE}{cls.CYAN}{url}{cls.RESET}{' ' * pad}{cls.BRIGHT_CYAN}║{cls.RESET}")
+
+            endpoint_row("Health", f"http://{info.get('host')}:{info.get('port')}/health")
+            endpoint_row("System", f"http://{info.get('host')}:{info.get('port')}/system")
+            endpoint_row("Executions", f"http://{info.get('host')}:{info.get('port')}/executions")
             print(f"{cls.BRIGHT_CYAN}╚{'═' * (w - 2)}╝{cls.RESET}")
             print()
 
@@ -191,19 +219,19 @@ class ConsoleLogger:
         with cls._lock:
             ts = cls.timestamp()
             if method == "OPTIONS":
-                print(f"{cls.GRAY}[{ts}] ⚙️  OPTIONS {path} → 200 OK (CORS Preflight){cls.RESET}")
+                print(f"{cls.GRAY}[{ts}] ⚙️  {cls.PILL_DARK} OPTIONS {cls.RESET} {cls.DIM}{path} → 200 OK (CORS Preflight){cls.RESET}")
                 return
 
             if status_code < 300:
-                s_color = f"{cls.BRIGHT_GREEN}{status_code} OK{cls.RESET}"
+                s_color = f"{cls.PILL_GREEN} {status_code} OK {cls.RESET}"
             elif status_code < 400:
-                s_color = f"{cls.BRIGHT_CYAN}{status_code}{cls.RESET}"
+                s_color = f"{cls.PILL_CYAN} {status_code} {cls.RESET}"
             elif status_code < 500:
-                s_color = f"{cls.BRIGHT_YELLOW}{status_code} CLIENT ERROR{cls.RESET}"
+                s_color = f"{cls.PILL_YELLOW} {status_code} CLIENT ERROR {cls.RESET}"
             else:
-                s_color = f"{cls.BRIGHT_RED}{status_code} SERVER ERROR{cls.RESET}"
+                s_color = f"{cls.PILL_RED} {status_code} SERVER ERROR {cls.RESET}"
 
-            dur_str = f" {cls.DIM}({duration_ms}ms){cls.RESET}" if duration_ms is not None else ""
+            dur_str = f" {cls.PILL_DARK} {duration_ms}ms {cls.RESET}" if duration_ms is not None else ""
             sum_str = f" {cls.GRAY}• {summary}{cls.RESET}" if summary else ""
 
             icon = "🌐" if "browser" in path else ("⚡" if "execute" in path else ("🔍" if method == "GET" else "📡"))
@@ -213,7 +241,7 @@ class ConsoleLogger:
     def log_execution(cls, res: Any):
         with cls._lock:
             ts = cls.timestamp()
-            w = 72
+            w = 80
             success = bool(getattr(res, "success", False) or (isinstance(res, dict) and res.get("success")))
             status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
             border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
@@ -223,44 +251,98 @@ class ConsoleLogger:
             dur = getattr(res, "duration_ms", 0) if hasattr(res, "duration_ms") else (res.get("duration_ms", 0) if isinstance(res, dict) else 0)
             exit_code = getattr(res, "exit_code", None) if hasattr(res, "exit_code") else (res.get("exit_code") if isinstance(res, dict) else None)
             work_dir = getattr(res, "working_directory", "") if hasattr(res, "working_directory") else (res.get("working_directory", "") if isinstance(res, dict) else "")
-            risk_level = getattr(res, "risk_level", "safe") if hasattr(res, "risk_level") else (res.get("risk_level", "safe") if isinstance(res, dict) else "safe")
+            risk_level = str(getattr(res, "risk_level", "safe") if hasattr(res, "risk_level") else (res.get("risk_level", "safe") if isinstance(res, dict) else "safe"))
             output_text = getattr(res, "output", "") if hasattr(res, "output") else (res.get("output", "") if isinstance(res, dict) else "")
+            process_pid = getattr(res, "process_pid", None) if hasattr(res, "process_pid") else (res.get("process_pid") if isinstance(res, dict) else None)
+            shell_name = getattr(res, "shell", "bash") if hasattr(res, "shell") else (res.get("shell", "bash") if isinstance(res, dict) else "bash")
+
+            # Duration and Exit Code Badges
+            dur_seconds = dur / 1000.0 if dur is not None else 0.0
+            time_badge = f"{cls.PILL_CYAN} ⏱️  {dur}ms ({dur_seconds:.2f}s) {cls.RESET}"
+            exit_badge = f"{cls.PILL_GREEN} Exit: 0 {cls.RESET}" if exit_code == 0 else f"{cls.PILL_RED} Exit: {exit_code} {cls.RESET}"
+
+            # Risk Badge
+            if risk_level.lower() in ("safe", "low"):
+                risk_badge = f"{cls.PILL_GREEN} Risk: {risk_level.upper()} {cls.RESET}"
+            elif risk_level.lower() in ("moderate", "medium"):
+                risk_badge = f"{cls.PILL_YELLOW} Risk: {risk_level.upper()} {cls.RESET}"
+            else:
+                risk_badge = f"{cls.PILL_RED} Risk: {risk_level.upper()} {cls.RESET}"
+
+            divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
+            blank_line = f"{border_color}│{cls.RESET}"
 
             print()
-            print(f"{border_color}┌─ ⚡ HOST COMMAND EXECUTION {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}ID:{cls.RESET} {cls.DIM}{str(exec_id)[:16]}...{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Duration:{cls.RESET} {dur}ms  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Exit:{cls.RESET} {cls.BRIGHT_GREEN if exit_code == 0 else cls.BRIGHT_RED}{exit_code}{cls.RESET}")
+            print(f"{border_color}┌─ ⚡ HOST COMMAND EXECUTION {status_badge} {border_color}{'─' * max(2, w - 40)}┐{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {time_badge}  {cls.GRAY}│{cls.RESET}  {exit_badge}  {cls.GRAY}│{cls.RESET}  {risk_badge}")
 
-            cmd_preview = str(cmd).replace("\n", " ")
-            if len(cmd_preview) > 60:
-                cmd_preview = cmd_preview[:57] + "..."
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Command:{cls.RESET} {cls.BRIGHT_YELLOW}{cmd_preview}{cls.RESET}")
+            id_str = str(exec_id)[:16] + "..." if len(str(exec_id)) > 16 else str(exec_id)
+            pid_str = f"  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} PID: {process_pid} {cls.RESET}" if process_pid else ""
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Execution ID:{cls.RESET} {cls.DIM}{id_str}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Shell: {shell_name} {cls.RESET}{pid_str}")
+
+            prompt = getattr(res, "prompt", None) if hasattr(res, "prompt") else (res.get("prompt") if isinstance(res, dict) else None)
+            if not prompt:
+                prompt = getattr(res, "natural_language_prompt", None) if hasattr(res, "natural_language_prompt") else (res.get("natural_language_prompt") if isinstance(res, dict) else None)
+            if not prompt:
+                prompt = getattr(res, "original_prompt", None) if hasattr(res, "original_prompt") else (res.get("original_prompt") if isinstance(res, dict) else None)
+
+            if prompt:
+                print(blank_line)
+                print(divider)
+                print(blank_line)
+                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
+                p_clean = str(prompt).strip()
+                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
+                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{p_clean}\"{cls.RESET}")
+
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+
+            # Print Full Command (multiline supported)
+            cmd_badge = f"{cls.PILL_CYAN} ⚡ COMMAND EXECUTED {cls.RESET}"
+            print(f"{border_color}│{cls.RESET}  {cmd_badge}")
+            cmd_lines = str(cmd).strip().splitlines()
+            for c_idx, cl in enumerate(cmd_lines):
+                prefix = "$ " if c_idx == 0 else "  "
+                print(f"{border_color}│{cls.RESET}    {cls.DIM}{prefix}{cls.RESET}{cls.BRIGHT_YELLOW}{cl}{cls.RESET}")
 
             if work_dir:
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}WorkDir:{cls.RESET} {cls.GRAY}{work_dir}{cls.RESET}")
-
-            if risk_level:
-                r_color = cls.BRIGHT_GREEN if str(risk_level).lower() == "safe" else (cls.BRIGHT_YELLOW if str(risk_level).lower() == "moderate" else cls.BRIGHT_RED)
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Risk:{cls.RESET} {r_color}{str(risk_level).upper()}{cls.RESET}")
+                print(blank_line)
+                print(f"{border_color}│{cls.RESET}  {cls.GRAY}📂 Directory:{cls.RESET} {cls.DIM}{work_dir}{cls.RESET}")
 
             out_sample = str(output_text or "").strip()
             if out_sample:
+                print(blank_line)
+                print(divider)
+                print(blank_line)
                 lines = out_sample.splitlines()
-                preview_lines = lines[:4]
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Output Preview ({len(lines)} lines):{cls.RESET}")
-                for pl in preview_lines:
-                    pl_clean = pl[:64]
-                    print(f"{border_color}│{cls.RESET}    {cls.DIM}│{cls.RESET} {cls.WHITE}{pl_clean}{cls.RESET}")
-                if len(lines) > 4:
-                    print(f"{border_color}│{cls.RESET}    {cls.DIM}└── ... ({len(lines) - 4} more lines hidden){cls.RESET}")
+                byte_count = len(out_sample.encode("utf-8"))
+                size_str = f"{byte_count} B" if byte_count < 1024 else f"{byte_count/1024:.1f} KB"
+                out_badge = f"{cls.PILL_DARK} 📋 TERMINAL OUTPUT ({len(lines)} lines, {size_str}) {cls.RESET}"
+                print(f"{border_color}│{cls.RESET}  {out_badge}")
+                print(blank_line)
+                preview_lines = lines[:6]
+                for p_idx, pl in enumerate(preview_lines):
+                    pl_clean = pl[:70]
+                    print(f"{border_color}│{cls.RESET}    {cls.DIM}{p_idx+1:02d} │{cls.RESET} {cls.WHITE}{pl_clean}{cls.RESET}")
+                if len(lines) > 6:
+                    print(f"{border_color}│{cls.RESET}    {cls.DIM}   └── ... ({len(lines) - 6} more lines captured){cls.RESET}")
             else:
-                print(f"{border_color}│{cls.RESET}  {cls.DIM}Output: [No stdout/stderr recorded]{cls.RESET}")
+                print(blank_line)
+                print(divider)
+                print(blank_line)
+                print(f"{border_color}│{cls.RESET}  {cls.DIM}📋 Terminal Output: [No stdout/stderr recorded]{cls.RESET}")
 
-            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print()
 
     @classmethod
     def log_multistep(cls, res: dict[str, Any]):
         with cls._lock:
-            w = 72
+            w = 80
             ts = cls.timestamp()
             success = bool(res.get("success", False))
             status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
@@ -269,111 +351,197 @@ class ConsoleLogger:
             total_steps = res.get("total_steps") or len(step_list)
             completed_steps = sum(1 for s in step_list if s.get("success"))
 
+            dur = res.get("duration_ms", 0)
+            dur_seconds = dur / 1000.0 if dur else 0.0
+            time_badge = f"{cls.PILL_CYAN} ⏱️  {dur}ms ({dur_seconds:.2f}s) {cls.RESET}" if dur else ""
+
+            divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
+            blank_line = f"{border_color}│{cls.RESET}"
+
             print()
             print(f"{border_color}┌─ 📋 MULTI-STEP WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Total Steps:{cls.RESET} {total_steps}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Completed:{cls.RESET} {completed_steps}/{total_steps}")
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Total Steps: {total_steps} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_GREEN if completed_steps == total_steps else cls.PILL_YELLOW} Completed: {completed_steps}/{total_steps} {cls.RESET}  {time_badge}")
+
+            prompt = res.get("prompt") or res.get("natural_language_prompt") or res.get("original_prompt")
+            if prompt:
+                print(blank_line)
+                print(divider)
+                print(blank_line)
+                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
+                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
+                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
+
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} 📋 STEP-BY-STEP EXECUTION RESULTS {cls.RESET}")
+            print(blank_line)
 
             for idx, st in enumerate(step_list):
                 s_ok = st.get("success", False)
-                s_icon = f"{cls.BRIGHT_GREEN}✓{cls.RESET}" if s_ok else f"{cls.BRIGHT_RED}✕{cls.RESET}"
+                s_badge = f"{cls.PILL_GREEN} ✓ DONE {cls.RESET}" if s_ok else f"{cls.PILL_RED} ✕ FAILED {cls.RESET}"
                 s_desc = st.get("name") or st.get("description") or f"Step {idx + 1}"
-                s_cmd = (st.get("command") or st.get("script") or "")[:50]
+                s_cmd = (st.get("command") or st.get("script") or "")
                 s_exit = st.get("exit_code")
-                exit_str = f" {cls.GRAY}[Exit: {cls.BRIGHT_GREEN if s_exit == 0 else cls.BRIGHT_RED}{s_exit}{cls.GRAY}]{cls.RESET}" if s_exit is not None else ""
-                print(f"{border_color}│{cls.RESET}  {s_icon} {cls.BOLD}Step {idx + 1}:{cls.RESET} {cls.WHITE}{s_desc}{cls.RESET}{exit_str}")
+                exit_str = f" {cls.PILL_DARK} Exit: {s_exit} {cls.RESET}" if s_exit is not None else ""
+                print(f"{border_color}│{cls.RESET}    {s_badge} {cls.BOLD}Step {idx + 1}:{cls.RESET} {cls.WHITE}{s_desc}{cls.RESET}{exit_str}")
                 if s_cmd:
-                    print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_YELLOW}{s_cmd}{cls.RESET}")
+                    print(f"{border_color}│{cls.RESET}       {cls.DIM}${cls.RESET} {cls.BRIGHT_YELLOW}{s_cmd}{cls.RESET}")
+                if idx < len(step_list) - 1:
+                    print(blank_line)
 
-            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print()
 
     @classmethod
     def log_conditional(cls, res: dict[str, Any]):
         with cls._lock:
-            w = 72
+            w = 80
             ts = cls.timestamp()
             success = res.get("success", False)
             status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
             border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
 
+            divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
+            blank_line = f"{border_color}│{cls.RESET}"
+
             print()
-            print(f"{border_color}┌─ 🔀 CONDITIONAL WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Branch:{cls.RESET} {cls.BRIGHT_CYAN}{str(res.get('branch_taken', 'unknown')).upper()}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Cond Exit:{cls.RESET} {res.get('condition_exit_code')}")
+            print(f"{border_color}┌─ 🔀 CONDITIONAL WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 40)}┐{cls.RESET}")
+            print(blank_line)
+            branch = str(res.get('branch_taken', 'unknown')).upper()
+            branch_pill = f"{cls.PILL_CYAN} Branch: {branch} {cls.RESET}"
+            cond_exit = res.get('condition_exit_code')
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {branch_pill}  {cls.GRAY}│{cls.RESET}  {cls.PILL_DARK} Cond Exit: {cond_exit} {cls.RESET}")
+
+            prompt = res.get("prompt") or res.get("natural_language_prompt") or res.get("original_prompt")
+            if prompt:
+                print(blank_line)
+                print(divider)
+                print(blank_line)
+                prompt_badge = f"{cls.PILL_PURPLE} 💬 USER PROMPT {cls.RESET}"
+                print(f"{border_color}│{cls.RESET}  {prompt_badge}")
+                print(f"{border_color}│{cls.RESET}    {cls.BOLD}{cls.BRIGHT_WHITE}\"{str(prompt).strip()}\"{cls.RESET}")
+
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+
             cond_res = res.get("condition_result", {})
-            cond_cmd = (cond_res.get("command") or "")[:55]
+            cond_cmd = str(cond_res.get("command") or "")
             if cond_cmd:
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Condition:{cls.RESET} {cls.YELLOW}{cond_cmd}{cls.RESET}")
+                cond_badge = f"{cls.PILL_YELLOW} 🔍 EVALUATED CONDITION {cls.RESET}"
+                print(f"{border_color}│{cls.RESET}  {cond_badge}")
+                print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.YELLOW}{cond_cmd}{cls.RESET}")
+                print(blank_line)
+
             branch_res = res.get("branch_result", {})
-            branch_cmd = (branch_res.get("command") or "")[:55]
+            branch_cmd = str(branch_res.get("command") or "")
             if branch_cmd:
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Executed Action:{cls.RESET} {cls.BRIGHT_WHITE}{branch_cmd}{cls.RESET}")
-            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+                act_badge = f"{cls.PILL_CYAN} ⚡ EXECUTED BRANCH ACTION {cls.RESET}"
+                print(f"{border_color}│{cls.RESET}  {act_badge}")
+                print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_WHITE}{branch_cmd}{cls.RESET}")
+
+            print(blank_line)
+            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print()
 
     @classmethod
     def log_approval_prompt(cls, task_id: int, prompt: str, result: dict[str, Any]):
         with cls._lock:
-            w = 72
+            w = 80
             ts = cls.timestamp()
+            border_color = cls.BRIGHT_YELLOW
+            divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
+            blank_line = f"{border_color}│{cls.RESET}"
+
             print()
-            print(f"{cls.BRIGHT_YELLOW}┌─ 🔒 HUMAN-IN-THE-LOOP APPROVAL REQUIRED {'─' * (w - 42)}┐{cls.RESET}")
-            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Task ID:{cls.RESET} {cls.BRIGHT_CYAN}#{task_id}{cls.RESET}")
-            prompt_preview = (prompt or "")[:60]
-            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Prompt:{cls.RESET} \"{cls.BRIGHT_WHITE}{prompt_preview}{cls.RESET}\"")
+            print(f"{border_color}┌─ 🔒 HUMAN-IN-THE-LOOP APPROVAL REQUIRED {cls.BG_YELLOW} ACTION REQUIRED {cls.RESET} {border_color}{'─' * max(2, w - 62)}┐{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_PURPLE} Task ID: #{task_id} {cls.RESET}")
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+
+            prompt_badge = f"{cls.PILL_PURPLE} 💬 REQUEST PROMPT {cls.RESET}"
+            print(f"{border_color}│{cls.RESET}  {prompt_badge}")
+            print(f"{border_color}│{cls.RESET}    \"{cls.BOLD}{cls.BRIGHT_WHITE}{prompt}{cls.RESET}\"")
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+
             browser_name = result.get("browser", "default-browser")
             method = result.get("method", "native-new-window")
             url = result.get("url", "")
-            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Browser Launched:{cls.RESET} {cls.BRIGHT_GREEN}{browser_name}{cls.RESET} ({method})")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Browser Launched:{cls.RESET} {cls.PILL_GREEN} {browser_name} ({method}) {cls.RESET}")
             if url:
-                url_disp = url if len(url) <= 60 else (url[:57] + "...")
-                print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Approval Document:{cls.RESET} {cls.UNDERLINE}{cls.BRIGHT_CYAN}{url_disp}{cls.RESET}")
-            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.DIM}Waiting for human confirmation in the opened browser window...{cls.RESET}")
-            print(f"{cls.BRIGHT_YELLOW}└{'─' * (w - 1)}┘{cls.RESET}")
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Approval Document:{cls.RESET} {cls.UNDERLINE}{cls.BRIGHT_CYAN}{url}{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.DIM}⏳ Waiting for human confirmation in the opened browser window...{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print()
 
     @classmethod
     def log_scheduled_run(cls, task_id: int, is_recurring: bool, rule: str, command: str, result: dict[str, Any]):
         with cls._lock:
-            w = 72
+            w = 80
             ts = cls.timestamp()
             success = result.get("success", False)
             badge_text = f"{cls.BG_GREEN} ✓ SUCCESS {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
             border_color = cls.BRIGHT_MAGENTA if is_recurring else cls.BRIGHT_BLUE
             title = f"🔁 RECURRING WORKFLOW ITERATION {badge_text}" if is_recurring else f"⏰ SCHEDULED TASK EXECUTION {badge_text}"
 
-            print()
-            print(f"{border_color}┌─ {title} {border_color}{'─' * max(2, w - 42)}┐{cls.RESET}")
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Task ID:{cls.RESET} {cls.BRIGHT_CYAN}#{task_id}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Rule:{cls.RESET} {cls.BRIGHT_YELLOW}{rule or 'one-time'}{cls.RESET}")
-            cmd_preview = (command or "").replace("\n", " ")[:60]
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Action:{cls.RESET} {cls.BRIGHT_WHITE}{cmd_preview}{cls.RESET}")
-            if result.get("browser_launch"):
-                bl = result["browser_launch"]
-                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Browser Target:{cls.RESET} {cls.CYAN}{bl.get('url')}{cls.RESET} ({bl.get('browser')})")
             exit_code = result.get("exit_code")
             dur = result.get("duration_ms", 0)
-            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Telemetry:{cls.RESET} Exit Code: {cls.BRIGHT_GREEN if exit_code == 0 else cls.BRIGHT_RED}{exit_code}{cls.RESET} | Duration: {dur}ms")
-            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+            dur_seconds = dur / 1000.0 if dur else 0.0
+            time_badge = f"{cls.PILL_CYAN} ⏱️  {dur}ms ({dur_seconds:.2f}s) {cls.RESET}" if dur else ""
+            exit_badge = f"{cls.PILL_GREEN} Exit: 0 {cls.RESET}" if exit_code == 0 else f"{cls.PILL_RED} Exit: {exit_code} {cls.RESET}"
+
+            divider = f"{border_color}│{cls.RESET}  {cls.DIM}{'─' * (w - 6)}{cls.RESET}"
+            blank_line = f"{border_color}│{cls.RESET}"
+
+            print()
+            print(f"{border_color}┌─ {title} {border_color}{'─' * max(2, w - 46)}┐{cls.RESET}")
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {cls.WHITE}{ts}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_PURPLE} Task ID: #{task_id} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.PILL_YELLOW} Rule: {rule or 'one-time'} {cls.RESET}  {cls.GRAY}│{cls.RESET}  {time_badge}  {cls.GRAY}│{cls.RESET}  {exit_badge}")
+            print(blank_line)
+            print(divider)
+            print(blank_line)
+            print(f"{border_color}│{cls.RESET}  {cls.PILL_CYAN} ⚡ ACTION EXECUTED {cls.RESET}")
+            print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_WHITE}{command}{cls.RESET}")
+            if result.get("browser_launch"):
+                bl = result["browser_launch"]
+                print(blank_line)
+                print(f"{border_color}│{cls.RESET}  {cls.GRAY}🌐 Browser Target:{cls.RESET} {cls.CYAN}{bl.get('url')}{cls.RESET} ({bl.get('browser')})")
+            print(blank_line)
+            print(f"{border_color}└{'─' * (w - 2)}┘{cls.RESET}")
+            print()
 
     @classmethod
     def log_notification(cls, title: str, msg: str):
         with cls._lock:
             ts = cls.timestamp()
-            print(f"{cls.GRAY}[{ts}]{cls.RESET} 🔔 {cls.BOLD}{cls.BRIGHT_MAGENTA}DESKTOP NOTIFICATION{cls.RESET} → {cls.WHITE}{title}{cls.RESET}: {cls.DIM}{msg}{cls.RESET}")
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} 🔔 {cls.BG_MAGENTA} DESKTOP NOTIFICATION {cls.RESET} → {cls.BOLD}{cls.WHITE}{title}{cls.RESET}: {cls.DIM}{msg}{cls.RESET}")
 
     @classmethod
     def log_info(cls, msg: str):
         with cls._lock:
             ts = cls.timestamp()
-            print(f"{cls.GRAY}[{ts}]{cls.RESET} ℹ️  {cls.CYAN}{msg}{cls.RESET}")
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ℹ️  {cls.PILL_CYAN} INFO {cls.RESET} {cls.CYAN}{msg}{cls.RESET}")
 
     @classmethod
     def log_warn(cls, msg: str):
         with cls._lock:
             ts = cls.timestamp()
-            print(f"{cls.GRAY}[{ts}]{cls.RESET} ⚠️  {cls.BRIGHT_YELLOW}{msg}{cls.RESET}")
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ⚠️  {cls.PILL_YELLOW} WARN {cls.RESET} {cls.BRIGHT_YELLOW}{msg}{cls.RESET}")
 
     @classmethod
     def log_error(cls, msg: str):
         with cls._lock:
             ts = cls.timestamp()
-            print(f"{cls.GRAY}[{ts}]{cls.RESET} ❌ {cls.BRIGHT_RED}{msg}{cls.RESET}")
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ❌ {cls.PILL_RED} ERROR {cls.RESET} {cls.BRIGHT_RED}{msg}{cls.RESET}")
 
 
 # ============================================================
@@ -414,6 +582,7 @@ class ExecutionResult:
     idempotency_key: Optional[str] = None
     budget_exhausted: bool = False
     safety_decision: Optional[str] = None
+    prompt: Optional[str] = None
 
 
 @dataclass
@@ -913,6 +1082,7 @@ def execute_with_recovery(
     dry_run: bool = False,
     deadline: Optional[float] = None,
     cancel_event: Optional[threading.Event] = None,
+    prompt: Optional[str] = None,
 ) -> ExecutionResult:
     """Execute a command with bounded retries, diagnostics and optional fallback.
 
@@ -940,7 +1110,7 @@ def execute_with_recovery(
                 stdout="", stderr="Execution cancelled by scheduler/user.", output="Execution cancelled by scheduler/user.",
                 duration_ms=0, timed_out=False, cancelled=True, risk_level=classify_command(command)["level"],
                 risk_reasons=classify_command(command)["reasons"], started_at=now, finished_at=now,
-                verification_passed=False, safety_decision="cancelled",
+                verification_passed=False, safety_decision="cancelled", prompt=prompt,
             )
         if time.monotonic() >= effective_deadline:
             break
@@ -958,6 +1128,7 @@ def execute_with_recovery(
             dry_run=dry_run,
             execution_id=execution_id if attempt == 1 and execution_id else uuid.uuid4().hex,
             cancel_event=cancel_event,
+            prompt=prompt,
         )
         result.attempt = attempt
         result.max_attempts = max_attempts
@@ -1035,11 +1206,12 @@ def execute_multi_step_workflow(
     approved: bool = False,
     max_attempts: int = 2,
     cancel_event: Optional[threading.Event] = None,
+    prompt: Optional[str] = None,
 ) -> dict:
     """Execute a validated sequence with explicit step success semantics."""
     if not isinstance(steps, list) or not steps:
         return {"success": False, "status": "invalid_plan", "steps_executed": 0, "total_steps": 0,
-                "step_results": [], "output": "Multi-step plan is empty or invalid."}
+                "step_results": [], "output": "Multi-step plan is empty or invalid.", "prompt": prompt}
 
     step_results = []
     completed_steps: list[dict] = []
@@ -1076,7 +1248,7 @@ def execute_multi_step_workflow(
                 expected_process=step.get("expected_process"), expected_path=step.get("expected_path"),
                 expected_absent_path=step.get("expected_absent_path"), fallback_script=step.get("fallback_script"),
                 diagnostic_command=step.get("diagnostic_command"), idempotency_key=step.get("idempotency_key"),
-                cancel_event=cancel_event,
+                cancel_event=cancel_event, prompt=prompt,
             )
         except Exception as exc:
             total_success = False
@@ -1102,7 +1274,7 @@ def execute_multi_step_workflow(
                 rollback = completed.get("rollback_command") or completed.get("compensation_command")
                 if not rollback: continue
                 try:
-                    rb = execute_command(rollback, working_directory=working_directory, approved=approved)
+                    rb = execute_command(rollback, working_directory=working_directory, approved=approved, prompt=prompt)
                     rollback_results.append({"step_id": completed.get("step_id", completed.get("step")), "result": asdict(rb)})
                 except Exception as exc:
                     rollback_results.append({"step_id": completed.get("step_id", completed.get("step")), "error": str(exc)})
@@ -1119,6 +1291,7 @@ def execute_multi_step_workflow(
         "steps_executed": len(step_results), "total_steps": len(steps),
         "step_results": step_results, "output": "\n\n".join(combined_output),
         "failure_policy": {"max_attempts": max_attempts, "continue_on_error": continue_on_error, "rollback_enabled": True},
+        "prompt": prompt,
     }
 
 
@@ -1130,6 +1303,7 @@ def execute_conditional_workflow(
     approved: bool = False,
     condition_retries: int = 1,
     cancel_event: Optional[threading.Event] = None,
+    prompt: Optional[str] = None,
 ) -> dict:
     """Evaluate a strict predicate and execute at most one branch.
 
@@ -1139,7 +1313,7 @@ def execute_conditional_workflow(
     """
     if not condition_script or not condition_script.strip():
         return {"success": False, "status": "invalid_condition", "condition_met": False,
-                "branch_executed": "none", "condition_output": "Condition script is empty."}
+                "branch_executed": "none", "condition_output": "Condition script is empty.", "prompt": prompt}
 
     attempts = max(1, min(3, int(condition_retries or 1)))
     cond_result = None
@@ -1151,40 +1325,41 @@ def execute_conditional_workflow(
                 approved=approved,
                 timeout=min(DEFAULT_TIMEOUT, 30),
                 cancel_event=cancel_event,
+                prompt=prompt,
             )
         except Exception as exc:
             return {"success": False, "status": "condition_exception", "condition_met": False,
-                    "branch_executed": "none", "condition_output": str(exc)}
+                    "branch_executed": "none", "condition_output": str(exc), "prompt": prompt}
         if cond_result.exit_code in (0, 1) or cond_result.status in {"syntax_error", "policy_blocked", "approval_required", "cancelled", "timeout"}:
             break
 
     if cond_result is None:
-        return {"success": False, "status": "condition_no_result", "condition_met": False, "branch_executed": "none"}
+        return {"success": False, "status": "condition_no_result", "condition_met": False, "branch_executed": "none", "prompt": prompt}
 
     if cond_result.status in {"syntax_error", "policy_blocked", "approval_required", "cancelled", "timeout"}:
         return {"success": False, "status": "condition_evaluation_failed", "condition_met": False,
                 "branch_executed": "none", "condition_output": cond_result.output,
-                "condition_result": asdict(cond_result)}
+                "condition_result": asdict(cond_result), "prompt": prompt}
 
     if cond_result.exit_code not in (0, 1):
         return {"success": False, "status": "condition_evaluation_failed", "condition_met": False,
                 "branch_executed": "none", "condition_output": cond_result.output,
                 "condition_result": asdict(cond_result),
-                "error": f"Condition exited with unsupported code {cond_result.exit_code}; expected 0 or 1."}
+                "error": f"Condition exited with unsupported code {cond_result.exit_code}; expected 0 or 1.", "prompt": prompt}
 
     condition_met = cond_result.exit_code == 0
     branch_script = on_success if condition_met else on_failure
     if not branch_script:
         return {"success": True, "status": "condition_true_no_branch" if condition_met else "condition_false_no_branch",
                 "condition_met": condition_met, "branch_executed": "none",
-                "condition_output": cond_result.output, "condition_result": asdict(cond_result), "output": cond_result.output}
+                "condition_output": cond_result.output, "condition_result": asdict(cond_result), "output": cond_result.output, "prompt": prompt}
 
     try:
-        branch_result = execute_with_recovery(branch_script, working_directory=working_directory, approved=approved, max_attempts=2, cancel_event=cancel_event)
+        branch_result = execute_with_recovery(branch_script, working_directory=working_directory, approved=approved, max_attempts=2, cancel_event=cancel_event, prompt=prompt)
     except Exception as exc:
         return {"success": False, "status": "branch_exception", "condition_met": condition_met,
                 "branch_executed": "on_success" if condition_met else "on_failure",
-                "condition_output": cond_result.output, "condition_result": asdict(cond_result), "error": str(exc)}
+                "condition_output": cond_result.output, "condition_result": asdict(cond_result), "error": str(exc), "prompt": prompt}
     return {
         "success": branch_result.success,
         "status": "completed" if branch_result.success else "failed",
@@ -1194,6 +1369,7 @@ def execute_conditional_workflow(
         "condition_result": asdict(cond_result),
         "branch_result": asdict(branch_result),
         "output": f"Condition ({'PASS' if condition_met else 'FALSE'}):\n{cond_result.output}\n\nBranch Output:\n{branch_result.output}",
+        "prompt": prompt,
     }
 
 
@@ -1624,6 +1800,7 @@ def execute_command(
         Callable[[str, str], None]
     ] = None,
     cancel_event: Optional[threading.Event] = None,
+    prompt: Optional[str] = None,
 ) -> ExecutionResult:
 
     if not command or not command.strip():
@@ -2005,10 +2182,22 @@ def execute_command(
     # --------------------------------------------------------
 
     verification: dict[str, Any] = {}
+    is_strict_daemon = False
+
+    TRANSIENT_CLI_COMMANDS = {
+        "top", "free", "df", "ps", "uname", "uptime", "ls", "grep", "awk", "sed", "cat", 
+        "echo", "head", "tail", "wc", "find", "curl", "wget", "bash", "sh", "zsh", "python", 
+        "python3", "node", "git", "rustc", "cargo", "vmstat", "vm_stat", "ifconfig", "ip", 
+        "ss", "netstat", "touch", "rm", "mkdir", "cp", "mv", "chmod", "chown", "tar", "zip", 
+        "unzip", "which", "where", "where.exe", "whoami", "hostname", "date", "ping", "traceroute",
+        "docker", "kubectl", "systemctl", "journalctl", "dmesg", "lsof", "env", "printenv"
+    }
 
     if expected_process:
-        # GUI applications may take a moment to register their process after the
-        # launcher exits. Poll briefly before declaring verification failure.
+        proc_clean = expected_process.strip().lower()
+        if " " not in proc_clean and proc_clean not in TRANSIENT_CLI_COMMANDS:
+            is_strict_daemon = True
+
         detected = False
         for _ in range(10):
             if verify_process(expected_process):
@@ -2016,7 +2205,7 @@ def execute_command(
                 break
             time.sleep(0.15)
         verification["process_detected"] = detected
-        verification["process_verification"] = "observed" if detected else "not_observed"
+        verification["process_verification"] = "observed" if detected else ("not_observed" if is_strict_daemon else "transient_cli_or_description")
 
     if expected_path:
 
@@ -2055,7 +2244,7 @@ def execute_command(
     # Verification is part of success, not a best-effort decoration.
     verification_passed = True
     verification_failures = []
-    if expected_process and not verification.get("process_detected", False):
+    if expected_process and is_strict_daemon and not verification.get("process_detected", False):
         verification_passed = False
         verification_failures.append(f"Expected process was not observed: {expected_process}")
     if expected_path and not verification.get("expected_path", {}).get("exists", False):
@@ -2131,6 +2320,7 @@ def execute_command(
         started_at=started,
         finished_at=finished,
         verification_passed=verification_passed,
+        prompt=prompt,
     )
 
     REGISTRY.finish(
@@ -2511,6 +2701,7 @@ class ExecutionHandler(
                     self._json_response(response, 200)
                     return
 
+                prompt = data.get("prompt") or data.get("natural_language_prompt") or data.get("request_prompt")
                 result = execute_with_recovery(
                     command,
                     max_attempts=int(data.get("max_attempts", 2)),
@@ -2527,6 +2718,7 @@ class ExecutionHandler(
                     expected_absent_path=data.get("expected_absent_path"),
                     dry_run=bool(data.get("dry_run", False)),
                     approved=bool(data.get("approved", False)),
+                    prompt=prompt,
                 )
                 response = asdict(result)
                 response["validated"] = result.success
@@ -2542,11 +2734,13 @@ class ExecutionHandler(
                     ConsoleLogger.log_request("POST", "/execute/multi-step", 400, "Steps list required")
                     self._json_response({"status": "error", "error": "steps list required."}, 400)
                     return
+                prompt = data.get("prompt") or data.get("natural_language_prompt") or data.get("request_prompt")
                 res = execute_multi_step_workflow(
                     steps=steps,
                     working_directory=data.get("working_directory"),
                     continue_on_error=bool(data.get("continue_on_error", False)),
                     approved=bool(data.get("approved", False)),
+                    prompt=prompt,
                 )
                 ConsoleLogger.log_multistep(res)
                 self._json_response(res, 200)
@@ -2561,12 +2755,14 @@ class ExecutionHandler(
                     ConsoleLogger.log_request("POST", "/execute/conditional", 400, "Missing condition/on_success")
                     self._json_response({"status": "error", "error": "condition_script and on_success are required."}, 400)
                     return
+                prompt = data.get("prompt") or data.get("natural_language_prompt") or data.get("request_prompt")
                 res = execute_conditional_workflow(
                     condition_script=cond_script,
                     on_success=on_succ,
                     on_failure=on_fail,
                     working_directory=data.get("working_directory"),
                     approved=bool(data.get("approved", False)),
+                    prompt=prompt,
                 )
                 ConsoleLogger.log_conditional(res)
                 self._json_response(res, 200)

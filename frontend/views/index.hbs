@@ -1625,7 +1625,7 @@
                                     await fetch('http://localhost:8003/execute', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ script, approved: true })
+                                        body: JSON.stringify({ script, prompt, approved: true })
                                     });
                                     runBtn.innerText = '✅ Launched!';
                                     updateLifecycle(
@@ -1658,6 +1658,7 @@
                                         body: JSON.stringify({
                                             script: data.shell_script,
                                             expected_process: data.expected_process,
+                                            prompt,
                                             approved: true
                                         })
                                     });
@@ -1803,7 +1804,7 @@
                                 const execRes = await fetch('http://localhost:8003/execute', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ script, approved: true })
+                                    body: JSON.stringify({ script, prompt, approved: true })
                                 });
                                 const execData = await execRes.json();
                                 statusSpan.className = "ml-2 text-emerald-400 font-bold text-xs";
@@ -1856,6 +1857,7 @@
                                     body: JSON.stringify({
                                         script: data.shell_script,
                                         expected_process: data.expected_process,
+                                        prompt,
                                         approved: true
                                     })
                                 });
@@ -1985,7 +1987,7 @@
                 const res = await fetch('http://localhost:8003/execute/multi-step', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ steps, approved: true })
+                    body: JSON.stringify({ steps, prompt: document.getElementById('prompt-input')?.value || '', approved: true })
                 });
                 const data = await res.json();
                 const isOverallSuccess = data.success === true || (data.status === 'completed' && data.success !== false);
