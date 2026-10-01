@@ -69,57 +69,311 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
+import sys
+import webbrowser
+
+
+# Enable ANSI Virtual Terminal processing on Windows if applicable
+if platform.system().lower() == "windows":
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
 
 
 HOST = os.getenv("OMNISHELL_HOST", "127.0.0.1")
 PORT = int(os.getenv("OMNISHELL_PORT", "8003"))
+DEFAULT_TIMEOUT = float(os.getenv("OMNISHELL_DEFAULT_TIMEOUT", "300"))
+MAX_TIMEOUT = float(os.getenv("OMNISHELL_MAX_TIMEOUT", "3600"))
+ENFORCE_POLICY = os.getenv("OMNISHELL_ENFORCE_POLICY", "false").lower() in {"1", "true", "yes", "on"}
+REQUIRE_RISK_APPROVAL = os.getenv("OMNISHELL_REQUIRE_RISK_APPROVAL", "true").lower() in {"1", "true", "yes", "on"}
+MAX_HISTORY = int(os.getenv("OMNISHELL_MAX_HISTORY", "500"))
+MAX_RECOVERY_ATTEMPTS = int(os.getenv("OMNISHELL_MAX_RECOVERY_ATTEMPTS", "5"))
+EXECUTION_BUDGET_SECONDS = float(os.getenv("OMNISHELL_EXECUTION_BUDGET_SECONDS", "300"))
+MAX_OUTPUT_BYTES = int(os.getenv("OMNISHELL_MAX_OUTPUT_BYTES", str(10 * 1024 * 1024)))
+SCHEDULER_ENABLED = os.getenv("OMNISHELL_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+SCHEDULER_INTERVAL = max(1, int(os.getenv("OMNISHELL_SCHEDULER_INTERVAL_SECONDS", "2")))
+APPROVAL_TIMEOUT = max(30, int(os.getenv("OMNISHELL_APPROVAL_TIMEOUT_SECONDS", "300")))
+BACKEND_URL = os.getenv("OMNISHELL_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+APPROVAL_UI_BASE = os.getenv("OMNISHELL_APPROVAL_UI_BASE", "http://127.0.0.1:3000/scheduled-approval").rstrip("/")
+APPROVAL_BACKEND_BASE = os.getenv("OMNISHELL_APPROVAL_BACKEND_BASE", f"{BACKEND_URL}/api/scheduled-tasks").rstrip("/")
+SCHEDULER_HTTP_TIMEOUT = float(os.getenv("OMNISHELL_SCHEDULER_HTTP_TIMEOUT", "5"))
+SCHEDULER_MAX_WORKERS = max(1, int(os.getenv("OMNISHELL_SCHEDULER_MAX_WORKERS", "4")))
+SCHEDULER_UPLOAD_MAX_ATTEMPTS = int(os.getenv("OMNISHELL_UPLOAD_MAX_ATTEMPTS", "5"))
+SCHEDULER_UPLOAD_BUDGET_SECONDS = float(os.getenv("OMNISHELL_UPLOAD_BUDGET_SECONDS", "30"))
 
-DEFAULT_TIMEOUT = float(
-    os.getenv("OMNISHELL_DEFAULT_TIMEOUT", "300")
-)
 
-MAX_TIMEOUT = float(
-    os.getenv("OMNISHELL_MAX_TIMEOUT", "3600")
-)
+# ============================================================
+# RICH ANSI CONSOLE FORMATTER & LOGGER
+# ============================================================
 
-ENFORCE_POLICY = (
-    os.getenv("OMNISHELL_ENFORCE_POLICY", "false").lower()
-    in {"1", "true", "yes", "on"}
-)
+class ConsoleLogger:
+    """Provides structured, high-readability terminal logs with ANSI styling."""
 
-# Critical/high-risk host mutations require explicit approval by default.
-# OMNISHELL_ENFORCE_POLICY can still be enabled to apply the same gate to all
-# policy-classified commands; this separate switch makes dangerous operations
-# fail closed even when legacy deployments leave ENFORCE_POLICY disabled.
-REQUIRE_RISK_APPROVAL = (
-    os.getenv("OMNISHELL_REQUIRE_RISK_APPROVAL", "true").lower()
-    in {"1", "true", "yes", "on"}
-)
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    ITALIC = "\033[3m"
+    UNDERLINE = "\033[4m"
 
-MAX_HISTORY = int(
-    os.getenv("OMNISHELL_MAX_HISTORY", "500")
-)
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
 
-MAX_RECOVERY_ATTEMPTS = int(
-    os.getenv("OMNISHELL_MAX_RECOVERY_ATTEMPTS", "5")
-)
+    GRAY = "\033[90m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_MAGENTA = "\033[95m"
+    BRIGHT_CYAN = "\033[96m"
+    BRIGHT_WHITE = "\033[97m"
 
-EXECUTION_BUDGET_SECONDS = float(
-    os.getenv("OMNISHELL_EXECUTION_BUDGET_SECONDS", "300")
-)
+    BG_GREEN = "\033[42m\033[30m"
+    BG_RED = "\033[41m\033[37m"
+    BG_YELLOW = "\033[43m\033[30m"
+    BG_BLUE = "\033[44m\033[37m"
+    BG_MAGENTA = "\033[45m\033[37m"
+    BG_CYAN = "\033[46m\033[30m"
 
-MAX_OUTPUT_BYTES = int(
-    os.getenv("OMNISHELL_MAX_OUTPUT_BYTES", str(10 * 1024 * 1024))
-)
+    _lock = threading.Lock()
 
-SCHEDULER_UPLOAD_MAX_ATTEMPTS = int(
-    os.getenv("OMNISHELL_UPLOAD_MAX_ATTEMPTS", "5")
-)
+    @classmethod
+    def timestamp(cls) -> str:
+        return time.strftime("%H:%M:%S")
 
-SCHEDULER_UPLOAD_BUDGET_SECONDS = float(
-    os.getenv("OMNISHELL_UPLOAD_BUDGET_SECONDS", "30")
-)
+    @classmethod
+    def banner(cls, info: dict[str, Any]):
+        with cls._lock:
+            w = 72
+            print()
+            print(f"{cls.BRIGHT_CYAN}╔{'═' * (w - 2)}╗{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.BOLD}{cls.BRIGHT_WHITE}{'OMNISHELL HOST EXECUTION ENGINE V4':^{w - 2}}{cls.RESET}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.DIM}{cls.BRIGHT_BLUE}{'Intelligent Autonomous Host Bridge & Guarded Execution':^{w - 2}}{cls.RESET}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}╠{'═' * (w - 2)}╣{cls.RESET}")
 
+            def row(k1, v1, k2, v2):
+                col1 = f"  {cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k1}:{cls.RESET} {v1}"
+                col2 = f"{cls.BRIGHT_CYAN}●{cls.RESET} {cls.BOLD}{k2}:{cls.RESET} {v2}"
+                strip_ansi = lambda s: re.sub(r'\033\[[0-9;]*m', '', s)
+                s1 = strip_ansi(col1)
+                s2 = strip_ansi(col2)
+                pad = w - 4 - len(s1) - len(s2)
+                if pad < 2: pad = 2
+                line = f"║{col1}{' ' * pad}{col2} ║"
+                print(line)
+
+            policy_str = f"{cls.BRIGHT_GREEN}PERMISSIVE (Guarded){cls.RESET}" if not ENFORCE_POLICY else f"{cls.BRIGHT_YELLOW}ENFORCED{cls.RESET}"
+            sched_str = f"{cls.BRIGHT_GREEN}ACTIVE (Poll: {SCHEDULER_INTERVAL}s){cls.RESET}" if SCHEDULER_ENABLED else f"{cls.GRAY}DISABLED{cls.RESET}"
+
+            row("OS", f"{info.get('os')} ({info.get('arch')})", "Shell", f"{info.get('shell')}")
+            row("Host", f"http://{info.get('host')}:{info.get('port')}", "Backend", f"{info.get('backend')}")
+            row("Policy", policy_str, "Terminal", f"{info.get('terminal') or 'none'}")
+            row("Scheduler", sched_str, "Pool", f"{SCHEDULER_MAX_WORKERS} Workers")
+
+            print(f"{cls.BRIGHT_CYAN}╠{'═' * (w - 2)}╣{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}  {cls.BOLD}{cls.BRIGHT_WHITE}Available System Endpoints:{cls.RESET}{' ' * (w - 31)}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} Health:     {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/health{cls.RESET}{' ' * max(2, w - 43 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} System:     {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/system{cls.RESET}{' ' * max(2, w - 43 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}║{cls.RESET}   {cls.BRIGHT_GREEN}➜{cls.RESET} Executions: {cls.UNDERLINE}http://{info.get('host')}:{info.get('port')}/executions{cls.RESET}{' ' * max(2, w - 47 - len(str(info.get('host'))) - len(str(info.get('port'))))}{cls.BRIGHT_CYAN}║{cls.RESET}")
+            print(f"{cls.BRIGHT_CYAN}╚{'═' * (w - 2)}╝{cls.RESET}")
+            print()
+
+    @classmethod
+    def log_request(cls, method: str, path: str, status_code: int = 200, summary: str = "", duration_ms: Optional[int] = None):
+        with cls._lock:
+            ts = cls.timestamp()
+            if method == "OPTIONS":
+                print(f"{cls.GRAY}[{ts}] ⚙️  OPTIONS {path} → 200 OK (CORS Preflight){cls.RESET}")
+                return
+
+            if status_code < 300:
+                s_color = f"{cls.BRIGHT_GREEN}{status_code} OK{cls.RESET}"
+            elif status_code < 400:
+                s_color = f"{cls.BRIGHT_CYAN}{status_code}{cls.RESET}"
+            elif status_code < 500:
+                s_color = f"{cls.BRIGHT_YELLOW}{status_code} CLIENT ERROR{cls.RESET}"
+            else:
+                s_color = f"{cls.BRIGHT_RED}{status_code} SERVER ERROR{cls.RESET}"
+
+            dur_str = f" {cls.DIM}({duration_ms}ms){cls.RESET}" if duration_ms is not None else ""
+            sum_str = f" {cls.GRAY}• {summary}{cls.RESET}" if summary else ""
+
+            icon = "🌐" if "browser" in path else ("⚡" if "execute" in path else ("🔍" if method == "GET" else "📡"))
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} {icon} {cls.BOLD}{cls.BRIGHT_WHITE}{method:<5}{cls.RESET} {cls.CYAN}{path:<24}{cls.RESET} → {s_color}{dur_str}{sum_str}")
+
+    @classmethod
+    def log_execution(cls, res: Any):
+        with cls._lock:
+            ts = cls.timestamp()
+            w = 72
+            success = bool(getattr(res, "success", False) or (isinstance(res, dict) and res.get("success")))
+            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
+
+            cmd = getattr(res, "command", "") if hasattr(res, "command") else (res.get("command", "") if isinstance(res, dict) else "")
+            exec_id = getattr(res, "execution_id", "") if hasattr(res, "execution_id") else (res.get("execution_id", "") if isinstance(res, dict) else "")
+            dur = getattr(res, "duration_ms", 0) if hasattr(res, "duration_ms") else (res.get("duration_ms", 0) if isinstance(res, dict) else 0)
+            exit_code = getattr(res, "exit_code", None) if hasattr(res, "exit_code") else (res.get("exit_code") if isinstance(res, dict) else None)
+            work_dir = getattr(res, "working_directory", "") if hasattr(res, "working_directory") else (res.get("working_directory", "") if isinstance(res, dict) else "")
+            risk_level = getattr(res, "risk_level", "safe") if hasattr(res, "risk_level") else (res.get("risk_level", "safe") if isinstance(res, dict) else "safe")
+            output_text = getattr(res, "output", "") if hasattr(res, "output") else (res.get("output", "") if isinstance(res, dict) else "")
+
+            print()
+            print(f"{border_color}┌─ ⚡ HOST COMMAND EXECUTION {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}ID:{cls.RESET} {cls.DIM}{str(exec_id)[:16]}...{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Duration:{cls.RESET} {dur}ms  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Exit:{cls.RESET} {cls.BRIGHT_GREEN if exit_code == 0 else cls.BRIGHT_RED}{exit_code}{cls.RESET}")
+
+            cmd_preview = str(cmd).replace("\n", " ")
+            if len(cmd_preview) > 60:
+                cmd_preview = cmd_preview[:57] + "..."
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Command:{cls.RESET} {cls.BRIGHT_YELLOW}{cmd_preview}{cls.RESET}")
+
+            if work_dir:
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}WorkDir:{cls.RESET} {cls.GRAY}{work_dir}{cls.RESET}")
+
+            if risk_level:
+                r_color = cls.BRIGHT_GREEN if str(risk_level).lower() == "safe" else (cls.BRIGHT_YELLOW if str(risk_level).lower() == "moderate" else cls.BRIGHT_RED)
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Risk:{cls.RESET} {r_color}{str(risk_level).upper()}{cls.RESET}")
+
+            out_sample = str(output_text or "").strip()
+            if out_sample:
+                lines = out_sample.splitlines()
+                preview_lines = lines[:4]
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Output Preview ({len(lines)} lines):{cls.RESET}")
+                for pl in preview_lines:
+                    pl_clean = pl[:64]
+                    print(f"{border_color}│{cls.RESET}    {cls.DIM}│{cls.RESET} {cls.WHITE}{pl_clean}{cls.RESET}")
+                if len(lines) > 4:
+                    print(f"{border_color}│{cls.RESET}    {cls.DIM}└── ... ({len(lines) - 4} more lines hidden){cls.RESET}")
+            else:
+                print(f"{border_color}│{cls.RESET}  {cls.DIM}Output: [No stdout/stderr recorded]{cls.RESET}")
+
+            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+
+    @classmethod
+    def log_multistep(cls, res: dict[str, Any]):
+        with cls._lock:
+            w = 72
+            ts = cls.timestamp()
+            success = bool(res.get("success", False))
+            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
+            step_list = res.get("step_results") or res.get("steps") or []
+            total_steps = res.get("total_steps") or len(step_list)
+            completed_steps = sum(1 for s in step_list if s.get("success"))
+
+            print()
+            print(f"{border_color}┌─ 📋 MULTI-STEP WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Total Steps:{cls.RESET} {total_steps}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Completed:{cls.RESET} {completed_steps}/{total_steps}")
+
+            for idx, st in enumerate(step_list):
+                s_ok = st.get("success", False)
+                s_icon = f"{cls.BRIGHT_GREEN}✓{cls.RESET}" if s_ok else f"{cls.BRIGHT_RED}✕{cls.RESET}"
+                s_desc = st.get("name") or st.get("description") or f"Step {idx + 1}"
+                s_cmd = (st.get("command") or st.get("script") or "")[:50]
+                s_exit = st.get("exit_code")
+                exit_str = f" {cls.GRAY}[Exit: {cls.BRIGHT_GREEN if s_exit == 0 else cls.BRIGHT_RED}{s_exit}{cls.GRAY}]{cls.RESET}" if s_exit is not None else ""
+                print(f"{border_color}│{cls.RESET}  {s_icon} {cls.BOLD}Step {idx + 1}:{cls.RESET} {cls.WHITE}{s_desc}{cls.RESET}{exit_str}")
+                if s_cmd:
+                    print(f"{border_color}│{cls.RESET}    {cls.DIM}${cls.RESET} {cls.BRIGHT_YELLOW}{s_cmd}{cls.RESET}")
+
+            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+
+    @classmethod
+    def log_conditional(cls, res: dict[str, Any]):
+        with cls._lock:
+            w = 72
+            ts = cls.timestamp()
+            success = res.get("success", False)
+            status_badge = f"{cls.BG_GREEN} ✓ COMPLETED {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            border_color = cls.BRIGHT_GREEN if success else cls.BRIGHT_RED
+
+            print()
+            print(f"{border_color}┌─ 🔀 CONDITIONAL WORKFLOW {status_badge} {border_color}{'─' * max(2, w - 38)}┐{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Branch:{cls.RESET} {cls.BRIGHT_CYAN}{str(res.get('branch_taken', 'unknown')).upper()}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Cond Exit:{cls.RESET} {res.get('condition_exit_code')}")
+            cond_res = res.get("condition_result", {})
+            cond_cmd = (cond_res.get("command") or "")[:55]
+            if cond_cmd:
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Condition:{cls.RESET} {cls.YELLOW}{cond_cmd}{cls.RESET}")
+            branch_res = res.get("branch_result", {})
+            branch_cmd = (branch_res.get("command") or "")[:55]
+            if branch_cmd:
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Executed Action:{cls.RESET} {cls.BRIGHT_WHITE}{branch_cmd}{cls.RESET}")
+            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+
+    @classmethod
+    def log_approval_prompt(cls, task_id: int, prompt: str, result: dict[str, Any]):
+        with cls._lock:
+            w = 72
+            ts = cls.timestamp()
+            print()
+            print(f"{cls.BRIGHT_YELLOW}┌─ 🔒 HUMAN-IN-THE-LOOP APPROVAL REQUIRED {'─' * (w - 42)}┐{cls.RESET}")
+            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Task ID:{cls.RESET} {cls.BRIGHT_CYAN}#{task_id}{cls.RESET}")
+            prompt_preview = (prompt or "")[:60]
+            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Prompt:{cls.RESET} \"{cls.BRIGHT_WHITE}{prompt_preview}{cls.RESET}\"")
+            browser_name = result.get("browser", "default-browser")
+            method = result.get("method", "native-new-window")
+            url = result.get("url", "")
+            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Browser Launched:{cls.RESET} {cls.BRIGHT_GREEN}{browser_name}{cls.RESET} ({method})")
+            if url:
+                url_disp = url if len(url) <= 60 else (url[:57] + "...")
+                print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.BOLD}Approval Document:{cls.RESET} {cls.UNDERLINE}{cls.BRIGHT_CYAN}{url_disp}{cls.RESET}")
+            print(f"{cls.BRIGHT_YELLOW}│{cls.RESET}  {cls.DIM}Waiting for human confirmation in the opened browser window...{cls.RESET}")
+            print(f"{cls.BRIGHT_YELLOW}└{'─' * (w - 1)}┘{cls.RESET}")
+
+    @classmethod
+    def log_scheduled_run(cls, task_id: int, is_recurring: bool, rule: str, command: str, result: dict[str, Any]):
+        with cls._lock:
+            w = 72
+            ts = cls.timestamp()
+            success = result.get("success", False)
+            badge_text = f"{cls.BG_GREEN} ✓ SUCCESS {cls.RESET}" if success else f"{cls.BG_RED} ✕ FAILED {cls.RESET}"
+            border_color = cls.BRIGHT_MAGENTA if is_recurring else cls.BRIGHT_BLUE
+            title = f"🔁 RECURRING WORKFLOW ITERATION {badge_text}" if is_recurring else f"⏰ SCHEDULED TASK EXECUTION {badge_text}"
+
+            print()
+            print(f"{border_color}┌─ {title} {border_color}{'─' * max(2, w - 42)}┐{cls.RESET}")
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Time:{cls.RESET} {ts}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Task ID:{cls.RESET} {cls.BRIGHT_CYAN}#{task_id}{cls.RESET}  {cls.GRAY}│{cls.RESET}  {cls.BOLD}Rule:{cls.RESET} {cls.BRIGHT_YELLOW}{rule or 'one-time'}{cls.RESET}")
+            cmd_preview = (command or "").replace("\n", " ")[:60]
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Action:{cls.RESET} {cls.BRIGHT_WHITE}{cmd_preview}{cls.RESET}")
+            if result.get("browser_launch"):
+                bl = result["browser_launch"]
+                print(f"{border_color}│{cls.RESET}  {cls.BOLD}Browser Target:{cls.RESET} {cls.CYAN}{bl.get('url')}{cls.RESET} ({bl.get('browser')})")
+            exit_code = result.get("exit_code")
+            dur = result.get("duration_ms", 0)
+            print(f"{border_color}│{cls.RESET}  {cls.BOLD}Telemetry:{cls.RESET} Exit Code: {cls.BRIGHT_GREEN if exit_code == 0 else cls.BRIGHT_RED}{exit_code}{cls.RESET} | Duration: {dur}ms")
+            print(f"{border_color}└{'─' * (w - 1)}┘{cls.RESET}")
+
+    @classmethod
+    def log_notification(cls, title: str, msg: str):
+        with cls._lock:
+            ts = cls.timestamp()
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} 🔔 {cls.BOLD}{cls.BRIGHT_MAGENTA}DESKTOP NOTIFICATION{cls.RESET} → {cls.WHITE}{title}{cls.RESET}: {cls.DIM}{msg}{cls.RESET}")
+
+    @classmethod
+    def log_info(cls, msg: str):
+        with cls._lock:
+            ts = cls.timestamp()
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ℹ️  {cls.CYAN}{msg}{cls.RESET}")
+
+    @classmethod
+    def log_warn(cls, msg: str):
+        with cls._lock:
+            ts = cls.timestamp()
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ⚠️  {cls.BRIGHT_YELLOW}{msg}{cls.RESET}")
+
+    @classmethod
+    def log_error(cls, msg: str):
+        with cls._lock:
+            ts = cls.timestamp()
+            print(f"{cls.GRAY}[{ts}]{cls.RESET} ❌ {cls.BRIGHT_RED}{msg}{cls.RESET}")
 
 
 # ============================================================
@@ -2103,7 +2357,7 @@ class ExecutionHandler(
     # --------------------------------------------------------
 
     def do_OPTIONS(self):
-
+        ConsoleLogger.log_request("OPTIONS", self.path, 200, "CORS Preflight")
         self._json_response(
             {
                 "status": "ok"
@@ -2115,13 +2369,14 @@ class ExecutionHandler(
     # --------------------------------------------------------
 
     def do_GET(self):
-
+        start_t = time.monotonic()
         try:
-
             if self.path in {
                 "/",
                 "/health",
             }:
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "Health Check", dur)
                 self._json_response(
                     {
                         "status": "ok",
@@ -2144,18 +2399,26 @@ class ExecutionHandler(
                     "approval_backend_base": APPROVAL_BACKEND_BASE,
                     "gui_available": _gui_available(),
                 })
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "Scheduler Status", dur)
                 self._json_response(state)
                 return
 
             if self.path == "/system":
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "System Info", dur)
                 self._json_response(get_system_info())
                 return
 
             if self.path == "/system/metrics":
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "System Metrics", dur)
                 self._json_response(get_realtime_metrics())
                 return
 
             if self.path == "/capabilities":
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "Capabilities (19 Supported)", dur)
                 self._json_response({
                     "service": "OmniShell Host Execution Agent V4",
                     "supported_capabilities": [
@@ -2170,24 +2433,34 @@ class ExecutionHandler(
                 return
 
             if self.path == "/browsers":
-                self._json_response({"browsers": get_installed_browsers()})
+                browsers = get_installed_browsers()
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, f"Installed Browsers ({len(browsers)} found)", dur)
+                self._json_response({"browsers": browsers})
                 return
 
             if self.path == "/processes":
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, "Process List", dur)
                 self._json_response({"processes": list_processes()})
                 return
 
             if self.path == "/executions":
                 history = [asdict(result) for result in REGISTRY.all_history()]
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("GET", self.path, 200, f"History ({len(history)} executions)", dur)
                 self._json_response({"executions": history})
                 return
 
             if self.path.startswith("/executions/"):
                 execution_id = self.path.split("/executions/", 1)[1].split("/", 1)[0]
                 task = REGISTRY.get(execution_id)
+                dur = int((time.monotonic() - start_t) * 1000)
                 if not task:
+                    ConsoleLogger.log_request("GET", self.path, 404, f"Execution {execution_id[:8]} Not Found", dur)
                     self._json_response({"error": "Execution not found."}, 404)
                     return
+                ConsoleLogger.log_request("GET", self.path, 200, f"Execution {execution_id[:8]}", dur)
                 self._json_response({
                     "execution_id": execution_id,
                     "finished": task.finished,
@@ -2197,9 +2470,11 @@ class ExecutionHandler(
                 })
                 return
 
+            ConsoleLogger.log_request("GET", self.path, 404, "Not Found")
             self._json_response({"error": "Not found."}, 404)
 
         except Exception as exc:
+            ConsoleLogger.log_error(f"GET {self.path} Exception: {exc}")
             self._json_response({"error": str(exc)}, 500)
 
     # --------------------------------------------------------
@@ -2207,11 +2482,13 @@ class ExecutionHandler(
     # --------------------------------------------------------
 
     def do_POST(self):
+        start_t = time.monotonic()
         try:
             if self.path == "/execute":
                 data = self._read_json()
                 command = data.get("script") or data.get("command")
                 if not command:
+                    ConsoleLogger.log_request("POST", "/execute", 400, "Missing script/command")
                     self._json_response({"status": "error", "error": "Missing script/command."}, 400)
                     return
 
@@ -2219,6 +2496,8 @@ class ExecutionHandler(
                 async_mode = bool(data.get("async", False))
                 if async_mode:
                     execution_id = start_async_execution(data)
+                    dur = int((time.monotonic() - start_t) * 1000)
+                    ConsoleLogger.log_request("POST", "/execute", 202, f"Async execution accepted ({execution_id[:8]})", dur)
                     self._json_response({"status": "accepted", "execution_id": execution_id, "risk": risk}, 202)
                     return
 
@@ -2226,6 +2505,9 @@ class ExecutionHandler(
                 if cached:
                     response = asdict(cached)
                     response["deduplicated"] = True
+                    dur = int((time.monotonic() - start_t) * 1000)
+                    ConsoleLogger.log_request("POST", "/execute", 200, "Deduplicated cached execution", dur)
+                    ConsoleLogger.log_execution(cached)
                     self._json_response(response, 200)
                     return
 
@@ -2249,6 +2531,7 @@ class ExecutionHandler(
                 response = asdict(result)
                 response["validated"] = result.success
                 response["status"] = result.status
+                ConsoleLogger.log_execution(result)
                 self._json_response(response, 200)
                 return
 
@@ -2256,6 +2539,7 @@ class ExecutionHandler(
                 data = self._read_json()
                 steps = data.get("steps") or []
                 if not isinstance(steps, list) or not steps:
+                    ConsoleLogger.log_request("POST", "/execute/multi-step", 400, "Steps list required")
                     self._json_response({"status": "error", "error": "steps list required."}, 400)
                     return
                 res = execute_multi_step_workflow(
@@ -2264,6 +2548,7 @@ class ExecutionHandler(
                     continue_on_error=bool(data.get("continue_on_error", False)),
                     approved=bool(data.get("approved", False)),
                 )
+                ConsoleLogger.log_multistep(res)
                 self._json_response(res, 200)
                 return
 
@@ -2273,6 +2558,7 @@ class ExecutionHandler(
                 on_succ = data.get("on_success")
                 on_fail = data.get("on_failure")
                 if not cond_script or not on_succ:
+                    ConsoleLogger.log_request("POST", "/execute/conditional", 400, "Missing condition/on_success")
                     self._json_response({"status": "error", "error": "condition_script and on_success are required."}, 400)
                     return
                 res = execute_conditional_workflow(
@@ -2282,6 +2568,7 @@ class ExecutionHandler(
                     working_directory=data.get("working_directory"),
                     approved=bool(data.get("approved", False)),
                 )
+                ConsoleLogger.log_conditional(res)
                 self._json_response(res, 200)
                 return
 
@@ -2290,6 +2577,7 @@ class ExecutionHandler(
                 title = str(data.get("title") or "OmniShell Notification")
                 msg = str(data.get("message") or "")
                 sent = send_desktop_notification(title, msg)
+                ConsoleLogger.log_notification(title, msg)
                 self._json_response({"status": "sent" if sent else "unsupported", "title": title, "message": msg}, 200)
                 return
 
@@ -2297,9 +2585,12 @@ class ExecutionHandler(
                 data = self._read_json()
                 execution_id = data.get("execution_id")
                 if not execution_id:
+                    ConsoleLogger.log_request("POST", "/cancel", 400, "Missing execution_id")
                     self._json_response({"error": "execution_id is required."}, 400)
                     return
                 cancelled = REGISTRY.cancel(execution_id)
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("POST", "/cancel", 200, f"Cancelled ID: {execution_id[:12]} (status: {cancelled})", dur)
                 self._json_response({"execution_id": execution_id, "cancelled": cancelled})
                 return
 
@@ -2309,7 +2600,10 @@ class ExecutionHandler(
                 if not command:
                     self._json_response({"error": "Missing script/command."}, 400)
                     return
-                self._json_response(classify_command(command))
+                risk_info = classify_command(command)
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("POST", "/classify", 200, f"Risk: {risk_info.get('level', 'safe').upper()}", dur)
+                self._json_response(risk_info)
                 return
 
             if self.path == "/dry-run":
@@ -2318,14 +2612,18 @@ class ExecutionHandler(
                 if not command:
                     self._json_response({"error": "Missing script/command."}, 400)
                     return
+                risk_info = classify_command(command)
+                dur = int((time.monotonic() - start_t) * 1000)
+                ConsoleLogger.log_request("POST", "/dry-run", 200, f"Dry-run simulation", dur)
                 self._json_response({
                     "command": command,
-                    "risk": classify_command(command),
+                    "risk": risk_info,
                     "working_directory": normalize_working_directory(data.get("working_directory")),
                     "will_execute": False,
                 })
                 return
 
+            ConsoleLogger.log_request("POST", self.path, 404, "Not Found")
             self._json_response(
                 {
                     "error": "Not found."
@@ -2334,7 +2632,7 @@ class ExecutionHandler(
             )
 
         except json.JSONDecodeError as exc:
-
+            ConsoleLogger.log_error(f"POST {self.path} JSON error: {exc}")
             self._json_response(
                 {
                     "status": "error",
@@ -2346,7 +2644,7 @@ class ExecutionHandler(
             )
 
         except ValueError as exc:
-
+            ConsoleLogger.log_error(f"POST {self.path} Value error: {exc}")
             self._json_response(
                 {
                     "status": "error",
@@ -2356,11 +2654,7 @@ class ExecutionHandler(
             )
 
         except Exception as exc:
-
-            print(
-                "[HOST AGENT] Request exception:"
-            )
-
+            ConsoleLogger.log_error(f"POST {self.path} Internal exception: {exc}")
             traceback.print_exc()
 
             self._json_response(
@@ -2380,11 +2674,8 @@ class ExecutionHandler(
         format_string: str,
         *args,
     ):
-        print(
-            f"[HOST AGENT] "
-            f"{self.address_string()} - "
-            f"{format_string % args}"
-        )
+        # Suppress raw Apache-style HTTP logs in favor of structured ConsoleLogger
+        pass
 
 
 # ============================================================
@@ -2679,6 +2970,7 @@ def execute_scheduled_workflow(task):
                       "mode": "browser_new_window", "target_url": target_url,
                       "browser_launch": browser_result, "scheduled_task_id": task_id}
             _report_scheduled_result(task_id, execution_id, True, result)
+            ConsoleLogger.log_scheduled_run(task_id, bool(task.get("is_recurring")), task.get("recurrence_rule") or "", f"Open Browser: {target_url}", result)
             return result
 
         multi_step = task.get("multi_step_plan") or raw_wf.get("multi_step_plan")
@@ -2702,6 +2994,7 @@ def execute_scheduled_workflow(task):
                                              {**res, "scheduled_task_id": task_id},
                                              failure_reason=res.get("output") or "One or more scheduled steps failed",
                                              is_permanent=False)
+                    ConsoleLogger.log_scheduled_run(task_id, bool(task.get("is_recurring")), task.get("recurrence_rule") or "", f"Multi-Step Workflow ({len(exec_steps)} steps)", res)
                     return res
 
         cond_logic = task.get("conditional_logic") or raw_wf.get("conditional_logic")
@@ -2721,6 +3014,7 @@ def execute_scheduled_workflow(task):
                                          {**res, "scheduled_task_id": task_id},
                                          failure_reason=res.get("error") or res.get("output") or "Conditional workflow failed",
                                          is_permanent=res.get("status") in {"invalid_condition", "condition_evaluation_failed"})
+                ConsoleLogger.log_scheduled_run(task_id, bool(task.get("is_recurring")), task.get("recurrence_rule") or "", f"Conditional: {str(cond_logic.get('condition_script'))[:30]}", res)
                 return res
 
         command = str(task.get("shell_script") or raw_wf.get("shell_script") or "").strip()
@@ -2755,6 +3049,7 @@ def execute_scheduled_workflow(task):
                                  {**payload, "scheduled_task_id": task_id, "risk_recheck": risk},
                                  failure_reason=result.stderr or result.output,
                                  is_permanent=result.status in {"syntax_error", "policy_blocked", "approval_required"})
+        ConsoleLogger.log_scheduled_run(task_id, bool(task.get("is_recurring")), task.get("recurrence_rule") or "", command, payload)
         return payload
     except Exception as exc:
         error_result = {
@@ -2767,6 +3062,7 @@ def execute_scheduled_workflow(task):
         _report_scheduled_result(task_id, execution_id, False, error_result,
                                  failure_reason=str(exc),
                                  is_permanent=isinstance(exc, (ValueError, PermissionError)))
+        ConsoleLogger.log_error(f"Scheduled task #{task_id} execution failed: {exc}")
         raise
     finally:
         heartbeat_stop.set()
@@ -2784,38 +3080,35 @@ def handle_claimed_task(task):
         token = str(task.get("approval_token") or "")
         if status == "awaiting_approval":
             if not token:
-                print(f"[SCHEDULER] Task {task_id} entered approval state without a token; backend will expire it.")
+                ConsoleLogger.log_warn(f"Task #{task_id} entered approval state without a token (backend will expire)")
                 return
+            prompt_preview = str(task.get("original_prompt") or "Action authorization required")[:120]
             try:
-                prompt_preview = str(task.get("original_prompt") or "Action authorization required")[:120]
                 send_desktop_notification("OmniShell Scheduled Approval", f"Task #{task_id}: {prompt_preview}")
             except Exception as exc:
-                print(f"[SCHEDULER] Approval notification failed for {task_id}: {exc}")
+                ConsoleLogger.log_warn(f"Approval desktop notification failed for #{task_id}: {exc}")
             try:
                 approval_result = open_approval_document(task_id, token)
                 _scheduler_state_update(last_approval_at=time.time(), last_approval_result=approval_result, last_task_id=task_id, last_task_status="awaiting_approval")
-                print(f"[SCHEDULER] Approval document opened for task {task_id}: {approval_result}")
+                ConsoleLogger.log_approval_prompt(task_id, prompt_preview, approval_result)
             except Exception as exc:
                 _scheduler_state_update(last_approval_at=time.time(), last_approval_result={"opened":False,"error":str(exc)}, last_task_id=task_id, last_task_status="awaiting_approval", last_error=str(exc))
-                print(f"[SCHEDULER] Approval document launch FAILED for task {task_id}: {exc}")
-                # Do not silently leave the task waiting forever. Keep it awaiting approval
-                # so the user can use the URL from logs/dashboard, but make the failure explicit.
+                ConsoleLogger.log_error(f"Approval document launch failed for task #{task_id}: {exc}")
                 try:
-                    print(f"[SCHEDULER] Manual approval URL: {_approval_urls(task_id, token)[-1]}")
+                    manual_url = _approval_urls(task_id, token)[-1]
+                    ConsoleLogger.log_warn(f"Manual approval URL: {manual_url}")
                 except Exception:
                     pass
-            # Do not hold a worker open. The backend changes awaiting_approval ->
-            # approved, and a later poll claims the approved task.
             return
 
         if status == "approved":
             try:
                 execute_scheduled_workflow(task)
             except Exception as exc:
-                print(f"[SCHEDULER] Approved scheduled execution failed for {task_id}: {exc}")
+                ConsoleLogger.log_error(f"Approved scheduled execution failed for task #{task_id}: {exc}")
             return
 
-        print(f"[SCHEDULER] Ignoring unexpected claimed task state {status!r} for {task_id}")
+        ConsoleLogger.log_warn(f"Ignoring unexpected claimed task #{task_id} state: {status!r}")
     finally:
         with _scheduler_active_lock:
             _scheduler_active_ids.discard(task_id)
@@ -2827,28 +3120,28 @@ def _task_worker(task):
 
 
 def scheduler_loop():
-    print(f"[SCHEDULER] Started | interval={SCHEDULER_INTERVAL}s workers={SCHEDULER_MAX_WORKERS} backend={BACKEND_URL}")
-    consecutive_errors=0
+    ConsoleLogger.log_info(f"Scheduler worker thread active (interval={SCHEDULER_INTERVAL}s, pool={SCHEDULER_MAX_WORKERS}, backend={BACKEND_URL})")
+    consecutive_errors = 0
     while not _scheduler_stop.is_set():
         try:
-            poll_at=time.time()
-            status,data=_http_json("GET",f"{BACKEND_URL}/api/scheduled-tasks/internal/poll")
-            _scheduler_state_update(last_poll_at=poll_at, last_poll_status=status, poll_count=_scheduler_state_snapshot()["poll_count"]+1, last_error=None)
-            if status==200:
-                consecutive_errors=0
-                task=data.get("task")
+            poll_at = time.time()
+            status, data = _http_json("GET", f"{BACKEND_URL}/api/scheduled-tasks/internal/poll")
+            _scheduler_state_update(last_poll_at=poll_at, last_poll_status=status, poll_count=_scheduler_state_snapshot()["poll_count"] + 1, last_error=None)
+            if status == 200:
+                consecutive_errors = 0
+                task = data.get("task")
                 if task:
                     _scheduler_state_update(last_task_id=task.get("id"), last_task_status=task.get("status"))
                 if task and _scheduler_workers.acquire(blocking=False):
-                    threading.Thread(target=_task_worker,args=(task,),daemon=True,name=f"scheduled-task-{task.get('id')}").start()
+                    threading.Thread(target=_task_worker, args=(task,), daemon=True, name=f"scheduled-task-{task.get('id')}").start()
             else:
-                consecutive_errors+=1
+                consecutive_errors += 1
         except Exception as exc:
-            consecutive_errors+=1
+            consecutive_errors += 1
             _scheduler_state_update(last_error=str(exc))
-            if consecutive_errors in {1,5,20} or consecutive_errors%50==0:
-                print(f"[SCHEDULER] Backend unavailable ({consecutive_errors}): {exc}")
-        _scheduler_stop.wait(min(max(SCHEDULER_INTERVAL,1)*(2 if consecutive_errors>=5 else 1),15))
+            if consecutive_errors in {1, 5, 20} or consecutive_errors % 50 == 0:
+                ConsoleLogger.log_warn(f"Backend offline / unreachable (attempt {consecutive_errors}): {exc}")
+        _scheduler_stop.wait(min(max(SCHEDULER_INTERVAL, 1) * (2 if consecutive_errors >= 5 else 1), 15))
 
 
 def stop_scheduler():
@@ -2856,45 +3149,35 @@ def stop_scheduler():
 
 
 def main():
-    print()
-    print("="*60)
-    print("        OMNISHELL HOST EXECUTION AGENT V3")
-    print("="*60)
-    print(f"OS:           {platform.system()}")
-    print(f"Architecture: {platform.machine()}")
-    shell_name,shell_path=detect_shell()
-    print(f"Shell:        {shell_name}")
-    print(f"Shell path:   {shell_path}")
-    print(f"Host:         {HOST}")
-    print(f"Port:         {PORT}")
-    print(f"Policy:       {'ENFORCED' if ENFORCE_POLICY else 'PERMISSIVE'}")
-    print(f"Scheduler:    {'ENABLED' if SCHEDULER_ENABLED else 'DISABLED'}")
-    if platform.system().lower()!="windows":
-        print(f"Terminal:     {find_terminal() or 'none'}")
-    print("="*60)
-    print(f"Health:       http://{HOST}:{PORT}/health")
-    print(f"System:       http://{HOST}:{PORT}/system")
-    print(f"Executions:   http://{HOST}:{PORT}/executions")
-    print(f"Backend:      {BACKEND_URL}")
-    print("="*60)
-    print()
+    shell_name, shell_path = detect_shell()
+    info = {
+        "os": platform.system(),
+        "arch": platform.machine(),
+        "shell": shell_name,
+        "shell_path": shell_path,
+        "host": HOST,
+        "port": PORT,
+        "backend": BACKEND_URL,
+        "terminal": find_terminal() if platform.system().lower() != "windows" else "native-cmd",
+    }
+    ConsoleLogger.banner(info)
 
     if SCHEDULER_ENABLED:
-        threading.Thread(target=scheduler_loop,daemon=True,name="omnishell-scheduler").start()
-    server=ThreadedHTTPServer((HOST,PORT),ExecutionHandler)
+        threading.Thread(target=scheduler_loop, daemon=True, name="omnishell-scheduler").start()
+    server = ThreadedHTTPServer((HOST, PORT), ExecutionHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\\n[HOST AGENT] Shutdown requested.")
+        ConsoleLogger.log_warn("Shutdown requested by operator (SIGINT / KeyboardInterrupt).")
     finally:
         stop_scheduler()
         for task in REGISTRY.active():
             if task.process:
-                try: terminate_process_tree(task.process,force=True)
+                try: terminate_process_tree(task.process, force=True)
                 except Exception: pass
         server.server_close()
-        print("[HOST AGENT] Server stopped.")
+        ConsoleLogger.log_info("Host Execution Agent server stopped cleanly.")
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
