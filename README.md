@@ -12,6 +12,7 @@
 [![Tests](https://img.shields.io/badge/Tests-40%2F40%20Passing%20(100%25)-059669.svg)](tests/test_capabilities.py)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-ff69b4.svg)](CONTRIBUTING.md)
 [![Code of Conduct](https://img.shields.io/badge/Code%20of%20Conduct-Contributor%20Covenant%202.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![Architecture diagram](https://gitdiagram.com/diagram-badge.svg)](https://gitdiagram.com/vishwajitvm/omnishell?utm_source=readme&utm_medium=badge)
 
 **Turn natural language into verified, safe system workflows.**
 **8 AI agents collaborate to understand your intent, plan execution, and run commands — safely.**
